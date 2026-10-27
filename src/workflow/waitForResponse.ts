@@ -1,6 +1,6 @@
 import type { AIProvider, BridgeMessage } from '../../shared/types';
 import { AI_PROVIDERS } from '../../shared/constants';
-import { onBridgeMessage } from '../bridge/bus';
+import { onBridgeMessage, publishBridgeMessage } from '../bridge/bus';
 import { AWAITING_ABSOLUTE_MAX_MS, AWAITING_MAX_MS, onProviderBootRotation, setProviderAwaiting } from '../bridge/pull';
 import { ProviderPageReloadedError } from './providerResponse';
 import { clearActiveTurn } from './state';
