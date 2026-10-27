@@ -1577,6 +1577,7 @@ pub async fn provider_open_window(
     let provider_webview = get_provider_webview(&app, &provider)?;
     let window_label = provider_page_window_label(&provider);
 
+    let created_window = app.get_window(&window_label).is_none();
     let window = if let Some(existing) = app.get_window(&window_label) {
         existing
     } else {
@@ -1616,8 +1617,9 @@ pub async fn provider_open_window(
     let view_for_close = provider_webview.clone();
     let window_for_close = window.clone();
     let provider_for_close = provider.clone();
-    window.on_window_event(move |event| {
-        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+    if created_window {
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
             let _ = view_for_close.hide();
             let _ = view_for_close.set_auto_resize(false);
@@ -1631,8 +1633,9 @@ pub async fn provider_open_window(
             }
             let _ = window_for_close.hide();
             let _ = app_for_close.emit_to("main", "provider-window://closed", provider_for_close.clone());
-        }
-    });
+            }
+        });
+    }
 
     provider_webview.show().map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())?;
