@@ -2412,7 +2412,7 @@ export default function App() {
           ) : null}
           <div
             ref={transcriptRef}
-            className={`ai-sister-conversation-transcript workbench-reading-area mt-3 min-h-0 flex-1 overflow-auto ${activityPanelOpen ? 'workbench-reading-with-activity' : ''}` + `  border-y border-zinc-200 dark:border-zinc-800 py-4"
+            className={`ai-sister-conversation-transcript workbench-reading-area mt-3 min-h-0 flex-1 overflow-auto border-y border-zinc-200 dark:border-zinc-800 py-4 ${activityPanelOpen ? 'workbench-reading-with-activity' : ''}`}
             onScroll={(event) => {
               transcriptStickToEndRef.current = isTranscriptNearEnd(event.currentTarget);
               handleTranscriptScroll();
