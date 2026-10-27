@@ -178,12 +178,17 @@ describe('N4 preset catalog', () => {
   });
 });
 
+function confirmed(provider: AIProvider, turn: number): BridgeMessage {
+  return { v: 1, action: 'WORKFLOW_STEP_CONFIRMED', provider, payload: { turn, text: `${provider} response` }, transport: 'local' };
+}
+
 describe('N4 process trace', () => {
   it.each(['en', 'zh-TW'] as const)('reduces role assignments, workflow status, and responses into ordered %s step rows', (locale) => {
     let trace = createProcessTrace('debate', [], locale);
     trace = reduceProcessTraceEvent(trace, status('Debate: pro'), locale);
     trace = reduceProcessTraceEvent(trace, role('chatgpt', 'pro', 'Pro', 1), locale);
     trace = reduceProcessTraceEvent(trace, response('chatgpt', 'RESPONSE_DONE'), locale);
+    trace = reduceProcessTraceEvent(trace, confirmed('chatgpt', 1), locale);
     trace = reduceProcessTraceEvent(trace, status('Debate: con'), locale);
     trace = reduceProcessTraceEvent(trace, role('claude', 'con', 'Con', 2), locale);
 
@@ -212,7 +217,9 @@ describe('N4 process trace', () => {
 
     trace = reduceProcessTraceEvent(trace, response('chatgpt', 'RESPONSE_CHUNK'), locale);
     trace = reduceProcessTraceEvent(trace, response('chatgpt', 'RESPONSE_DONE'), locale);
+    trace = reduceProcessTraceEvent(trace, confirmed('chatgpt', 1), locale);
     trace = reduceProcessTraceEvent(trace, response('gemini', 'RESPONSE_DONE'), locale);
+    trace = reduceProcessTraceEvent(trace, confirmed('gemini', 2), locale);
 
     expect(trace.steps.map((step) => [step.label, step.status])).toEqual([
       [t('processTrace.fanout', locale), 'done'],
