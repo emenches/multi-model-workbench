@@ -257,6 +257,10 @@ describe('N5 webview presentation host commands', () => {
 
     expect(host.show).toHaveBeenCalledWith('gemini');
     expect(host.setBounds).toHaveBeenCalledWith('gemini', bounds);
+    // A previously hidden native child must be moved into the content stage
+    // before show(), or macOS can briefly cover the app's controls.
+    expect(vi.mocked(host.setBounds).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(host.show).mock.invocationCallOrder[0]);
     expect(host.hide).toHaveBeenCalledWith('chatgpt');
     expect(host.hide).toHaveBeenCalledWith('grok');
   });

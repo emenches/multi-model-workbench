@@ -122,17 +122,18 @@ describe('host snapshot bindings', () => {
     expect(invokeMock).toHaveBeenLastCalledWith('provider_show', { provider: 'claude', focus: true });
   });
 
-  it.each(['chatgpt', 'claude', 'gemini', 'grok'] as const)('parks %s offscreen without stealing focus', async (provider) => {
+  it.each(['chatgpt', 'claude', 'gemini', 'grok'] as const)('parks %s hidden without stealing focus', async (provider) => {
     invokeMock.mockResolvedValue(undefined);
     const bounds = { x: -10_000, y: -10_000, width: 420, height: 320 } as DOMRectReadOnly;
 
     await host.provider.park(provider, bounds);
 
-    expect(invokeMock).toHaveBeenNthCalledWith(1, 'provider_set_bounds', {
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'provider_hide', { provider });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'provider_set_bounds', {
       provider,
       bounds: { x: -10_000, y: -10_000, width: 420, height: 320 },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(2, 'provider_show', { provider, focus: false });
+    expect(invokeMock).not.toHaveBeenCalledWith('provider_show', expect.anything());
   });
 
   it('subscribes to nav-blocked diagnostics and forwards the host-only payload', async () => {

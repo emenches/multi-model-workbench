@@ -1007,6 +1007,16 @@ fn external_handoff_allowed(provider: &str) -> bool {
     provider != "claude"
 }
 
+/// Auxiliary ChatGPT reply renderers belong inside their existing page/iframe.
+/// Never open one as a top-level system browser tab or native auth popup.
+fn chatgpt_renderer_auxiliary_url(provider: &str, url: &tauri::Url) -> bool {
+    provider == "chatgpt"
+        && url.scheme() == "https"
+        && url.host_str() == Some("cdn.platform.openai.com")
+        && url.path().starts_with("/deployments/dil/")
+        && url.path().ends_with("/runner.html")
+}
+
 fn decide_new_window_action(url: &tauri::Url, allowlisted: bool) -> NewWindowAction {
     if url.host_str() == Some("mac-bridge.invalid") {
         return NewWindowAction::DenySilent;
@@ -1233,6 +1243,12 @@ pub async fn provider_open(
             }
         })
         .on_navigation(move |url| {
+            // A DIL renderer is a legitimate ChatGPT page resource, often in
+            // a frame. Keep it inside the provider WebView, rather than
+            // handing it to the system browser. Do not grant it bridge access.
+            if chatgpt_renderer_auxiliary_url(&nav_provider, url) {
+                return true;
+            }
             if url.host_str() == Some("mac-bridge.invalid") {
                 return false;
             }
@@ -1262,6 +1278,9 @@ pub async fn provider_open(
             false
         })
         .on_new_window(move |url, features| {
+            if chatgpt_renderer_auxiliary_url(&popup_provider, &url) {
+                return NewWindowResponse::Deny;
+            }
             // Challenge auxiliary about: documents are allowed only as in-webview navigation.
             // Keep all non-HTTP(S) popups fail-closed; Turnstile does not require popup windows.
             let provider_allowed =
@@ -2412,7 +2431,7 @@ mod tests {
         accept_status_for_session_reset, adopt_grok_bridge_boot, bridge_resets_on_boot_rotation,
         cancel_grok_navigation, cancel_grok_popup_recovery, cancel_session_reset,
         challenge_auxiliary_navigation_allowed, claim_grok_popup_recovery, confirm_grok_page_load,
-        decide_new_window_action, external_handoff_allowed, delayed_grok_bridge_script, eval_callback_reports_true,
+        decide_new_window_action, external_handoff_allowed, chatgpt_renderer_auxiliary_url, delayed_grok_bridge_script, eval_callback_reports_true,
         expire_grok_navigation_start_lease, fresh_session_boot, gemini_sorry_navigation_active,
         generic_staleness_dispatch_allowed, grok_app_title_ready,
         grok_auth_popup_may_complete_login, grok_bridge_drive_allowed, grok_bridge_host_action,
@@ -2695,6 +2714,16 @@ mod tests {
         .expect("exact integer limits should remain valid");
         assert_eq!(position, PhysicalPosition::new(i32::MIN, i32::MAX));
         assert_eq!(size, PhysicalSize::new(1, u32::MAX));
+    }
+
+    #[test]
+    fn chatgpt_renderer_is_an_internal_subresource_not_a_browser_popup() {
+        let renderer = url("https://cdn.platform.openai.com/deployments/dil/v14/runner.html");
+        assert!(chatgpt_renderer_auxiliary_url("chatgpt", &renderer));
+        assert!(!chatgpt_renderer_auxiliary_url("claude", &renderer));
+        assert!(!chatgpt_renderer_auxiliary_url("chatgpt", &url("http://cdn.platform.openai.com/deployments/dil/v14/runner.html")));
+        assert!(!chatgpt_renderer_auxiliary_url("chatgpt", &url("https://cdn.platform.openai.com/other/runner.html")));
+        assert!(!chatgpt_renderer_auxiliary_url("chatgpt", &url("https://example.com/deployments/dil/v14/runner.html")));
     }
 
     #[test]

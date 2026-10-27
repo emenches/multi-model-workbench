@@ -356,6 +356,16 @@ function FocusStage({
               {stageExpanded ? t('provider.collapseStage') : t('provider.expandStage')}
             </button>
           ) : null}
+          {state.webview === 'loaded' && state.dom === 'unknown' ? (
+            <button
+              type="button"
+              className="border border-sky-300 px-2 py-1 text-sky-900 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-200 dark:hover:bg-sky-900"
+              onClick={() => void onReload(provider)}
+              title="Retry provider page detection without signing out"
+            >
+              {t('provider.reload')}
+            </button>
+          ) : null}
           {showLoginCta ? (
             <button
               type="button"
