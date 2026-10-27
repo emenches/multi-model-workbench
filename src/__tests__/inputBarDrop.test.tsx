@@ -99,6 +99,7 @@ interface ElementProps {
     preventDefault: () => void;
   }) => void;
   placeholder?: string;
+  rows?: number;
   role?: string;
   title?: string;
   type?: string;
@@ -123,6 +124,28 @@ afterEach(() => {
 });
 
 describe('Composer plus menu', () => {
+  it('uses one compact row with plus, a one-line textarea, and an icon-only send arrow', () => {
+    const renderer = renderInputBar();
+    const row = firstElement(renderer, (element) => (
+      element.type === 'div' && propsOf(element).className?.includes('workbench-composer-body') === true
+    ));
+    const visibleControls = findAllElements(row.children, (element) => element.type === 'textarea'
+      || (element.type === 'button' && (
+        propsOf(element)['aria-label'] === t('composer.more', 'en') ||
+        propsOf(element)['aria-label'] === t('input.send', 'en')
+      )));
+    expect(visibleControls.map((element) => element.type === 'textarea'
+      ? 'message'
+      : propsOf(element)['aria-label'])).toEqual([
+      'More options', 'message', 'Send',
+    ]);
+    expect(textarea(renderer).rows).toBe(1);
+    expect(textarea(renderer).className).toContain('flex-1');
+    expect(sendButton(renderer).className).toContain('rounded-full');
+    expect(sendButton(renderer)['aria-label']).toBe('Send');
+    expect(renderedText(renderer)).not.toContain('Enter to send');
+  });
+
   it('keeps the composer free of visible keyboard shortcut instructions', () => {
     const renderer = renderInputBar();
     expect(textarea(renderer).placeholder).toBe('Type a message…');
