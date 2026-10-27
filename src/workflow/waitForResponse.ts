@@ -46,9 +46,16 @@ function handleBridgeMessage(message: BridgeMessage): void {
     if (waiter.provider !== message.provider) continue;
     const answer = payloadText(message.payload);
     settle(waiter, 'resolve', answer);
-    // UI progress must reflect the actual in-flight waiter accepting DONE.
-    // An orphan or delayed provider response cannot complete an unrelated step.
-    publishBridgeMessage({
+    // Provider-side "[Error: ...]" is data consumed by the workflow's
+    // existing recovery logic, never a successfully completed answer.
+    const providerError = /^\[Error:\s*([\s\S]*?)\]$/.exec(answer.trim());
+    publishBridgeMessage(providerError ? {
+      v: 1,
+      action: 'WORKFLOW_STEP_FAILED',
+      provider: waiter.provider,
+      transport: 'local',
+      payload: { turn: waiter.turn, reason: providerError[1].slice(0, 240) },
+    } : {
       v: 1,
       action: 'WORKFLOW_STEP_CONFIRMED',
       provider: waiter.provider,
@@ -135,8 +142,19 @@ function settle(waiter: Waiter, type: 'resolve' | 'reject', value: string | Erro
   waiters.delete(key(waiter.provider, waiter.turn));
   clearActiveTurn(waiter.provider, waiter.turn);
   setProviderAwaiting(waiter.provider, false);
-  if (type === 'resolve') waiter.resolve(value as string);
-  else waiter.reject(value as Error);
+  if (type === 'resolve') {
+    waiter.resolve(value as string);
+  } else {
+    const failure = value as Error;
+    waiter.reject(failure);
+    publishBridgeMessage({
+      v: 1,
+      action: 'WORKFLOW_STEP_FAILED',
+      provider: waiter.provider,
+      transport: 'local',
+      payload: { turn: waiter.turn, reason: failure.message.slice(0, 240) },
+    });
+  }
 }
 
 export function rejectWaiter(provider: AIProvider, turn: number, reason: Error): void {
