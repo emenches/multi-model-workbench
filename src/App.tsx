@@ -7,6 +7,8 @@ import { publishBridgeMessage } from './bridge/bus';
 import { EchoPanel } from './dev/EchoPanel';
 import { getRuntimeAppVersion } from './appVersion';
 import { host } from './host';
+import { ProjectPicker } from './workspace/ProjectPicker';
+import { EMPTY_PROJECT_STORE, mergeProjectContext, type ProjectStore } from './workspace/model';
 import { useI18n } from './i18n/context';
 import { MODE_NAME_KEYS } from './i18n/modes';
 import type { Locale } from './i18n/resolve';
@@ -317,6 +319,25 @@ export default function App() {
   const [preflight, setPreflight] = useState<{ mode: PreflightSubject; result: PreflightResult } | undefined>();
   const [stepTimeout, setStepTimeout] = useState<StepTimeoutDialogState | undefined>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The M1 project store is separate from global conversations and provider browser profiles.
+  const [projectStore, setProjectStore] = useState<ProjectStore>(EMPTY_PROJECT_STORE);
+  const [projectLoadError, setProjectLoadError] = useState<string>();
+  const [projectsReady, setProjectsReady] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    void host.projects.load().then((store) => {
+      if (mounted) setProjectStore(store);
+    }).catch((reason: unknown) => {
+      if (mounted) setProjectLoadError(`Cannot read saved projects: ${reason instanceof Error ? reason.message : String(reason)}`);
+    }).finally(() => {
+      if (mounted) setProjectsReady(true);
+    });
+    return () => { mounted = false; };
+  }, []);
+  const saveProjectStore = useCallback(async (store: ProjectStore): Promise<void> => {
+    await host.projects.save(store);
+    setProjectStore(store);
+  }, []);
   const [shareNotice, setShareNotice] = useState<{ kind: 'ok' | 'error'; text: string } | undefined>();
   const [sessionCheckpointNotice, setSessionCheckpointNotice] = useState<StartupSessionCheckpointNotice | undefined>();
   const [sessionCheckpointReplayBusy, setSessionCheckpointReplayBusy] = useState(false);
@@ -1479,7 +1500,7 @@ export default function App() {
       recordEventLog(eventFromWorkflowStart(mode, trimmed.length, workflowTargets?.length));
       const result = await runWorkflow({
         text: trimmed,
-        context: replayContext,
+        context: mergeProjectContext(projectStore, replayContext),
         mode,
         presetId,
         roles: workflowRoles,
@@ -1957,6 +1978,12 @@ export default function App() {
               }`}
             >
               <AiSisterEnsembleCard />
+              <ProjectPicker
+                store={projectStore}
+                disabled={isProcessing || !projectsReady}
+                onSave={saveProjectStore}
+                loadError={projectLoadError}
+              />
               <PresetCatalog
                 mode={mode}
                 selectedPresetId={presetId}

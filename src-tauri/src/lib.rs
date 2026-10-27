@@ -1,5 +1,6 @@
 mod adapters;
 mod bridge;
+mod projects;
 mod session_checkpoint;
 mod settings;
 mod snapshots;
@@ -42,6 +43,8 @@ pub fn run() {
             adapters::adapter_push,
             adapters::report_broken,
             adapters::open_adapter_issue,
+            projects::projects_load,
+            projects::projects_save,
             settings::settings_get,
             settings::settings_set,
             settings::export_markdown,

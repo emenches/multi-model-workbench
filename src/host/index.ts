@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { onBridgeMessage } from '../bridge/bus';
 import type { AdapterNotice } from '../ui/reportBroken';
+import type { ProjectStore } from '../workspace/model';
 
 export interface StoredSnapshotInfo {
   id: string;
@@ -138,6 +139,10 @@ export const host = {
     load: async (snapshotId: string): Promise<string | null> =>
       invoke('snapshot_load', { snapshotId: safeSnapshotId(snapshotId) }),
     delete: async (snapshotId: string): Promise<void> => invoke('snapshot_delete', { snapshotId: safeSnapshotId(snapshotId) }),
+  },
+  projects: {
+    load: (): Promise<ProjectStore> => invoke('projects_load'),
+    save: (store: ProjectStore): Promise<void> => invoke('projects_save', { store }),
   },
   sessionCheckpoint: {
     save: (json: string): Promise<void> => invoke('session_checkpoint_save', { json }),
