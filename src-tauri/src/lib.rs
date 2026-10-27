@@ -11,6 +11,21 @@ use tauri::menu::{Menu, MenuItem, Submenu};
 
 /// A native menu escape works even when a provider's WebView obscures React.
 const RETURN_TO_WORKBENCH: &str = "return-to-workbench";
+const MINIMIZE_PROVIDER_PAGE: &str = "minimize-provider-page";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProviderMenuAction {
+    Minimize,
+    ReturnAndCloseLogin,
+}
+
+fn provider_menu_action(id: &str) -> Option<ProviderMenuAction> {
+    match id {
+        MINIMIZE_PROVIDER_PAGE => Some(ProviderMenuAction::Minimize),
+        RETURN_TO_WORKBENCH => Some(ProviderMenuAction::ReturnAndCloseLogin),
+        _ => None,
+    }
+}
 
 pub fn run() {
     tauri::Builder::default()
@@ -20,9 +35,13 @@ pub fn run() {
         .setup(|app| {
             // Preserve default Quit/Edit/Window menus, and add an OS-level login escape.
             let menu = Menu::default(app.handle())?;
+            let minimize = MenuItem::with_id(app.handle(), MINIMIZE_PROVIDER_PAGE,
+                "Minimize Provider Page", true, Some("CmdOrCtrl+Shift+M"))?;
             let escape = MenuItem::with_id(app.handle(), RETURN_TO_WORKBENCH,
                 "Return to Workbench (Close Login)", true, Some("CmdOrCtrl+Shift+0"))?;
-            menu.append(&Submenu::with_items(app.handle(), "Workbench", true, &[&escape])?)?;
+            menu.append(&Submenu::with_items(
+                app.handle(), "Workbench", true, &[&minimize, &escape],
+            )?)?;
             app.set_menu(menu)?;
             // SPEC §5 hot-update: refresh adapters at startup and every 6h (best-effort, off the UI thread).
             let handle = app.handle().clone();
@@ -39,19 +58,22 @@ pub fn run() {
             Ok(())
         })
         .on_menu_event(|app, event| {
-            if event.id().0.as_str() != RETURN_TO_WORKBENCH {
+            let Some(action) = provider_menu_action(event.id().0.as_str()) else {
                 return;
-            }
+            };
             // Native recovery must succeed even if the local control pane is covered.
             for provider in ["chatgpt", "claude", "gemini", "grok", "meta"] {
                 if let Some(webview) = app.get_webview(&format!("ai-{provider}")) {
                     let _ = webview.hide();
                 }
             }
-            // Authentication may have opened a separate OS-native popup.
-            for (label, window) in app.webview_windows() {
-                if label.starts_with("provider-popup-") {
-                    let _ = window.close();
+            // Minimize is non-destructive: it never closes OAuth popups or
+            // resets login sessions. The separate emergency return action does.
+            if action == ProviderMenuAction::ReturnAndCloseLogin {
+                for (label, window) in app.webview_windows() {
+                    if label.starts_with("provider-popup-") {
+                        let _ = window.close();
+                    }
                 }
             }
             if let Some(main) = app.get_window("main") {
@@ -93,4 +115,21 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod provider_menu_tests {
+    use super::*;
+
+    #[test]
+    fn normal_minimize_keeps_login_popups_open() {
+        assert_eq!(provider_menu_action(MINIMIZE_PROVIDER_PAGE), Some(ProviderMenuAction::Minimize));
+        assert_ne!(provider_menu_action(MINIMIZE_PROVIDER_PAGE), Some(ProviderMenuAction::ReturnAndCloseLogin));
+    }
+
+    #[test]
+    fn emergency_return_closes_transient_logins() {
+        assert_eq!(provider_menu_action(RETURN_TO_WORKBENCH), Some(ProviderMenuAction::ReturnAndCloseLogin));
+        assert_eq!(provider_menu_action("unrelated-menu-item"), None);
+    }
 }
