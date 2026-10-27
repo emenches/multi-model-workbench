@@ -31,7 +31,7 @@ import {
   type ManualFocusPointerDown,
 } from './ui/autoFocus';
 import { CheckpointCard } from './ui/CheckpointCard';
-import { AiSisterAvatar, AiSisterEnsembleCard } from './ui/AiSisterTheme';
+import { AiSisterAvatar } from './ui/AiSisterTheme';
 import { ConversationSidebar } from './ui/ConversationSidebar';
 import {
   beginNewConversationSession,
@@ -60,6 +60,7 @@ import { MarkdownText } from './ui/MarkdownText';
 import { makeFileDragGuard } from './ui/fileDrop';
 import { PreflightDialog } from './ui/PreflightDialog';
 import { PresetCatalog } from './ui/PresetCatalog';
+import { ModalDialog } from './ui/ModalDialog';
 import { createProcessTrace, reduceProcessTraceEvent, settleProcessTrace, type ProcessTraceState } from './ui/processTraceModel';
 import { ProcessTrace } from './ui/ProcessTrace';
 import { ReplayPanel, type ReplaySource } from './ui/ReplayPanel';
@@ -95,7 +96,7 @@ import {
   waitForPresentationTargetBounds,
 } from './ui/presentationCommands';
 import { preflightGraph, workflowGraphs } from './workflow/graph';
-import { PRESET_CATALOG, defaultRolesForPreset, presetForId } from './ui/presetCatalogData';
+import { defaultRolesForPreset, presetForId } from './ui/presetCatalogData';
 import { buildPreflightDialogModel } from './ui/preflightModel';
 import { preflightFromResult, type PreflightSubject } from './ui/preflightFromResult';
 import { processingAfterSend, processingAfterSettle, processingAfterWorkflowStatus } from './ui/processing';
@@ -2080,13 +2081,13 @@ export default function App() {
             onSelectSession={selectConversationSession}
             onDeleteSession={deleteConversationSession}
           />
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
             {/* 放大檢視時暫時收起選單區讓 webview 吃滿高度；checkpoint / 逾時對話框
                 是 inline 渲染在這個區塊內，出現時必須讓區塊重新顯示，否則使用者按不到。 */}
             <section
               id="workflow-control-shelf"
               aria-label={translate('preset.catalog.aria')}
-              className={`ai-sister-workflow-shelf max-h-[42vh] shrink-0 overflow-auto border-b border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/70 ${
+              className={`ai-sister-workflow-shelf shrink-0 border-b border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/70 ${
                 stageExpanded && !checkpoint && !(stepTimeout && !stepTimeout.timedOut) ? 'hidden' : ''
               }`}
             >
@@ -2101,7 +2102,7 @@ export default function App() {
                   className="workbench-options-button shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium dark:border-zinc-700"
                   onClick={() => setWorkflowOptionsOpen((open) => !open)}
                   aria-expanded={workflowOptionsOpen} aria-controls="workbench-workflow-options">
-                  {workflowOptionsOpen ? 'Hide tools' : 'Tools & modes'}
+                  Tools & modes
                 </button>
               </div>
               <ProjectPicker
@@ -2110,28 +2111,6 @@ export default function App() {
                 onSave={saveProjectStore}
                 loadError={projectLoadError}
               />
-              <div id="workbench-workflow-options" hidden={!workflowOptionsOpen && !checkpoint && !stepTimeout} className="workbench-options mt-3">
-              <AiSisterEnsembleCard />
-              <PresetCatalog
-                mode={mode}
-                selectedPresetId={presetId}
-                onSelectPreset={selectPreset}
-                locale={locale}
-                states={states}
-                modeRoles={appSettings.modeRoles}
-                activeProviders={activeProviders}
-                disabled={isProcessing}
-                detailsPresetId={presetDetailsId}
-                layout="sidebar"
-              />
-              {mode === 'free' && presetId !== 'brainstorm' ? (
-                <section className="mt-2 rounded border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950">
-                  <div className="mb-2 text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">{translate('input.sendSelectedProviders')}</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <TargetChips providers={activeProviders} states={states} selected={targets} onChange={handleTargetsChange} disabled={isProcessing} locale={locale} />
-                  </div>
-                </section>
-              ) : null}
               {checkpoint ? (
                 <details className="mt-2 border border-amber-300 bg-white dark:border-amber-900 dark:bg-zinc-950" open>
                   <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:text-amber-100 dark:hover:bg-amber-950">
@@ -2153,9 +2132,8 @@ export default function App() {
               {stepTimeout && !stepTimeout.timedOut ? (
                 <StepTimeoutDialog event={stepTimeout} onClose={() => setStepTimeout(undefined)} locale={locale} />
               ) : null}
-              </div>
             </section>
-            <section aria-label="AI connections" className="workbench-provider-dock mx-3 mb-3 mt-auto rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+            <section aria-label="AI connections" className="workbench-provider-dock mx-3 my-3 shrink-0 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
                   Providers · {activeProviders.filter((provider) => isSendable(states[provider])).length} connected
@@ -2272,17 +2250,14 @@ export default function App() {
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <label className="flex items-center gap-2">
                     <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Mode</span>
-                    <select
-                      aria-label="Workflow mode"
-                      value={presetId}
-                      disabled={isProcessing}
-                      onChange={(event) => selectPreset(event.target.value as WorkflowPresetId)}
-                      className="workbench-mode-select max-w-48 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    <button type="button" disabled={isProcessing}
+                      onClick={() => setWorkflowOptionsOpen(true)}
+                      aria-haspopup="dialog" aria-expanded={workflowOptionsOpen}
+                      aria-controls="workbench-workflow-options"
+                      className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold hover:border-sky-500 hover:bg-sky-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
                     >
-                      {PRESET_CATALOG.map((preset) => (
-                        <option key={preset.id} value={preset.id}>{translate(preset.displayNameKey)}</option>
-                      ))}
-                    </select>
+                      {translate(presetForId(presetId).displayNameKey)} <span aria-hidden="true">▾</span>
+                    </button>
                   </label>
                   <span className="hidden text-xs text-zinc-500 dark:text-zinc-400 xl:inline">Ready = connected, not necessarily finished responding.</span>
                 </div>
@@ -2359,7 +2334,7 @@ export default function App() {
               </div>
             </div>
           </div>
-          {providerWindowGeometry && import.meta.env.DEV ? (
+          {providerWindowGeometry && import.meta.env.DEV && showDevDiagnostics ? (
             <div role="status" className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
               <span className="font-semibold">Native page geometry</span>
               <span>Window {providerWindowGeometry.windowWidth} × {providerWindowGeometry.windowHeight} physical px</span>
@@ -2377,13 +2352,13 @@ export default function App() {
             </div>
           ) : null}
           {processTrace && (processTrace.currentStatus || processTrace.steps.length > 0) ? (
-            <details className="workbench-run-details mt-3 rounded-lg border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
-              <summary className="cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                Workflow progress
-                {processTrace.currentStatus ? <span className="ml-2 font-normal text-zinc-500 dark:text-zinc-400">{processTrace.currentStatus}</span> : null}
-              </summary>
-              <ProcessTrace trace={processTrace} locale={locale} onDetailOpenChange={setProcessTraceDetailOpen} />
-            </details>
+            <section aria-label="Workflow progress" className="workbench-run-details mt-3 shrink-0 rounded-xl border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-xs font-semibold">Workflow progress</h2>
+                <span className="max-w-full truncate text-xs text-zinc-500 dark:text-zinc-400">{processTrace.currentStatus || translate('processTrace.settled')}</span>
+              </div>
+              <ProcessTrace trace={processTrace} locale={locale} compact onDetailOpenChange={setProcessTraceDetailOpen} />
+            </section>
           ) : null}
           <div
             id="replay-history-panel"
