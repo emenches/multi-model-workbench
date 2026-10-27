@@ -223,6 +223,20 @@ describe('workflow engine', () => {
     },
   );
 
+  it('does not accept a temporary ChatGPT response-load message as a completed Consult answer', async () => {
+    const events: BridgeMessage[] = [];
+    onBridgeMessage((message) => {
+      if (message.action === 'WORKFLOW_STEP_CONFIRMED') events.push(message);
+    });
+    const errorPromise = sendAndWait('chatgpt', 'some prompt').catch((error: unknown) => error);
+    await Promise.resolve();
+    publishBridgeMessage(done('chatgpt', "This response couldn't load", 'pull'));
+    const error = await errorPromise;
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('temporary response-load');
+    expect(events).toHaveLength(0);
+  });
+
   it('registers the waiter before sending so a synchronous DONE from send resolves', async () => {
     vi.mocked(host.provider.send).mockImplementationOnce(async () => {
       publishBridgeMessage(done('claude', 'fast'));

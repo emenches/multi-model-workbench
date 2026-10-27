@@ -262,6 +262,74 @@ describe('injected engine input hardening', () => {
     expect((env.emitted.at(-1)?.payload as { statusErrorStage?: string }).statusErrorStage).toBeUndefined();
   });
 
+  it('continues observing when ChatGPT shows a temporary response-load error before its actual answer', async () => {
+    vi.useFakeTimers();
+    const env = createEnv({ inputKind: 'contenteditable' });
+    mountProseMirrorComposer(env);
+    let assistant: FakeElement | undefined;
+    if (!env.sendButton) throw new Error('send button missing');
+    env.sendButton.onClick = () => {
+      env.input.replaceChildren();
+      env.input.setVisibleText('');
+      const exchange = appendChatWorkExchange(env, {
+        turnKey: 'error-then-answer',
+        prompt: 'Explain the result',
+        heading: CHAT_WORK_HEADING,
+        progress: "This response couldn't load",
+        actionLabel: 'Copy',
+      });
+      assistant = exchange.turn.querySelector('[data-content-search-unit-key$=":assistant"]') ?? undefined;
+    };
+    const handler = await installEngine(env);
+    dispatchAdapter(handler, bundledChatGptAdapter());
+
+    send(handler, 'Explain the result', 'chatgpt');
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(CHAT_WORK_SETTLE_MS + 4_000);
+    if (!assistant) throw new Error('current assistant unit missing');
+    expect(env.emitted.filter((m) => m.action === 'RESPONSE_CHUNK' || m.action === 'RESPONSE_DONE')).toHaveLength(0);
+
+    // The same assistant unit can resume with the complete answer after the
+    // transient error. Keep the old row in place; prefer the new answer node.
+    const answer = new FakeElement(env.document, 'div', 'The substantive answer that arrived after more thinking.');
+    answer.setAttribute('data-markdown-text-style', 'assistant-message');
+    assistant.appendChild(answer);
+    FakeMutationObserver.notify();
+    await vi.advanceTimersByTimeAsync(3_000 + CHATGPT_TERMINAL_STABLE_MS + CHATGPT_TERMINAL_SAMPLE_INTERVAL_MS + 500);
+    expect(env.emitted.filter((m) => m.action === 'RESPONSE_DONE')).toEqual([{
+      v: 1, action: 'RESPONSE_DONE', provider: 'chatgpt',
+      payload: 'The substantive answer that arrived after more thinking.',
+    }]);
+    expect(env.emitted.some((m) => m.action === 'RESPONSE_CHUNK' && String(m.payload).includes("couldn't load"))).toBe(false);
+  });
+
+  it.each([
+    "This response couldn't load",
+    'This response couldn’t load.',
+    "ChatGPT said: This response couldn't load",
+  ])('does not finish a ChatGPT turn on transient load text: %s', async (placeholder) => {
+    vi.useFakeTimers();
+    const env = createEnv({ inputKind: 'contenteditable' });
+    mountProseMirrorComposer(env);
+    if (!env.sendButton) throw new Error('send button missing');
+    env.sendButton.onClick = () => {
+      env.input.replaceChildren();
+      env.input.setVisibleText('');
+      appendChatWorkExchange(env, {
+        turnKey: 'placeholder-variant',
+        prompt: 'What happened?',
+        answer: placeholder,
+        actionLabel: 'Copy',
+      });
+    };
+    const handler = await installEngine(env);
+    dispatchAdapter(handler, bundledChatGptAdapter());
+    send(handler, 'What happened?', 'chatgpt');
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(CHAT_WORK_SETTLE_MS + 2_000);
+    expect(env.emitted.filter((m) => m.action === 'RESPONSE_CHUNK' || m.action === 'RESPONSE_DONE')).toHaveLength(0);
+  });
+
   it('never reports Done when ChatGPT exposes only its chrome heading and copy control', async () => {
     vi.useFakeTimers();
     const env = createEnv({ inputKind: 'contenteditable' });
