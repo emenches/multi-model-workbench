@@ -179,6 +179,26 @@ describe('workflow engine', () => {
     expect(confirmed).toHaveLength(1);
   });
 
+  it('exposes a provider error as a failed step, not as a completed answer', async () => {
+    const events: BridgeMessage[] = [];
+    onBridgeMessage((message) => {
+      if (message.action === 'WORKFLOW_STEP_CONFIRMED' || message.action === 'WORKFLOW_STEP_FAILED') {
+        events.push(message);
+      }
+    });
+    const pending = sendAndWait('chatgpt', 'a prompt with a provider error');
+    await Promise.resolve();
+    publishBridgeMessage(done('chatgpt', '[Error: provider response could not be captured]', 'pull'));
+    await expect(pending).resolves.toEqual({
+      response: '[Error: provider response could not be captured]',
+      turn: 1,
+    });
+    expect(events).toEqual([{
+      v: 1, action: 'WORKFLOW_STEP_FAILED', provider: 'chatgpt',
+      transport: 'local', payload: { turn: 1, reason: 'provider response could not be captured' },
+    }]);
+  });
+
   it('registers the waiter before sending so a synchronous DONE from send resolves', async () => {
     vi.mocked(host.provider.send).mockImplementationOnce(async () => {
       publishBridgeMessage(done('claude', 'fast'));
