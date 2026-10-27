@@ -37,3 +37,13 @@ A screenshot showed Gemini's visible page answer with Consult still waiting, whi
 
 ## Availability
 This branch is source-level implementation, **not a verified macOS fix yet**. Tauri/WKWebView reparenting needs compile and live macOS validation. Existing branch work is stacked; `main` has not been changed.
+
+## macOS native sizing diagnostic (follow-up)
+
+User confirmed that opening the separate provider window works and the page remains logged in, **but the WKWebView stays the size of its original upper-left pane** even after the previous set_bounds/resizing/timeout patches. Those changes did not resolve the issue.
+
+The next patch switches to Tauri's independent `Webview::set_size` and `Webview::set_position`, applied on show and on native window resize. It also reports **measured** window client and WebView dimensions, including WebView offset. This distinguishes:
+- WebView size still reported as the old pane: a Tauri reparent/geometry problem.
+- WebView reports filling the window yet the visible WKWebView remains small: an AppKit-native frame/layout desynchronization, requiring a macOS-specific native adjustment rather than more Tauri set_bounds delays.
+
+When running `pnpm tauri dev`, click Real page and read the **Native page geometry** line in the workbench (also printed in Terminal). It shows physical pixels, not CSS pixels. Capture that line if the visual window still does not fill. Do not share authentication data, cookies, or page content.
