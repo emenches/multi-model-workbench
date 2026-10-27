@@ -72,6 +72,11 @@ interface InputBarProps {
   onSend: (text: string) => boolean | void | Promise<boolean | void>;
   onCancel: () => void;
   disabled: boolean;
+  projects?: readonly { id: string; name: string }[];
+  currentProjectId?: string;
+  onChooseProject?: (id?: string) => void;
+  onCreateProject?: () => void;
+  projectsDisabled?: boolean;
   sendBlocked?: boolean;
   blockedMessage?: string;
   isProcessing: boolean;
@@ -115,6 +120,41 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('Composer plus menu', () => {
+  it('keeps file acquisition and project assignment available without permanent footer clutter', () => {
+    const onChooseProject = vi.fn();
+    const onCreateProject = vi.fn();
+    const renderer = renderInputBar({
+      projects: [{ id: 'lrdt', name: 'LRDT Research' }],
+      onChooseProject,
+      onCreateProject,
+    });
+    expect(renderedText(renderer)).not.toContain('Insert file');
+    expect(renderedText(renderer)).not.toContain('LRDT Research');
+    buttonWithLabel(renderer, 'More options').onClick?.();
+    expect(renderedText(renderer)).toContain('Insert file');
+    expect(renderedText(renderer)).toContain('Project');
+    buttonWithText(renderer, 'Project').onClick?.();
+    expect(renderedText(renderer)).toContain('LRDT Research');
+    buttonWithText(renderer, 'LRDT Research').onClick?.();
+    expect(onChooseProject).toHaveBeenCalledWith('lrdt');
+    expect(renderedText(renderer)).not.toContain('Insert file');
+    buttonWithLabel(renderer, 'More options').onClick?.();
+    buttonWithText(renderer, 'Project').onClick?.();
+    buttonWithText(renderer, 'New project').onClick?.();
+    expect(onCreateProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('still allows opening the file-picker entry from the plus menu', () => {
+    const renderer = renderInputBar();
+    buttonWithLabel(renderer, 'More options').onClick?.();
+    const insert = buttonWithText(renderer, 'Insert file');
+    expect(insert.disabled).toBe(false);
+    insert.onClick?.();
+    expect(renderedText(renderer)).not.toContain('Insert file');
+  });
 });
 
 describe('InputBar file acquisition', () => {
@@ -424,6 +464,10 @@ function firstElement(renderer: Renderer, predicate: (element: ReactElement) => 
 
 function buttonWithText(renderer: Renderer, text: string): ElementProps {
   return firstElement(renderer, (element) => element.type === 'button' && textOf(element).includes(text));
+}
+
+function buttonWithLabel(renderer: Renderer, text: string): ElementProps {
+  return firstElement(renderer, (element) => element.type === 'button' && propsOf(element)['aria-label'] === text);
 }
 
 function sendButton(renderer: Renderer): ElementProps {
