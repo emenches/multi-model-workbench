@@ -447,6 +447,10 @@ export default function App() {
     () => activeProvidersForStandby(appSettings.standbyProvider),
     [appSettings.standbyProvider],
   );
+  // Include a saved selection in the chooser even if standby settings have
+  // changed. A model outside the active set cannot be sent to silently.
+  const selectableSingleAgents = activeProviders.includes(singleAgent)
+    ? activeProviders : [...activeProviders, singleAgent];
   const centeredProvider = useMemo(() => centerPresentationProvider(presentation), [presentation]);
   const presentationHidden = useMemo(() => {
     const next = new Set(centerHidden);
@@ -485,7 +489,7 @@ export default function App() {
   const missingModeProviderCount = mode === 'consult'
     ? Math.max(0, MIN_CONSULT_PROVIDERS - readyModeProviders.length)
     : Math.max(0, requiredModeProviders.length - readyModeProviders.length);
-  const noSendableProviders = !settingsLoaded || (presetId === 'brainstorm'
+  const noSendableProviders = !settingsLoaded || (presetId === 'single' && !activeProviders.includes(singleAgent)) || (presetId === 'brainstorm'
     ? readyModeProviders.length === 0
     : mode === 'free'
       ? !hasFreeModeTargets
@@ -2324,7 +2328,7 @@ export default function App() {
                     value={singleAgent} disabled={isProcessing || messages.length > 0}
                     title={messages.length > 0 ? translate('conversation.new') : undefined}
                     onChange={(event) => setSingleAgent(event.target.value as AIProvider)}>
-                    {activeProviders.map((provider) => <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>)}
+                    {selectableSingleAgents.map((provider) => <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>)}
                   </select>
                 </div>
               ) : null}
@@ -2496,12 +2500,12 @@ export default function App() {
                       <select id="workbench-single-agent" className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
                         value={singleAgent} disabled={isProcessing}
                         onChange={(event) => setSingleAgent(event.target.value as AIProvider)}>
-                        {activeProviders.map((provider) => (
+                        {selectableSingleAgents.map((provider) => (
                           <option value={provider} key={provider}>{AI_PROVIDERS[provider].name}</option>
                         ))}
                       </select>
                       <span className={`text-xs ${isSendable(states[singleAgent]) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                        {translate(isSendable(states[singleAgent]) ? 'singleAgent.ready' : 'singleAgent.signIn')}
+                        {translate(isSendable(states[singleAgent]) && activeProviders.includes(singleAgent) ? 'singleAgent.ready' : 'singleAgent.signIn')}
                       </span>
                       {!isSendable(states[singleAgent]) ? (
                         <button type="button" className="rounded-lg border border-zinc-300 px-3 py-2 text-xs dark:border-zinc-700"
@@ -2597,7 +2601,7 @@ export default function App() {
               <select id="workbench-single-agent-dialog" className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
                 value={singleAgent} disabled={isProcessing || messages.length > 0}
                 onChange={(event) => setSingleAgent(event.target.value as AIProvider)}>
-                {activeProviders.map((provider) => <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>)}
+                {selectableSingleAgents.map((provider) => <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>)}
               </select>
             </div>
           ) : null}
