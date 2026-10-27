@@ -1667,7 +1667,7 @@ pub async fn provider_open_window(
             // be closed and recreated without leaving stale event callbacks.
             let active_view = || event_app.get_webview(&provider_label(&event_provider));
             match event {
-                tauri::WindowEvent::Resized(size) => {
+                tauri::WindowEvent::Resized(_size) => {
                     if let Some(view) = active_view() {
                         if is_provider_detached(&view, &event_provider) {
                             let _ = fit_detached_provider_to_window(
@@ -1713,25 +1713,14 @@ pub async fn provider_open_window(
     // After both parent and child are visible, apply the final client
     // rectangle once more. Further user resizes are handled by Resized.
     fit_detached_provider_to_window(&provider_webview, &window)?;
-    // The first macOS NSWindow layout may settle on a later run-loop turn.
-    // One bounded follow-up corrects a stale old-pane frame after reparent.
-    // Guard against a close/reparent between scheduling and applying it.
-    let app_for_layout = app.clone();
-    let provider_for_layout = provider.clone();
-    let window_for_layout = window.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(120)).await;
-        if let Some(view) = app_for_layout.get_webview(&provider_label(&provider_for_layout)) {
-            if is_provider_detached(&view, &provider_for_layout) {
-                if let Ok(size) = window_for_layout.inner_size() {
-                    let _ = fit_detached_provider_to_window(&view, &window_for_layout);
-                    if let Ok(geometry) = detached_provider_geometry(&view, &window_for_layout) {
-                        eprintln!("Workbench provider window geometry {}: {:?}", provider_for_layout, geometry);
-                    }
-                }
-            }
-        }
-    });
+    // Await the first NSWindow layout once, then report measured geometry
+    // instead of silently assuming the native frame matches the requested
+    // bounds. This gives actionable evidence if macOS still renders a tiny
+    // WKWebView despite a successful Tauri sizing call.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    if is_provider_detached(&provider_webview, &provider) {
+        fit_detached_provider_to_window(&provider_webview, &window)?;
+    }
     window.set_focus().map_err(|error| error.to_string())?;
     let geometry = detached_provider_geometry(&provider_webview, &window)?;
     eprintln!("Workbench provider window opened {}: {:?}", provider, geometry);
