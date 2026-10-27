@@ -8,7 +8,6 @@ import { EchoPanel } from './dev/EchoPanel';
 import { getRuntimeAppVersion } from './appVersion';
 import { host } from './host';
 import { ProjectPicker } from './workspace/ProjectPicker';
-import { usableLoginStageBounds } from './ui/loginStageBounds';
 import { PRESET_CATALOG } from './ui/presetCatalogData';
 import { activeProject } from './workspace/model';
 import { MIN_CONSULT_PROVIDERS, availableConsultProviders, chooseConsultRoles } from './ui/consultAvailability';
@@ -63,6 +62,7 @@ import { makeFileDragGuard } from './ui/fileDrop';
 import { PreflightDialog } from './ui/PreflightDialog';
 import { PresetCatalog } from './ui/PresetCatalog';
 import { createProcessTrace, reduceProcessTraceEvent, settleProcessTrace, type ProcessTraceState } from './ui/processTraceModel';
+import { ProcessTrace } from './ui/ProcessTrace';
 import { ReplayPanel, type ReplaySource } from './ui/ReplayPanel';
 import { SessionCheckpointNotice } from './ui/SessionCheckpointNotice';
 import { loadSessionSidebarCollapsed, saveSessionSidebarCollapsed } from './ui/sessionSidebarPreference';
@@ -2322,6 +2322,15 @@ export default function App() {
               </div>
             </div>
           </div>
+          {processTrace && (processTrace.currentStatus || processTrace.steps.length > 0) ? (
+            <details className="workbench-run-details mt-3 rounded-lg border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+              <summary className="cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Workflow progress
+                {processTrace.currentStatus ? <span className="ml-2 font-normal text-zinc-500 dark:text-zinc-400">{processTrace.currentStatus}</span> : null}
+              </summary>
+              <ProcessTrace trace={processTrace} locale={locale} onDetailOpenChange={setProcessTraceDetailOpen} />
+            </details>
+          ) : null}
           <div
             id="replay-history-panel"
             hidden={!replayDrawerOpen}
