@@ -72,6 +72,11 @@ interface InputBarProps {
   onSend: (text: string) => boolean | void | Promise<boolean | void>;
   onCancel: () => void;
   disabled: boolean;
+  projects?: readonly { id: string; name: string }[];
+  currentProjectId?: string;
+  onChooseProject?: (id?: string) => void;
+  onCreateProject?: () => void;
+  projectsDisabled?: boolean;
   sendBlocked?: boolean;
   blockedMessage?: string;
   isProcessing: boolean;
@@ -94,6 +99,7 @@ interface ElementProps {
     preventDefault: () => void;
   }) => void;
   placeholder?: string;
+  rows?: number;
   role?: string;
   title?: string;
   type?: string;
@@ -115,6 +121,72 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('Composer plus menu', () => {
+  it('uses one compact row with plus, a one-line textarea, and an icon-only send arrow', () => {
+    const renderer = renderInputBar();
+    const row = firstElement(renderer, (element) => (
+      element.type === 'div' && propsOf(element).className?.includes('workbench-composer-body') === true
+    ));
+    const visibleControls = findAllElements(row.children, (element) => element.type === 'textarea'
+      || (element.type === 'button' && (
+        propsOf(element)['aria-label'] === t('composer.more', 'en') ||
+        propsOf(element)['aria-label'] === t('input.send', 'en')
+      )));
+    expect(visibleControls.map((element) => element.type === 'textarea'
+      ? 'message'
+      : propsOf(element)['aria-label'])).toEqual([
+      'More options', 'message', 'Send',
+    ]);
+    expect(textarea(renderer).rows).toBe(1);
+    expect(textarea(renderer).className).toContain('flex-1');
+    expect(sendButton(renderer).className).toContain('rounded-full');
+    expect(sendButton(renderer)['aria-label']).toBe('Send');
+    expect(renderedText(renderer)).not.toContain('Enter to send');
+  });
+
+  it('keeps the composer free of visible keyboard shortcut instructions', () => {
+    const renderer = renderInputBar();
+    expect(textarea(renderer).placeholder).toBe('Type a message…');
+    expect(textarea(renderer).placeholder).not.toContain('Enter');
+    expect(renderedText(renderer)).not.toContain('Enter to send');
+    expect(renderedText(renderer)).not.toContain('Shift+Enter');
+    expect(sendButton(renderer).className).toContain('ml-auto');
+  });
+
+  it('keeps file acquisition and project assignment available without permanent footer clutter', () => {
+    const onChooseProject = vi.fn();
+    const onCreateProject = vi.fn();
+    const renderer = renderInputBar({
+      projects: [{ id: 'lrdt', name: 'LRDT Research' }],
+      onChooseProject,
+      onCreateProject,
+    });
+    expect(renderedText(renderer)).not.toContain('Insert file');
+    expect(renderedText(renderer)).not.toContain('LRDT Research');
+    buttonWithLabel(renderer, 'More options').onClick?.();
+    expect(renderedText(renderer)).toContain('Insert file');
+    expect(renderedText(renderer)).toContain('Project');
+    buttonWithText(renderer, 'Project').onClick?.();
+    expect(renderedText(renderer)).toContain('LRDT Research');
+    buttonWithText(renderer, 'LRDT Research').onClick?.();
+    expect(onChooseProject).toHaveBeenCalledWith('lrdt');
+    expect(renderedText(renderer)).not.toContain('Insert file');
+    buttonWithLabel(renderer, 'More options').onClick?.();
+    buttonWithText(renderer, 'Project').onClick?.();
+    buttonWithText(renderer, 'New project').onClick?.();
+    expect(onCreateProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('still allows opening the file-picker entry from the plus menu', () => {
+    const renderer = renderInputBar();
+    buttonWithLabel(renderer, 'More options').onClick?.();
+    const insert = buttonWithText(renderer, 'Insert file');
+    expect(insert.disabled).toBe(false);
+    insert.onClick?.();
+    expect(renderedText(renderer)).not.toContain('Insert file');
+  });
 });
 
 describe('InputBar file acquisition', () => {
@@ -424,6 +496,10 @@ function firstElement(renderer: Renderer, predicate: (element: ReactElement) => 
 
 function buttonWithText(renderer: Renderer, text: string): ElementProps {
   return firstElement(renderer, (element) => element.type === 'button' && textOf(element).includes(text));
+}
+
+function buttonWithLabel(renderer: Renderer, text: string): ElementProps {
+  return firstElement(renderer, (element) => element.type === 'button' && propsOf(element)['aria-label'] === text);
 }
 
 function sendButton(renderer: Renderer): ElementProps {

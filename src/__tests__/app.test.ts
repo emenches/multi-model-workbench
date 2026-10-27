@@ -97,11 +97,16 @@ describe('App workflow controls', () => {
     expect(html).toContain('var(--wb-sidebar-width, 252px)');
     expect(html).toContain('Checking agent connections');
     expect(html).toContain('workbench-new-chat-screen');
-    expect(html).toContain('workbench-new-chat-workflow');
-    expect(html).toContain('Simple Chat');
-    expect(html).not.toContain('Free fan-out');
-    expect(html).toContain('More workflows');
-    expect(html).toContain('Consult');
+    expect(html).toContain('What would you like to chat about?');
+    expect(html).not.toContain('What would you like to work on?');
+    expect(html).toContain('workbench-new-chat-mode');
+    expect(html).toContain('workbench-experience-switch');
+    expect(html).toContain('aria-pressed="true">Chat');
+    expect(html).toContain('Multi-agent');
+    expect(html).toContain('workbench-composer-plus');
+    expect(html).toContain('More options');
+    expect(html).not.toContain('workbench-new-chat-project');
+    expect(html).not.toContain('workbench-new-chat-workflow');
 
     expect(html).toContain('workbench-simple-agent-select');
     expect(html).toContain('workbench-new-chat-composer');
@@ -145,9 +150,9 @@ describe('Workbench reading surfaces', () => {
     expect(html).toContain('workbench-connected-agent-strip');
     expect(html).toContain('workbench-primary-activity');
     expect(html).toContain('More actions');
-    expect(html).toContain('workbench-new-chat-workflows');
-    expect(html).toContain('workbench-new-chat-project');
-    expect(html).toContain('workbench-new-chat-workflows');
+    expect(html).toContain('workbench-experience-switch');
+    expect(html).toContain('workbench-new-chat-composer');
+    expect(html).toContain('workbench-composer-plus');
   });
 });
 

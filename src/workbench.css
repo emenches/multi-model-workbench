@@ -1346,3 +1346,200 @@ html:not(.ai-sister) .workbench-shell .workbench-agent-status-label {
 @media (max-width: 900px) {
   html:not(.ai-sister) .workbench-shell .workbench-agent-status-label { display: none; }
 }
+
+/* The start screen has one small mode switch. The prompt stays primary. */
+html:not(.ai-sister) .workbench-shell .workbench-experience-switch {
+  background: var(--wb-surface-soft);
+  border: 0;
+  padding: 5px;
+  box-shadow: inset 0 1px 4px rgba(22,34,55,.09), 0 4px 16px rgba(20,36,58,.055);
+}
+html:not(.ai-sister) .workbench-shell .workbench-experience-option {
+  color: var(--wb-secondary);
+  background: transparent;
+  border: 0;
+  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+html:not(.ai-sister) .workbench-shell .workbench-experience-option:hover:not(:disabled) {
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-experience-selected {
+  color: var(--wb-ink);
+  background: var(--wb-surface);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 15px rgba(25,40,65,.17), 0 1px 4px rgba(25,40,65,.075);
+}
+html.dark:not(.ai-sister) .workbench-shell .workbench-experience-switch {
+  box-shadow: inset 0 1px 5px rgba(0,0,0,.3), 0 5px 18px rgba(0,0,0,.16);
+}
+html.dark:not(.ai-sister) .workbench-shell .workbench-experience-selected {
+  box-shadow: 0 6px 18px rgba(0,0,0,.42), 0 1px 4px rgba(0,0,0,.22);
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-body {
+  max-width: 760px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-title {
+  letter-spacing: -.047em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-composer {
+  margin-top: 22px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-composer .workbench-composer {
+  min-height: 0;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-more-menu {
+  background: var(--wb-surface);
+  color: var(--wb-ink);
+  box-shadow: var(--wb-float-shadow);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 12px;
+  border-radius: 10px;
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-menu-item:hover:not(:disabled),
+html:not(.ai-sister) .workbench-shell .workbench-composer-menu-item:focus-visible {
+  background: var(--wb-hover);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-menu-item:disabled {
+  opacity: .45;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-project-choices {
+  padding-left: 16px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-menu-item[aria-checked="true"] {
+  background: var(--wb-hover);
+  font-weight: 600;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-plus {
+  background: var(--wb-surface-soft);
+  color: var(--wb-ink);
+  border: 0;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-plus:hover {
+  background: var(--wb-hover);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-project-tag,
+html:not(.ai-sister) .workbench-shell .workbench-multi-select,
+html:not(.ai-sister) .workbench-shell .workbench-multi-config {
+  background: var(--wb-surface-soft);
+  color: var(--wb-secondary);
+  border: 0;
+}
+html:not(.ai-sister) .workbench-shell .workbench-multi-select {
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-multi-config:hover:not(:disabled),
+html:not(.ai-sister) .workbench-shell .workbench-composer-project-tag:hover {
+  background: var(--wb-hover);
+}
+html:not(.ai-sister) .workbench-shell .workbench-multi-controls,
+html:not(.ai-sister) .workbench-shell .workbench-chat-controls {
+  max-width: 760px;
+  color: var(--wb-secondary);
+}
+html:not(.ai-sister) .workbench-shell .workbench-chat-controls .workbench-simple-agent {
+  justify-content: flex-start;
+}
+html:not(.ai-sister) .workbench-shell .workbench-simple-agent-select {
+  border: 0;
+  background: var(--wb-surface-soft);
+  box-shadow: 0 1px 4px rgba(28,45,70,.04);
+}
+@media (max-width: 850px) {
+  html:not(.ai-sister) .workbench-shell .workbench-multi-controls {
+    gap: 6px;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-multi-controls > span:last-child {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not(.ai-sister) .workbench-shell .workbench-experience-option {
+    transition: none;
+  }
+}
+
+/* Single-line-first composer: left +, flexible input, right send arrow.
+   It grows naturally for multiline text, attached files and errors. */
+html:not(.ai-sister) .workbench-shell .workbench-composer,
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-composer .workbench-composer {
+  min-height: 0;
+  padding: 6px 8px;
+  border-radius: 999px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer:has(.workbench-composer-context),
+html:not(.ai-sister) .workbench-shell .workbench-composer:has(.workbench-composer-body + div) {
+  border-radius: 22px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-body {
+  flex-wrap: nowrap;
+  min-width: 0;
+  min-height: 42px;
+  gap: 8px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-textarea {
+  width: auto;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 36px;
+  max-height: 120px;
+  height: auto;
+  padding: 8px 5px;
+  line-height: 20px;
+  font-size: 14px;
+  border: 0;
+  background: transparent;
+  overflow-y: auto;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-plus {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-weight: 400;
+  font-size: 22px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-send {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  box-shadow: 0 2px 7px rgba(14,23,38,.14);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-send svg {
+  width: 18px;
+  height: 18px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-send:disabled {
+  box-shadow: none;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-context {
+  padding-left: 41px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-composer {
+  margin-top: 19px;
+}
+@media (max-width: 600px) {
+  html:not(.ai-sister) .workbench-shell .workbench-composer,
+  html:not(.ai-sister) .workbench-shell .workbench-new-chat-composer .workbench-composer {
+    padding: 5px 6px;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-composer-body {
+    gap: 5px;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-experience-option {
+    padding-inline: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not(.ai-sister) .workbench-shell .workbench-experience-selected {
+    transform: none;
+  }
+}
