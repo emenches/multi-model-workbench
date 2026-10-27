@@ -1566,7 +1566,7 @@ pub async fn provider_eval(
 ) -> Result<(), String> {
     ensure_control_webview(&webview)?;
     settings::ensure_provider_active(&app, &provider)?;
-    ensure_provider_control_eval_allowed(&provider)?;
+    ensure_provider_control_eval_allowed(&provider, &js, false)?;
     eval_provider(&app, &provider, &js)
 }
 
@@ -1587,7 +1587,7 @@ pub(crate) async fn eval_provider_with_callback_from_control(
     js: &str,
 ) -> Result<String, String> {
     settings::ensure_provider_active(app, provider)?;
-    ensure_provider_control_eval_allowed(provider)?;
+    ensure_provider_control_eval_allowed(provider, js, true)?;
     eval_provider_with_callback(app, provider, js).await
 }
 
@@ -2297,9 +2297,56 @@ fn get_provider_webview_for_generic_eval(
     Ok(webview)
 }
 
-fn ensure_provider_control_eval_allowed(provider: &str) -> Result<(), String> {
+// A 40-second missed-status watchdog marks the provider DOM "unknown".
+ // The response transport must still be allowed to *read its own outbox*
+ // from the already-loaded ChatGPT app, or it becomes impossible for the
+ // bridge to recover from that stale state. This exception is deliberately
+ // restricted to the two exact internal bridge expressions. Normal provider
+ // control actions (send, fill, stop, arbitrary evaluation) still require
+ // a current "ready" DOM. get_provider_webview_for_generic_eval separately
+ // enforces the recognized ChatGPT app URL for either expression.
+const CHATGPT_BRIDGE_PEEK_JS: &str =
+    "window.__MAC_BRIDGE__ ? window.__MAC_BRIDGE__.peekOutbox() : []";
+const CHATGPT_BRIDGE_ACK_PREFIX: &str =
+    "window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.ackBulk(";
+
+fn stale_chatgpt_bridge_eval_allowed(
+    provider: &str,
+    state: &ProviderState,
+    js: &str,
+    callback: bool,
+) -> bool {
+    if provider != "chatgpt"
+        || state.webview != "loaded"
+        || state.dom != "unknown"
+        || state.login != "logged_in"
+    {
+        return false;
+    }
+    if callback {
+        return js == CHATGPT_BRIDGE_PEEK_JS;
+    }
+    let Some(mid) = js
+        .strip_prefix(CHATGPT_BRIDGE_ACK_PREFIX)
+        .and_then(|remaining| remaining.strip_suffix(");"))
+    else {
+        return false;
+    };
+    // Acknowledgement values are generated from monotonic outbox IDs by
+    // the trusted control pane. Reject injected JS and non-safe integers.
+    mid.parse::<u64>()
+        .is_ok_and(|mid| mid > 0 && mid <= 9_007_199_254_740_991)
+}
+
+fn ensure_provider_control_eval_allowed(
+    provider: &str,
+    js: &str,
+    callback: bool,
+) -> Result<(), String> {
     let state = current_state(provider);
-    if provider_state_allows_control_eval(&state) {
+    if provider_state_allows_control_eval(&state)
+        || stale_chatgpt_bridge_eval_allowed(provider, &state, js, callback)
+    {
         Ok(())
     } else {
         Err(format!(
@@ -2657,7 +2704,7 @@ mod tests {
         parse_grok_bridge_drive_outcome, physical_bounds, popup_initial_title,
         prepare_grok_external_auth_return, prepare_grok_navigation, prepare_grok_popup_recovery,
         provider_document_allows_generic_eval, provider_show_should_focus,
-        provider_state_allows_control_eval, provider_uses_document_start_bridge,
+        provider_state_allows_control_eval, stale_chatgpt_bridge_eval_allowed, provider_uses_document_start_bridge,
         provider_uses_permission_shim, record_grok_bridge_challenge, reset_state_for_page_load,
         retire_grok_document, runtime, should_drive_grok_bridge,
         should_drive_grok_bridge_from_background, should_reset_bridge_on_boot_rotation,
@@ -3396,6 +3443,30 @@ mod tests {
         assert!(!provider_state_allows_control_eval(&state_with(
             "grok", "loaded", "ready", "blocked", false
         )));
+    }
+
+
+    #[test]
+    fn stale_chatgpt_allows_only_internal_bridge_read_and_ack() {
+        let stale = state_with("chatgpt", "loaded", "unknown", "logged_in", false);
+        let ready = state_with("chatgpt", "loaded", "ready", "logged_in", false);
+        let blocked = state_with("chatgpt", "loaded", "unknown", "blocked", false);
+        let unmounted = state_with("chatgpt", "none", "unknown", "logged_in", false);
+
+        let peek = "window.__MAC_BRIDGE__ ? window.__MAC_BRIDGE__.peekOutbox() : []";
+        let ack = "window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.ackBulk(99);";
+
+        assert!(stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, peek, true));
+        assert!(stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, ack, false));
+        assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, peek, false));
+        assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, ack, true));
+        assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, "window.location.reload()", false));
+        assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, "window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.ackBulk(0);", false));
+        assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, "window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.ackBulk(1);alert(1)", false));
+        assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &ready, peek, true));
+        assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &blocked, peek, true));
+        assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &unmounted, peek, true));
+        assert!(!stale_chatgpt_bridge_eval_allowed("grok", &stale, peek, true));
     }
 
     #[test]

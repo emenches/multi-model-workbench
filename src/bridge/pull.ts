@@ -14,7 +14,7 @@ const pending = new Set<AIProvider>();
 const degraded = new Set<AIProvider>();
 const recoveryTimers = new Map<AIProvider, ReturnType<typeof globalThis.setTimeout>>();
 const recoveryAttempts = new Map<AIProvider, number>();
-type PullFailureKind = 'callback_timeout' | 'callback_closed' | 'webview_unavailable' | 'invalid_json' | 'invalid_batch' | 'eval_failed';
+type PullFailureKind = 'callback_timeout' | 'callback_closed' | 'webview_unavailable' | 'host_not_ready' | 'document_blocked' | 'invalid_json' | 'invalid_batch' | 'eval_failed';
 const lastPullFailure = new Map<AIProvider, PullFailureKind>();
 const pollTimers = new Map<AIProvider, ReturnType<typeof globalThis.setInterval>>();
 const pullInflight = new Map<AIProvider, { promise: Promise<void>; force: boolean }>();
@@ -345,6 +345,8 @@ export async function pullWithRetry(provider: AIProvider): Promise<BridgeMessage
 // contain browser or site content. Only recognized, fixed error categories.
 function classifyPullFailure(error: unknown): PullFailureKind {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (/script evaluation is not ready for provider/i.test(message)) return 'host_not_ready';
+  if (/script evaluation is not allowed for the current/i.test(message)) return 'document_blocked';
   if (/timed out|timeout/i.test(message)) return 'callback_timeout';
   if (/channel closed|cancelled|canceled/i.test(message)) return 'callback_closed';
   if (/webview not found|provider webview|window not found/i.test(message)) return 'webview_unavailable';

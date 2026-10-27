@@ -277,6 +277,23 @@ describe('pull transport', () => {
     cleanup();
   });
 
+  it('identifies a native not-ready pull gate without exposing the raw error', async () => {
+    vi.useFakeTimers();
+    const { messages, cleanup } = collectMessages();
+    setProviderAwaiting(provider, true);
+    vi.mocked(host.provider.evalWithCallback).mockRejectedValue(
+      new Error('script evaluation is not ready for provider: chatgpt'),
+    );
+    const pending = pullProvider(provider);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await pending;
+    expect(messages).toContainEqual(expect.objectContaining({
+      provider, action: 'STATUS_REPORT', transport: 'local',
+      payload: { pullDiagnostic: 'failed', pullFailureKind: 'host_not_ready', recoveryAttempt: 0 },
+    }));
+    cleanup();
+  });
+
   it('bulkReady title hints trigger a pull', async () => {
     vi.mocked(host.provider.evalWithCallback).mockResolvedValue(JSON.stringify([]));
     handleTitleMessage({
