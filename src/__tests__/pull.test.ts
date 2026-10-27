@@ -162,6 +162,36 @@ describe('pull transport', () => {
     }
   });
 
+  it('records throttled successful empty eval callbacks when ChatGPT title heartbeats stop', async () => {
+    vi.useFakeTimers();
+    const { messages, cleanup } = collectMessages();
+    vi.mocked(host.provider.evalWithCallback).mockResolvedValue('[]');
+    handleTitleMessage({ v: 1, action: 'STATUS_REPORT', provider, bootId: 'stable', seq: 1, transport: 'title' });
+    setProviderAwaiting(provider, true);
+
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(messages.some((m) => (m.payload as { pullDiagnostic?: string })?.pullDiagnostic === 'eval-ok-empty')).toBe(false);
+    await vi.advanceTimersByTimeAsync(2_000);
+    let probes = messages.filter((m) => (m.payload as { pullDiagnostic?: string })?.pullDiagnostic === 'eval-ok-empty');
+    expect(probes).toHaveLength(1);
+    expect(probes[0]).toMatchObject({
+      provider, transport: 'local', action: 'STATUS_REPORT',
+      payload: { pullDiagnostic: 'eval-ok-empty', statusSilentMs: 15_000 },
+    });
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(messages.filter((m) => (m.payload as { pullDiagnostic?: string })?.pullDiagnostic === 'eval-ok-empty')).toHaveLength(2);
+
+    handleTitleMessage({ v: 1, action: 'STATUS_REPORT', provider, bootId: 'stable', seq: 2, transport: 'title' });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(messages.filter((m) => (m.payload as { pullDiagnostic?: string })?.pullDiagnostic === 'eval-ok-empty')).toHaveLength(2);
+    setProviderAwaiting(provider, false);
+    await vi.advanceTimersByTimeAsync(20_000);
+    probes = messages.filter((m) => (m.payload as { pullDiagnostic?: string })?.pullDiagnostic === 'eval-ok-empty');
+    expect(probes).toHaveLength(2);
+    expect(messages.some((m) => m.action === 'RESPONSE_DONE')).toBe(false);
+    cleanup();
+  });
+
   it('marks degraded after retry failure, no-ops while degraded, and recovers on new bootId', async () => {
     const { messages, cleanup } = collectMessages();
     vi.mocked(host.provider.evalWithCallback).mockRejectedValue(new Error('timeout'));

@@ -304,11 +304,13 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
   const pullDiagnostic = stringProp(payload, 'pullDiagnostic');
   const pullFailureKind = stringProp(payload, 'pullFailureKind');
   const recoveryAttempt = numberProp(payload, 'recoveryAttempt');
+  const statusSilentMs = numberProp(payload, 'statusSilentMs');
   if (capturePhase) parts.push(`capture ${capturePhase}`);
   if (statusErrorStage) parts.push(`status probe error ${statusErrorStage}`);
   if (pullDiagnostic) parts.push(`pull ${pullDiagnostic}`);
   if (pullFailureKind) parts.push(`failure ${pullFailureKind}`);
   if (pullDiagnostic && typeof recoveryAttempt === 'number') parts.push(`attempt ${recoveryAttempt}`);
+  if (pullDiagnostic && typeof statusSilentMs === 'number') parts.push(`title silent ${Math.floor(statusSilentMs / 1_000)}s`);
   if (dom) parts.push(`dom ${dom}`);
   if (login) parts.push(`login ${login}`);
   if (typeof thinking === 'boolean') parts.push(`thinking ${thinking ? 'yes' : 'no'}`);
@@ -331,7 +333,12 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
       bulkReady: bulkReady ?? null,
       doneReady: doneReady ?? null,
       ...(statusErrorStage ? { statusErrorStage } : {}),
-      ...(pullDiagnostic ? { pullDiagnostic, pullFailureKind: pullFailureKind ?? null, recoveryAttempt: recoveryAttempt ?? null } : {}),
+      ...(pullDiagnostic ? {
+        pullDiagnostic,
+        pullFailureKind: pullFailureKind ?? null,
+        recoveryAttempt: recoveryAttempt ?? null,
+        statusSilentMs: statusSilentMs ?? null,
+      } : {}),
       ...(capturePhase ? {
         capturePhase,
         captureUserNodes: numberProp(payload, 'captureUserNodes') ?? null,
