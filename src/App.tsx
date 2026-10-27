@@ -271,6 +271,11 @@ export function presentationHiddenProvidersForCenterSurface({
 }
 
 // Keep previously-open agents visible while their native sessions are verified.
+// Sidebar-free restoration needs a native stage only for a visibly centered page.
+export function canRestoreWithoutInspectorPane(presentation: WebviewPresentationState, surface: 'text' | 'native', hasCenterStage: boolean): boolean {
+  return presentation !== 'center' || surface !== 'native' || hasCenterStage;
+}
+
 export function agentHeaderStatus(state: ProviderState, wasOpen: boolean, restoring: boolean): 'ready' | 'checking' | 'open' | null {
   if (state.login === 'logged_out' || state.login === 'blocked') return null;
   if (isSendable(state)) return 'ready';
@@ -1189,7 +1194,7 @@ export default function App() {
     if (!settingsLoaded || initialRestoreComplete) return;
     for (const provider of Array.from(pendingRestore.current)) {
       // Invisible native pages have no React pane to wait for.
-      if (presentation[provider] === 'center' && centerSurfaceRef.current === 'native' && !centerStageRef.current) continue;
+      if (!canRestoreWithoutInspectorPane(presentation[provider], centerSurfaceRef.current, Boolean(centerStageRef.current))) continue;
       beginSavedProviderRestore(provider);
     }
     if (pendingRestore.current.size === 0 && restoringProviders.current.size === 0) {
