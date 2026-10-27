@@ -52,6 +52,13 @@ function handleBridgeMessage(message: BridgeMessage): void {
       settle(waiter, 'reject', new Error('ChatGPT returned a heading instead of an answer; response capture was incomplete'));
       return;
     }
+    if (message.provider === 'chatgpt' && isChatGptTransientLoadFailure(answer)) {
+      // This should be filtered inside the injected engine before it emits
+      // DONE. If not, reject rather than passing a temporary UI error to the
+      // next model as a verified answer.
+      settle(waiter, 'reject', new Error('ChatGPT returned a temporary response-load message instead of an answer'));
+      return;
+    }
     settle(waiter, 'resolve', answer);
     // Provider-side "[Error: ...]" is data consumed by the workflow's
     // existing recovery logic, never a successfully completed answer.
@@ -75,6 +82,16 @@ function handleBridgeMessage(message: BridgeMessage): void {
 
 function isChatGptHeadingOnly(value: string): boolean {
   return /^(?:#{1,6}\s+)?(?:\*{1,2})?chatgpt\s+said\s*[:：]?(?:\*{1,2})?$/i.test(value.trim());
+}
+
+function isChatGptTransientLoadFailure(value: string): boolean {
+  const text = value.trim()
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^\*{1,2}/, '')
+    .replace(/\*{1,2}$/, '')
+    .replace(/^chatgpt\s+said\s*[:：]?\s*/i, '')
+    .trim();
+  return /^this response couldn['’]t load\.?$/i.test(text);
 }
 
 function payloadText(payload: unknown): string {

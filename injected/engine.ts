@@ -1461,10 +1461,25 @@ class InactiveSendOperationError extends Error {
     return /^chatgpt\s+said\s*[:：]?$/i.test(withoutMarkup);
   }
 
+  // ChatGPT's Chat/Work page sometimes renders this recoverable error row,
+  // then continues its thinking phase and eventually replaces/appends the
+  // actual response. It must never count as an answer (or a terminal marker)
+  // even when a nearby copy/action control is already present. Match the
+  // entire normalized message, not arbitrary answer prose containing it.
+  function chatGptIsTransientLoadFailure(text: string): boolean {
+    const normalized = text.trim()
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^\*{1,2}/, '')
+      .replace(/\*{1,2}$/, '')
+      .replace(/^chatgpt\s+said\s*[:：]?\s*/i, '')
+      .trim();
+    return /^this response couldn['’]t load\.?$/i.test(normalized);
+  }
+
   function meaningfulChatGptAnswerText(response: Element, rawText: string | null): string | null {
     if (!rawText) return null;
     let text = rawText.trim();
-    if (chatGptIsChromeHeading(text)) return null;
+    if (chatGptIsChromeHeading(text) || chatGptIsTransientLoadFailure(text)) return null;
 
     // New-style assistant units sometimes contain a visible heading
     // preceding the actual answer. Copy only the answer, not that heading
@@ -1492,7 +1507,7 @@ class InactiveSendOperationError extends Error {
         text = text.slice(0, -tertiaryText.length).trim();
       }
     }
-    if (!text || chatGptIsChromeHeading(text)) return null;
+    if (!text || chatGptIsChromeHeading(text) || chatGptIsTransientLoadFailure(text)) return null;
     if (/^(?:pro thinking|thinking|reasoning|searching|working on it|finalizing answer)$/i.test(text)) return null;
     return text;
   }
@@ -1856,6 +1871,10 @@ class InactiveSendOperationError extends Error {
     const response = getLatestResponseCandidate();
     const turn = currentChatGptCompletionTurn(response?.element);
     const responseText = response?.text ?? null;
+    if (responseText && chatGptIsTransientLoadFailure(responseText)) {
+      resetChatGptTerminalGate();
+      return false;
+    }
     const strongActivity = chatGptHasStrongActivity(turn);
     const completion = turn && response ? chatGptCompletionEvidence(turn, response) : null;
     if (!turn || !responseText || isThinking() || strongActivity || !completion) {
@@ -1997,6 +2016,14 @@ class InactiveSendOperationError extends Error {
     // baseline through waitingForResponse and responseBaselineEls, so after the reset it would
     // return a message that already existed before the send.
     const payload = finalResponseText(lastResponseText, getLatestResponseText());
+    if (adapter.provider === 'chatgpt' && chatGptIsTransientLoadFailure(payload)) {
+      // Fail closed: don't terminate the wait if a future layout manages to
+      // bypass the candidate filter. Re-arm polling for an actual answer.
+      lastResponseText = '';
+      resetChatGptTerminalGate();
+      clearFinishResponseTimeout();
+      return;
+    }
     const sendOperation = activeSendOperation;
     cancelResponseWait();
     bridge.emit({ v: 1, action: 'RESPONSE_DONE', provider: adapter.provider, payload });
