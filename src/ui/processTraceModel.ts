@@ -155,7 +155,15 @@ function applyProviderResponse(
       : step,
   );
 
-  const nextSteps = matchIndex >= 0 || trace.mode !== 'free' ? steps : [...steps, responseStep(provider, nextStatus, locale, content)];
+  // The waiter may publish confirmation from inside RESPONSE_DONE dispatch,
+  // before this reducer receives the original DONE event. Never create a
+  // duplicate free-response row (or demote a confirmed step) in that case.
+  const alreadyConfirmed = trace.steps.some(
+    (step) => step.provider === provider && (step.kind === 'role' || step.kind === 'response') && step.status === 'done',
+  );
+  const nextSteps = matchIndex >= 0 || trace.mode !== 'free' || alreadyConfirmed
+    ? steps
+    : [...steps, responseStep(provider, nextStatus, locale, content)];
   return { ...trace, steps: refreshFreeAggregate(nextSteps) };
 }
 
