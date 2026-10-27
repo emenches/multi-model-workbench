@@ -1823,6 +1823,25 @@ export default function App() {
     }
   }, [beginPresentationTransition, clearCenterTransitionInFlight, setCenterSurfaceMode]);
 
+  // Native menu shortcut: make the workbench usable even if a login WebView
+  // or a popup has covered every clickable React control.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void host.onReturnToWorkbench(() => {
+      setStageExpanded(false);
+      setMessagesMaximized(false);
+      collapseCenter();
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [collapseCenter]);
+
   const openProviderLogin = useCallback(
     async (provider: AIProvider) => {
       if (!activeProvidersForStandby(settingsRef.current.standbyProvider).includes(provider)) {

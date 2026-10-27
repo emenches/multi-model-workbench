@@ -44,6 +44,10 @@ export const host = {
     version: (): Promise<string> => getVersion(),
     openExternal: (url: string): Promise<void> => invoke('open_external_url', { url }),
   },
+  onReturnToWorkbench: async (handler: () => void): Promise<() => void> => {
+    const unlisten = await listen('workbench://return', () => handler());
+    return unlisten;
+  },
   onNavBlocked: async (handler: (payload: NavBlockedPayload) => void): Promise<() => void> => {
     const unlisten = await listen<NavBlockedPayload>('nav://blocked', (event) => handler(event.payload));
     return unlisten;
