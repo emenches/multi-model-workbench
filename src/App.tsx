@@ -8,6 +8,7 @@ import { EchoPanel } from './dev/EchoPanel';
 import { getRuntimeAppVersion } from './appVersion';
 import { host, type ProviderWindowGeometry } from './host';
 import { ProjectPicker } from './workspace/ProjectPicker';
+import { ProviderModelControls } from './ui/ProviderModelControls';
 import { MIN_CONSULT_PROVIDERS, availableConsultProviders, chooseConsultRoles } from './ui/consultAvailability';
 import { EMPTY_PROJECT_STORE, activeProject, mergeProjectContext, type ProjectStore } from './workspace/model';
 import { useI18n } from './i18n/context';
@@ -360,6 +361,7 @@ export default function App() {
   const [messagesMaximized, setMessagesMaximized] = useState(false);
   const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
   const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
+  const [modelSettingsProvider, setModelSettingsProvider] = useState<AIProvider>();
   const [providerWindowError, setProviderWindowError] = useState<string>();
   const [providerWindowGeometry, setProviderWindowGeometry] = useState<ProviderWindowGeometry>();
   const [scrollFocusedProvider, setScrollFocusedProvider] = useState<AIProvider | undefined>();
@@ -1883,6 +1885,21 @@ export default function App() {
     });
   }, [ensureProviderLoadedHidden]);
 
+  const openProviderModelSettings = useCallback((provider: AIProvider) => {
+    setModelSettingsProvider(provider);
+    setProviderWindowError(undefined);
+    setProviderWindowGeometry(undefined);
+    // Model and effort menus belong to the provider. Never pretend a local
+    // preference changed the model if the actual page cannot confirm it.
+    void (async () => {
+      await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
+      const geometry = await host.provider.openWindow(provider);
+      setProviderWindowGeometry(geometry);
+    })().catch((error: unknown) => {
+      setProviderWindowError(error instanceof Error ? error.message : String(error));
+    });
+  }, [ensureProviderLoadedHidden]);
+
   const collapseCenter = useCallback(() => {
     const provider = centerPresentationProvider(presentationRef.current);
     forcedNativeCenterProviderRef.current = undefined;
@@ -2161,16 +2178,31 @@ export default function App() {
                     <span className="text-[0.65rem] text-zinc-500 dark:text-zinc-400">
                       {isSendable(states[provider]) ? 'Connected' : states[provider].login === 'logged_out' ? 'Sign in' : 'Checking'}
                     </span>
-                    <button type="button" className="self-start rounded-md px-1 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-zinc-800"
-                      onClick={() => {
-                        setProviderInspectorOpen(true);
-                        void changeProviderPresentationManually(provider, 'center');
-                      }}>
-                      Inspect
-                    </button>
+                    <div className="flex flex-wrap gap-1">
+                      <button type="button"
+                        className="rounded-md px-1 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-zinc-800"
+                        onClick={() => openProviderModelSettings(provider)}>
+                        Model & effort ↗
+                      </button>
+                      <button type="button"
+                        className="rounded-md px-1 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                        onClick={() => {
+                          setProviderInspectorOpen(true);
+                          void changeProviderPresentationManually(provider, 'center');
+                        }}>
+                        Inspect
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
+              {modelSettingsProvider && activeProviders.includes(modelSettingsProvider) ? (
+                <ProviderModelControls
+                  provider={modelSettingsProvider}
+                  onOpenProvider={openProviderModelSettings}
+                  onClose={() => setModelSettingsProvider(undefined)}
+                />
+              ) : null}
               <p className="mt-2 text-[0.65rem] text-zinc-500 dark:text-zinc-400">Connected means the page is available. Workflow steps finish only after their answer is received.</p>
             </section>
             <div id="workbench-provider-inspector"
