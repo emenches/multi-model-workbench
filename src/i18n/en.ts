@@ -149,7 +149,7 @@ export const en: Record<I18nKey, string> = {
   'input.connectProvider': 'Connect a provider to start',
   'input.checkingProviders': 'Checking agent connections…',
   'input.sendSelectedProviders': 'Send to selected providers',
-  'input.messagePlaceholder': 'Type a message… (Enter to send, Shift+Enter for a new line)',
+  'input.messagePlaceholder': 'Type a message…',
   'input.modeNotReady': 'Connect {remaining} more AI(s) to use this mode',
   'input.preparing': 'Checking…',
   'input.preparingSession': 'Preparing fresh AI sessions…',
