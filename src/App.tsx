@@ -328,6 +328,12 @@ export default function App() {
         ? 'simple'
         : initialConversation.active.mode),
   );
+  // The top-level mode switch doesn't discard the user's multi-agent workflow.
+  const lastMultiPresetRef = useRef<WorkflowPresetId>(
+    initialConversation.active.presetId && initialConversation.active.presetId !== 'simple'
+      ? initialConversation.active.presetId
+      : initialConversation.active.mode !== 'free' ? initialConversation.active.mode : 'consult',
+  );
   const [replayDrawerOpen, setReplayDrawerOpen] = useState(false);
   const [processTrace, setProcessTrace] = useState<ProcessTraceState | undefined>();
   const [processTraceDetailOpen, setProcessTraceDetailOpen] = useState(false);
@@ -408,7 +414,6 @@ export default function App() {
   const [activityPanelOpen, setActivityPanelOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [headerMoreOpen, setHeaderMoreOpen] = useState(false);
-  const [moreWorkflowsOpen, setMoreWorkflowsOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [modelSettingsProvider, setModelSettingsProvider] = useState<AIProvider>();
   const [providerWindowError, setProviderWindowError] = useState<string>();
@@ -1834,6 +1839,7 @@ export default function App() {
     setMessages([]);
     setMode('free');
     setPresetId('simple');
+    lastMultiPresetRef.current = 'consult';
     setWorkflowStatus('');
     setProcessTrace(undefined);
     setReplayDrawerOpen(false);
@@ -2151,12 +2157,18 @@ export default function App() {
       const nextPreset = presetForId(nextPresetId);
       setMode(nextPreset.graphId);
       setPresetId(nextPreset.id);
+      if (nextPreset.id !== 'simple') lastMultiPresetRef.current = nextPreset.id;
       if (nextPreset.id === 'brainstorm') {
         setTargetSelection({ targets: [...activeProviders], defaultsInitialized: true, userTouched: false });
       }
     },
     [activeProviders, isProcessing],
   );
+
+  const selectExperience = useCallback((next: 'chat' | 'multi') => {
+    if (isProcessing) return;
+    selectPreset(next === 'chat' ? 'simple' : lastMultiPresetRef.current);
+  }, [isProcessing, selectPreset]);
 
   const persistReplaySnapshot = useCallback((snapshot: ExecutionSnapshot) => {
     const snapshotSettings = settingsRef.current;
@@ -2192,7 +2204,7 @@ export default function App() {
     : undefined;
 
   const simpleAgentChooser = presetId === 'simple' ? (
-    <div className="workbench-simple-agent flex flex-wrap items-center justify-center gap-2.5">
+    <div className="workbench-simple-agent flex flex-wrap items-center gap-2.5">
       <label htmlFor="workbench-simple-agent-select" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
         {translate('preset.simple.agentLabel')}
       </label>
@@ -2207,22 +2219,59 @@ export default function App() {
           <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>
         ))}
       </select>
-      <span className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400">
-        {translate('preset.simple.oneAgentNote')}
-      </span>
+      <span className="sr-only">{translate('preset.simple.oneAgentNote')}</span>
     </div>
   ) : null;
+  const experienceSwitcher = (
+    <div className="workbench-experience-switch inline-flex items-center rounded-full p-1" role="group" aria-label={translate('composer.mode')}>
+      {(['chat', 'multi'] as const).map((choice) => (
+        <button key={choice} type="button" className={`workbench-experience-option rounded-full px-4 py-1.5 text-xs font-semibold ${(presetId === 'simple' ? 'chat' : 'multi') === choice ? 'workbench-experience-selected' : ''}`}
+          aria-pressed={(presetId === 'simple' ? 'chat' : 'multi') === choice}
+          disabled={isProcessing} onClick={() => selectExperience(choice)}>
+          {translate(choice === 'chat' ? 'composer.chat' : 'composer.multi')}
+        </button>
+      ))}
+    </div>
+  );
   const composer = (
     <InputBar
       onSend={send}
       onCancel={cancelWorkflow}
       disabled={noSendableProviders}
       disabledPlaceholder={connectionsChecking ? translate('input.checkingProviders') : undefined}
+      projects={projectStore.projects}
+      currentProjectId={effectiveProjectStore.activeProjectId ?? undefined}
+      projectsDisabled={isProcessing || !projectsReady}
+      onChooseProject={(projectId) => {
+        const session = sessions.find((item) => item.id === activeSessionId);
+        if (session) assignConversationProject(session, projectId);
+      }}
+      onCreateProject={() => setProjectSettingsOpen(true)}
       sendBlocked={modeSendBlocked}
       blockedMessage={modeBlockedMessage}
       isProcessing={isProcessing}
       locale={locale}
     />
+  );
+  const multiControls = presetId !== 'simple' ? (
+    <div className="workbench-multi-controls mx-auto flex w-full flex-wrap items-center gap-2 px-2 pt-2 text-xs">
+      <label className="text-zinc-500 dark:text-zinc-400" htmlFor="workbench-multi-workflow">{translate('composer.workflow')}</label>
+      <select id="workbench-multi-workflow" className="workbench-multi-select rounded-lg px-2.5 py-1.5 font-medium"
+        value={presetId} disabled={isProcessing} onChange={(event) => selectPreset(event.target.value as WorkflowPresetId)}>
+        {PRESET_CATALOG.filter((preset) => preset.id !== 'simple').map((preset) => (
+          <option key={preset.id} value={preset.id}>{translate(preset.displayNameKey)}</option>
+        ))}
+      </select>
+      <button type="button" className="workbench-multi-config rounded-lg px-2.5 py-1.5 font-medium" disabled={isProcessing}
+        onClick={() => setWorkflowOptionsOpen(true)}>{translate('composer.configureAgents')}</button>
+      <span className="ml-auto text-zinc-500 dark:text-zinc-400">{formatI18n(translate('preset.readinessAny'), { ready: anySendableTargets.length })}</span>
+    </div>
+  ) : null;
+  const composerStack = (
+    <div className="workbench-composer-stack">
+      {composer}
+      {presetId === 'simple' ? <div className="workbench-chat-controls px-2 pt-2">{simpleAgentChooser}</div> : multiControls}
+    </div>
   );
   const newChatWelcome = messages.length === 0 && !isProcessing;
   return (
@@ -2399,16 +2448,7 @@ export default function App() {
               </div>
             </div>
             <div className="workbench-conversation-header-sub flex flex-wrap items-center gap-2">
-              <button type="button" disabled={isProcessing}
-                onClick={() => setWorkflowOptionsOpen(true)}
-                aria-haspopup="dialog" aria-expanded={workflowOptionsOpen}
-                aria-controls="workbench-workflow-options"
-                className="workbench-mode-select flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-900">
-                <span className="workbench-mode-select-icon" aria-hidden="true">{presetId === 'brainstorm' ? '✨' : CHAT_MODES[mode].icon}</span>
-                {translate(presetForId(presetId).displayNameKey)}
-                <span className="text-zinc-400" aria-hidden="true">⌄</span>
-              </button>
-              {!newChatWelcome ? simpleAgentChooser : null}
+              {!newChatWelcome ? experienceSwitcher : null}
               {isProcessing || workflowStatus ? (
                 <span className="workbench-conversation-status truncate text-xs text-zinc-500 dark:text-zinc-400">
                   {workflowStatus || translate('processTrace.awaiting')}
@@ -2562,56 +2602,8 @@ export default function App() {
                   <h2 className="workbench-new-chat-title text-center text-2xl font-semibold tracking-tight">
                     {translate('sidebar.emptyTitle')}
                   </h2>
-                  <p className="mt-2 text-center text-sm text-zinc-500 dark:text-zinc-400">{translate('sidebar.emptySubtitle')}</p>
-                  <div className="workbench-new-chat-workflows mt-8 flex flex-wrap items-center justify-center gap-2" aria-label={translate('sidebar.workflowChoice')}>
-                    {(['simple', 'consult'] as const).map((id) => {
-                      const preset = presetForId(id);
-                      return (
-                        <button key={id} type="button" disabled={isProcessing}
-                          className={`workbench-new-chat-workflow rounded-full px-4 py-2 text-xs font-semibold ${presetId === id ? 'workbench-new-chat-workflow-selected' : ''}`}
-                          aria-pressed={presetId === id} onClick={() => { selectPreset(id); setMoreWorkflowsOpen(false); }}>
-                          {translate(preset.displayNameKey)}
-                        </button>
-                      );
-                    })}
-                    <div className="relative" onBlur={(event) => {
-                      if (!event.currentTarget.contains(event.relatedTarget)) setMoreWorkflowsOpen(false);
-                    }}>
-                      <button type="button" className={`workbench-new-chat-workflow rounded-full px-4 py-2 text-xs font-semibold ${moreWorkflowsOpen || (presetId !== 'simple' && presetId !== 'consult') ? 'workbench-new-chat-workflow-selected' : ''}`}
-                        aria-haspopup="menu" aria-expanded={moreWorkflowsOpen}
-                        onClick={() => setMoreWorkflowsOpen((open) => !open)}
-                        disabled={isProcessing}>{translate('workbench.moreWorkflows')} <span aria-hidden="true">⌄</span></button>
-                      {moreWorkflowsOpen ? (
-                        <div className="workbench-workflow-menu absolute left-0 top-full z-30 mt-2 min-w-48 rounded-xl p-1.5 shadow-xl"
-                          role="menu" aria-label={translate('workbench.moreWorkflows')}
-                          onKeyDown={(event) => { if (event.key === 'Escape') setMoreWorkflowsOpen(false); }}>
-                          {PRESET_CATALOG.filter((preset) => preset.id !== 'simple' && preset.id !== 'consult').map((preset) => (
-                            <button key={preset.id} type="button" role="menuitemradio" aria-checked={presetId === preset.id}
-                              className="workbench-menu-item" onClick={() => { selectPreset(preset.id); setMoreWorkflowsOpen(false); }}>
-                              {translate(preset.displayNameKey)}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                  {simpleAgentChooser ? <div className="mt-5">{simpleAgentChooser}</div> : null}
-                  <div className="workbench-new-chat-project mx-auto mt-5 flex max-w-xl items-center justify-center gap-2">
-                    <label className="sr-only" htmlFor="workbench-new-chat-project">{translate('sidebar.chooseProject')}</label>
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">{translate('sidebar.chooseProject')}</span>
-                    <select id="workbench-new-chat-project" className="max-w-52 rounded-lg border border-zinc-200 bg-transparent px-2 py-1.5 text-xs dark:border-zinc-700"
-                      value={effectiveProjectStore.activeProjectId ?? ''}
-                      onChange={(event) => {
-                        const session = sessions.find((item) => item.id === activeSessionId);
-                        if (session) assignConversationProject(session, event.target.value || undefined);
-                      }}>
-                      <option value="">{translate('sidebar.general')}</option>
-                      {projectStore.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-                    </select>
-                    <button type="button" className="rounded-lg px-2 py-1.5 text-xs text-sky-700 hover:bg-zinc-100 dark:text-sky-300 dark:hover:bg-zinc-800"
-                      onClick={() => setProjectSettingsOpen(true)}>+ {translate('sidebar.newProject')}</button>
-                  </div>
-                  <div className="workbench-new-chat-composer mt-4">{composer}</div>
+                  <div className="workbench-new-chat-mode mt-5 flex justify-center">{experienceSwitcher}</div>
+                  <div className="workbench-new-chat-composer mt-5">{composerStack}</div>
                 </div>
               </div>
             ) : (
@@ -2634,7 +2626,7 @@ export default function App() {
             </section>
           ) : null}
           <div className={`ai-sister-conversation-composer workbench-composer-region shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800 ${newChatWelcome ? 'hidden' : ''}`}>
-            {!newChatWelcome ? composer : null}
+            {!newChatWelcome ? composerStack : null}
           </div>
         </section>
       </div>
