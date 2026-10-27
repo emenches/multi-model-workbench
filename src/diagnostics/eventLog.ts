@@ -300,6 +300,9 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
   const bulkReady = numberProp(payload, 'bulkReady');
   const doneReady = booleanProp(payload, 'doneReady');
   const capturePhase = stringProp(payload, 'capturePhase');
+  const rendererDiagnostic = stringProp(payload, 'rendererDiagnostic');
+  const captureDilRendererFrames = numberProp(payload, 'captureDilRendererFrames');
+  const captureLatestUnitFrames = numberProp(payload, 'captureLatestUnitFrames');
   const statusErrorStage = stringProp(payload, 'statusErrorStage');
   const pullDiagnostic = stringProp(payload, 'pullDiagnostic');
   const pullFailureKind = stringProp(payload, 'pullFailureKind');
@@ -325,6 +328,8 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
   const captureTextChars = numberProp(payload, 'captureTextChars');
   const captureAnchor = booleanProp(payload, 'captureAnchor');
   const captureGenerationSeen = booleanProp(payload, 'captureGenerationSeen');
+  if (rendererDiagnostic === 'navigation-blocked') parts.push('ChatGPT DIL renderer navigation blocked by native policy');
+  if (rendererDiagnostic === 'popup-blocked') parts.push('ChatGPT DIL renderer popup blocked by native policy');
   if (capturePhase) parts.push(`capture ${capturePhase}`);
   if (statusErrorStage) parts.push(`status probe error ${statusErrorStage}`);
   if (pullDiagnostic) parts.push(`pull ${pullDiagnostic}`);
@@ -367,6 +372,8 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
       bulkReady: bulkReady ?? null,
       doneReady: doneReady ?? null,
       ...(statusErrorStage ? { statusErrorStage } : {}),
+      ...(rendererDiagnostic === 'navigation-blocked' || rendererDiagnostic === 'popup-blocked'
+        ? { rendererDiagnostic } : {}),
       ...(pullDiagnostic ? {
         pullDiagnostic,
         pullFailureKind: pullFailureKind ?? null,
@@ -404,7 +411,8 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
         captureLatestUnitRenderedChars: numberProp(payload, 'captureLatestUnitRenderedChars') ?? null,
         captureLatestUnitSerializedChars: numberProp(payload, 'captureLatestUnitSerializedChars') ?? null,
         captureLatestUnitMarkdownNodes: numberProp(payload, 'captureLatestUnitMarkdownNodes') ?? null,
-        captureLatestUnitFrames: numberProp(payload, 'captureLatestUnitFrames') ?? null,
+        captureLatestUnitFrames: captureLatestUnitFrames ?? null,
+        captureDilRendererFrames: captureDilRendererFrames ?? null,
         captureRejectedBeforeAnchor: numberProp(payload, 'captureRejectedBeforeAnchor') ?? null,
         captureRejectedAsUser: numberProp(payload, 'captureRejectedAsUser') ?? null,
         captureRejectedBaseline: numberProp(payload, 'captureRejectedBaseline') ?? null,

@@ -1301,6 +1301,19 @@ pub async fn provider_open(
             // this top-level navigation callback must not replace ChatGPT's
             // own document with a CDN runner lacking our provider bridge.
             if chatgpt_renderer_auxiliary_url(&nav_provider, url) {
+                // Record when WKWebView's navigation callback rejects the
+                // ChatGPT DIL runner. Never log a URL, token or page content.
+                let _ = nav_app.emit_to(
+                    "main",
+                    "bridge://msg",
+                    serde_json::json!({
+                        "v": 1,
+                        "action": "STATUS_REPORT",
+                        "provider": &nav_provider,
+                        "transport": "local",
+                        "payload": { "rendererDiagnostic": "navigation-blocked" }
+                    }),
+                );
                 return false;
             }
             if url.host_str() == Some("mac-bridge.invalid") {
@@ -1333,6 +1346,17 @@ pub async fn provider_open(
         })
         .on_new_window(move |url, features| {
             if chatgpt_renderer_auxiliary_url(&popup_provider, &url) {
+                let _ = popup_app.emit_to(
+                    "main",
+                    "bridge://msg",
+                    serde_json::json!({
+                        "v": 1,
+                        "action": "STATUS_REPORT",
+                        "provider": &popup_provider,
+                        "transport": "local",
+                        "payload": { "rendererDiagnostic": "popup-blocked" }
+                    }),
+                );
                 return NewWindowResponse::Deny;
             }
             // Challenge auxiliary about: documents are allowed only as in-webview navigation.

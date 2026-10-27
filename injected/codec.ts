@@ -58,7 +58,8 @@ const COMPACT_STATUS_FIELDS = [
   // Compact, text-free capture facts distinguish a missing embedded reply from
   // an over-strict candidate filter even while regular title reporting works.
   'captureResponseNodes', 'captureAssistantUnits',
-  'captureLatestUnitDomChars', 'captureTextChars',
+  'captureLatestUnitDomChars', 'captureLatestUnitFrames',
+  'captureDilRendererFrames', 'captureTextChars',
   'captureAnchor', 'captureGenerationSeen',
 ] as const;
 
