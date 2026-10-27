@@ -55,6 +55,11 @@ const COMPACT_STATUS_FIELDS = [
   'dom', 'login', 'thinking', 'bridge', 'adapter', 'reason',
   'bulkReady', 'doneReady', 'fill', 'fillChars', 'fillMs',
   'statusErrorStage', 'capturePhase',
+  // Compact, text-free capture facts distinguish a missing embedded reply from
+  // an over-strict candidate filter even while regular title reporting works.
+  'captureResponseNodes', 'captureAssistantUnits',
+  'captureLatestUnitDomChars', 'captureTextChars',
+  'captureAnchor', 'captureGenerationSeen',
 ] as const;
 
 export function encodeBoundedStatusTitleFrame<T extends { action: string; payload?: unknown }>(

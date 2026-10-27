@@ -21,6 +21,9 @@ describe('bridge codec', () => {
         dom: 'ready', login: 'logged_in', thinking: null,
         bulkReady: 4, doneReady: true, fill: 'done', fillChars: 2302,
         capturePhase: 'candidate-rejected',
+        captureResponseNodes: 1, captureAssistantUnits: 1,
+        captureLatestUnitDomChars: 13, captureTextChars: 0,
+        captureAnchor: true, captureGenerationSeen: true,
         captureFullDiagnostics: 'x'.repeat(12_000),
       },
     };
@@ -34,6 +37,9 @@ describe('bridge codec', () => {
         dom: 'ready', login: 'logged_in', thinking: null,
         bulkReady: 4, doneReady: true, fill: 'done', fillChars: 2302,
         capturePhase: 'candidate-rejected',
+        captureResponseNodes: 1, captureAssistantUnits: 1,
+        captureLatestUnitDomChars: 13, captureTextChars: 0,
+        captureAnchor: true, captureGenerationSeen: true,
       },
     });
     expect(JSON.stringify(decoded?.json)).not.toContain('captureFullDiagnostics');
