@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { isProviderAppHost } from '../../injected/bootstrap';
+import { isProviderAppHost, shouldPatchHistory } from '../../injected/bootstrap';
+
+describe('provider route instrumentation', () => {
+  it('does not override native History API on ChatGPT or Grok', () => {
+    expect(shouldPatchHistory('chatgpt')).toBe(false);
+    expect(shouldPatchHistory('grok')).toBe(false);
+  });
+
+  it('preserves existing route instrumentation for other providers', () => {
+    expect(shouldPatchHistory('claude')).toBe(true);
+    expect(shouldPatchHistory('gemini')).toBe(true);
+    expect(shouldPatchHistory('meta')).toBe(true);
+  });
+});
 
 describe('bootstrap app-host gate', () => {
   it('fails closed when the host list is missing or empty', () => {
