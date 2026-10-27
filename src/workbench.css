@@ -1475,14 +1475,7 @@ html:not(.ai-sister) .workbench-shell .workbench-new-chat-composer .workbench-co
   border-radius: 999px;
 }
 html:not(.ai-sister) .workbench-shell .workbench-composer:has(.workbench-composer-context),
-html:not(.ai-sister) .workbench-shell .workbench-composer:has(.workbench-composer-body textarea[rows="1"]:focus-visible) {
-  border-radius: 22px;
-}
-html:not(.ai-sister) .workbench-shell .workbench-composer:has(.workbench-composer-body textarea[rows="1"]:focus-visible) {
-  border-radius: 999px;
-}
-html:not(.ai-sister) .workbench-shell .workbench-composer:has(.workbench-composer-context),
-html:not(.ai-sister) .workbench-shell .workbench-composer:has(.workbench-composer-body + div.flex) {
+html:not(.ai-sister) .workbench-shell .workbench-composer:has(.workbench-composer-body + div) {
   border-radius: 22px;
 }
 html:not(.ai-sister) .workbench-shell .workbench-composer-body {
