@@ -529,7 +529,7 @@ html:not(.ai-sister) .workbench-dialog-backdrop button {
 }
 @media (max-width: 1090px) {
   html:not(.ai-sister) .workbench-shell .workbench-session-sidebar {
-    width: 196px;
+    width: 100%;
   }
   html:not(.ai-sister) .workbench-shell .workbench-session-sidebar.w-\[60px\] {
     width: 60px;
@@ -1309,4 +1309,40 @@ html:not(.ai-sister) .workbench-shell [role="menuitem"]:focus-visible {
 }
 @media (prefers-reduced-motion: reduce) {
   html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflow { transition: none; }
+}
+
+/* Allow a little more room for project names and conversation titles.
+   The same token sizes both the nav and its matching CSS-grid track. */
+.workbench-shell { --wb-sidebar-width: 252px; }
+@media (max-width: 1090px) {
+  .workbench-shell { --wb-sidebar-width: 220px; }
+}
+@media (max-width: 760px) {
+  .workbench-shell { --wb-sidebar-width: 200px; }
+}
+html:not(.ai-sister) .workbench-shell .workbench-agent-pill {
+  gap: 6px;
+  white-space: nowrap;
+}
+html:not(.ai-sister) .workbench-shell .workbench-agent-status-dot {
+  display: inline-block;
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #9099a9;
+}
+html:not(.ai-sister) .workbench-shell .workbench-agent-pill[data-agent-status="ready"] .workbench-agent-status-dot {
+  background: #20b487;
+}
+html:not(.ai-sister) .workbench-shell .workbench-agent-pill[data-agent-status="checking"] .workbench-agent-status-dot {
+  background: #daa852;
+}
+html:not(.ai-sister) .workbench-shell .workbench-agent-status-label {
+  margin-left: 2px;
+  font-size: 10px;
+  color: var(--wb-secondary);
+}
+@media (max-width: 900px) {
+  html:not(.ai-sister) .workbench-shell .workbench-agent-status-label { display: none; }
 }
