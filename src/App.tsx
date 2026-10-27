@@ -2600,7 +2600,7 @@ export default function App() {
               <div className="workbench-new-chat-screen flex min-h-full flex-col items-center justify-center px-3 py-6">
                 <div className="workbench-new-chat-body mx-auto w-full max-w-2xl">
                   <h2 className="workbench-new-chat-title text-center text-2xl font-semibold tracking-tight">
-                    {translate('sidebar.emptyTitle')}
+                    {translate(presetId === 'simple' ? 'sidebar.emptyChatTitle' : 'sidebar.emptyTitle')}
                   </h2>
                   <div className="workbench-new-chat-mode mt-5 flex justify-center">{experienceSwitcher}</div>
                   <div className="workbench-new-chat-composer mt-5">{composerStack}</div>
