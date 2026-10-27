@@ -49,7 +49,7 @@ export function ConversationSidebar({
   return (
     <nav
       aria-label={labels.history}
-      className={`ai-sister-session-sidebar workbench-session-sidebar ${collapsed ? 'w-[60px]' : 'w-[238px]'} flex min-h-0 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 transition-[width] dark:border-zinc-800 dark:bg-zinc-900`}
+      className={`ai-sister-session-sidebar workbench-session-sidebar ${collapsed ? 'w-[60px]' : 'w-[208px]'} flex min-h-0 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 transition-[width] dark:border-zinc-800 dark:bg-zinc-900`}
     >
       <div className="workbench-sidebar-brand flex items-center gap-2 border-b border-zinc-200 px-3 py-3 dark:border-zinc-800">
         <button
