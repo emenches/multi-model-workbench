@@ -266,7 +266,7 @@ describe('injected engine input hardening', () => {
     vi.useFakeTimers();
     const env = createEnv({ inputKind: 'contenteditable' });
     mountProseMirrorComposer(env);
-    let assistant: FakeElement | null = null;
+    let assistant: FakeElement | undefined;
     if (!env.sendButton) throw new Error('send button missing');
     env.sendButton.onClick = () => {
       env.input.replaceChildren();
@@ -278,7 +278,7 @@ describe('injected engine input hardening', () => {
         progress: "This response couldn't load",
         actionLabel: 'Copy',
       });
-      assistant = exchange.turn.querySelector('[data-content-search-unit-key$=":assistant"]');
+      assistant = exchange.turn.querySelector('[data-content-search-unit-key$=":assistant"]') ?? undefined;
     };
     const handler = await installEngine(env);
     dispatchAdapter(handler, bundledChatGptAdapter());
@@ -286,14 +286,14 @@ describe('injected engine input hardening', () => {
     send(handler, 'Explain the result', 'chatgpt');
     await flushMicrotasks();
     await vi.advanceTimersByTimeAsync(CHAT_WORK_SETTLE_MS + 4_000);
-    expect(assistant).not.toBeNull();
+    if (!assistant) throw new Error('current assistant unit missing');
     expect(env.emitted.filter((m) => m.action === 'RESPONSE_CHUNK' || m.action === 'RESPONSE_DONE')).toHaveLength(0);
 
     // The same assistant unit can resume with the complete answer after the
     // transient error. Keep the old row in place; prefer the new answer node.
     const answer = new FakeElement(env.document, 'div', 'The substantive answer that arrived after more thinking.');
     answer.setAttribute('data-markdown-text-style', 'assistant-message');
-    assistant!.appendChild(answer);
+    assistant.appendChild(answer);
     FakeMutationObserver.notify();
     await vi.advanceTimersByTimeAsync(3_000 + CHATGPT_TERMINAL_STABLE_MS + CHATGPT_TERMINAL_SAMPLE_INTERVAL_MS + 500);
     expect(env.emitted.filter((m) => m.action === 'RESPONSE_DONE')).toEqual([{
