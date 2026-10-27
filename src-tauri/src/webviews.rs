@@ -1669,6 +1669,15 @@ pub async fn provider_open_window(
         client_size,
     )?;
     provider_webview.show().map_err(|error| error.to_string())?;
+    // Some WKWebView versions defer native frame layout while hidden.
+    // After both parent and child are visible, apply the final client
+    // rectangle once more. Further user resizes are handled by Resized.
+    let visible_size = window.inner_size().map_err(|error| error.to_string())?;
+    set_webview_bounds(
+        &provider_webview,
+        PhysicalPosition::new(0, 0),
+        visible_size,
+    )?;
     window.set_focus().map_err(|error| error.to_string())?;
     Ok(())
 }
