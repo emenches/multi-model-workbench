@@ -117,7 +117,7 @@ export function beginNewConversationSession({
           createdAt: existing.createdAt,
           updatedAt: Math.max(existing.createdAt, timestamp),
           mode: 'free' as const,
-          ...(projectId ? { projectId } : {}),
+          projectId: projectId || undefined,
           messages: [],
         }
       : createConversationSession({ now: timestamp, projectId });

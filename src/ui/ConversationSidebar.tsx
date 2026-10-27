@@ -145,7 +145,7 @@ export function ConversationSidebar({
           </span>
         ) : null}
       </div>
-      <div className="px-2.5 py-3">
+      <div className="px-2.5 pt-3 pb-1">
         <button type="button"
           className={`workbench-new-conversation ${collapsed ? 'grid h-9 w-9 place-items-center p-0' : 'flex w-full items-center gap-2 px-3 py-2'} rounded-xl border text-sm font-medium disabled:opacity-50`}
           onClick={() => collapsed ? onNewConversation() : setNewChatMenuOpen((open) => !open)}
@@ -153,7 +153,8 @@ export function ConversationSidebar({
           disabled={disabled}
           aria-label={labels.newConversation} title={labels.newConversation}>
           <span className="text-lg leading-none" aria-hidden="true">＋</span>
-          {!collapsed ? <span>{labels.newConversation}</span> : null}
+          {!collapsed ? <span className="flex-1 text-left">{labels.newConversation}</span> : null}
+          {!collapsed ? <span className="text-zinc-400" aria-hidden="true">⌄</span> : null}
         </button>
       </div>
       {!collapsed && newChatMenuOpen ? (
