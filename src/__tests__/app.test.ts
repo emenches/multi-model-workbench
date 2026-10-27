@@ -21,6 +21,7 @@ import App, { agentHeaderStatus, canRestoreWithoutInspectorPane, ChatArea, prese
 import { I18nProvider } from '../i18n/context';
 import { applyCenterHiddenCommands } from '../ui/presentationCommands';
 import { defaultPresentation, setProviderPresentation } from '../ui/presentation';
+import { defaultSettings, mergeSettings, normalizeSettings } from '../ui/settingsModel';
 
 function state(provider: AIProvider, thinking = false): ProviderState {
   return {
@@ -115,16 +116,30 @@ describe('App workflow controls', () => {
     expect(html).not.toContain('workbench-provider-dock');
   });
 
-  it('preserves optional AI-Sister branding while keeping the workbench layout uncluttered', () => {
+  it('renders only Workbench branding, without the former alternate theme', () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, { language: 'en', children: createElement(App) }));
-
-    // The oversized commemorative card was intentionally removed from the
-    // default workspace in favor of the modal workflow chooser. The optional
-    // theme remains accessible through its brand mark and edition subtitle.
-    expect(html).toContain('ai-sister-brand-mark');
-    expect(html).toContain('AI-Sister Edition');
-    expect(html).not.toContain('ai-sister-ensemble-card');
     expect(html).toContain('app-shell');
+    expect(html).not.toContain('ai-sister-brand-mark');
+    expect(html).not.toContain('AI-Sister Edition');
+    expect(html).not.toContain('ai-sister-avatar');
+  });
+});
+
+describe('Dark-only settings migration', () => {
+  it('defaults to dark and migrates legacy saved themes without disturbing other settings', () => {
+    expect(defaultSettings().theme).toBe('dark');
+    for (const legacyTheme of ['light', 'dark', 'ai-sister', 'unexpected', null]) {
+      const normalized = normalizeSettings({
+        ...defaultSettings(),
+        theme: legacyTheme,
+        language: 'ja',
+        fontSize: 19,
+      });
+      expect(normalized.theme).toBe('dark');
+      expect(normalized.language).toBe('ja');
+      expect(normalized.fontSize).toBe(19);
+      expect(mergeSettings(normalized, { theme: 'dark' }).theme).toBe('dark');
+    }
   });
 });
 
