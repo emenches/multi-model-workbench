@@ -205,13 +205,13 @@ interface MacBridge {
       frame = bounded.frame;
       if (bounded.compacted) titleHealth.compacted += 1;
       if (!document.head) {
-      try {
-        document.title = frame;
-      } catch (error) {
-        logError(error);
+        try {
+          document.title = frame;
+        } catch (error) {
+          logError(error);
+        }
+        await waitForHead();
       }
-      await waitForHead();
-    }
 
       const previous = document.title.startsWith('\u200BMAC1|') ? '' : document.title;
       inFlightTitleFrame = frame;
