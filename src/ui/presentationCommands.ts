@@ -53,11 +53,12 @@ export async function applyPresentationTransitionCommand({
   }
 
   if (firstWebview === 'loaded') {
-    await host.show(provider);
-
+    // After the child was parked offscreen, showing before moving it back
+    // can briefly paint it across native controls on macOS WKWebView.
+    await host.setBounds(provider, bounds);
     const boundsWebview = currentWebview();
     if (!shouldContinue() || boundsWebview !== 'loaded') return;
-    await host.setBounds(provider, bounds);
+    await host.show(provider);
     return;
   }
 
