@@ -123,6 +123,15 @@ afterEach(() => {
 });
 
 describe('Composer plus menu', () => {
+  it('keeps the composer free of visible keyboard shortcut instructions', () => {
+    const renderer = renderInputBar();
+    expect(textarea(renderer).placeholder).toBe('Type a message…');
+    expect(textarea(renderer).placeholder).not.toContain('Enter');
+    expect(renderedText(renderer)).not.toContain('Enter to send');
+    expect(renderedText(renderer)).not.toContain('Shift+Enter');
+    expect(sendButton(renderer).className).toContain('ml-auto');
+  });
+
   it('keeps file acquisition and project assignment available without permanent footer clutter', () => {
     const onChooseProject = vi.fn();
     const onCreateProject = vi.fn();
