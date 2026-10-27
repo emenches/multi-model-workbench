@@ -191,6 +191,7 @@ export const en: Record<I18nKey, string> = {
   'sidebar.addAgent': 'Add agent',
   'sidebar.agents': 'Agents',
   'sidebar.activityToggle': 'Activity panel',
+  'sidebar.emptyChatTitle': 'What would you like to chat about?',
   'sidebar.emptyTitle': 'What would you like to work on?',
   'sidebar.emptySubtitle': 'Choose a workflow, then start a conversation.',
   'sidebar.chooseProject': 'Chat project',
