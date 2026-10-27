@@ -27,7 +27,7 @@ export interface AppSettings {
   settingsSchemaVersion: number;
   language: LanguageSetting;
   responseLanguage: ResponseLanguageSetting;
-  theme: 'light' | 'dark' | 'ai-sister';
+  theme: 'dark';
   fontSize: number;
   layoutMode: 'focus';
   focusPaneWidth: number;
@@ -64,7 +64,7 @@ export function defaultSettings(): AppSettings {
     settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
     language: 'system',
     responseLanguage: 'auto',
-    theme: 'light',
+    theme: 'dark',
     fontSize: DEFAULT_FONT_SIZE,
     layoutMode: 'focus',
     focusPaneWidth: DEFAULT_FOCUS_PANE_WIDTH,
@@ -94,10 +94,6 @@ function providerList(value: unknown): AIProvider[] {
 
 function snapshotRedactionTier(value: unknown, fallback: SnapshotRedactionTier): SnapshotRedactionTier {
   return isSnapshotRedactionTier(value) ? value : fallback;
-}
-
-function theme(value: unknown, fallback: AppSettings['theme']): AppSettings['theme'] {
-  return value === 'light' || value === 'dark' || value === 'ai-sister' ? value : fallback;
 }
 
 export const DEFAULT_FONT_SIZE = 16;
@@ -160,7 +156,8 @@ export function normalizeSettings(value: unknown): AppSettings {
     settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
     language: normalizeLanguageSetting(input.language),
     responseLanguage: normalizeResponseLanguageSetting(input.responseLanguage),
-    theme: theme(input.theme, defaults.theme),
+    // Migrate all saved light / commemorative preferences to the sole supported theme.
+    theme: 'dark',
     fontSize: fontSize(input.fontSize),
     layoutMode: 'focus',
     focusPaneWidth: focusPaneWidth(input.focusPaneWidth, input.columnWidths, defaults.focusPaneWidth),
