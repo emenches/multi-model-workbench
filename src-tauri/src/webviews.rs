@@ -1678,6 +1678,22 @@ pub async fn provider_open_window(
         PhysicalPosition::new(0, 0),
         visible_size,
     )?;
+    // The first macOS NSWindow layout may settle on a later run-loop turn.
+    // One bounded follow-up corrects a stale old-pane frame after reparent.
+    // Guard against a close/reparent between scheduling and applying it.
+    let app_for_layout = app.clone();
+    let provider_for_layout = provider.clone();
+    let window_for_layout = window.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        if let Some(view) = app_for_layout.get_webview(&provider_label(&provider_for_layout)) {
+            if is_provider_detached(&view, &provider_for_layout) {
+                if let Ok(size) = window_for_layout.inner_size() {
+                    let _ = set_webview_bounds(&view, PhysicalPosition::new(0, 0), size);
+                }
+            }
+        }
+    });
     window.set_focus().map_err(|error| error.to_string())?;
     Ok(())
 }
