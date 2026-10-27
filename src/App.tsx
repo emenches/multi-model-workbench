@@ -8,10 +8,8 @@ import { EchoPanel } from './dev/EchoPanel';
 import { getRuntimeAppVersion } from './appVersion';
 import { host } from './host';
 import { ProjectPicker } from './workspace/ProjectPicker';
-import { PRESET_CATALOG } from './ui/presetCatalogData';
-import { activeProject } from './workspace/model';
 import { MIN_CONSULT_PROVIDERS, availableConsultProviders, chooseConsultRoles } from './ui/consultAvailability';
-import { EMPTY_PROJECT_STORE, mergeProjectContext, type ProjectStore } from './workspace/model';
+import { EMPTY_PROJECT_STORE, activeProject, mergeProjectContext, type ProjectStore } from './workspace/model';
 import { useI18n } from './i18n/context';
 import { MODE_NAME_KEYS } from './i18n/modes';
 import type { Locale } from './i18n/resolve';
@@ -96,7 +94,7 @@ import {
   waitForPresentationTargetBounds,
 } from './ui/presentationCommands';
 import { preflightGraph, workflowGraphs } from './workflow/graph';
-import { defaultRolesForPreset, presetForId } from './ui/presetCatalogData';
+import { PRESET_CATALOG, defaultRolesForPreset, presetForId } from './ui/presetCatalogData';
 import { buildPreflightDialogModel } from './ui/preflightModel';
 import { preflightFromResult, type PreflightSubject } from './ui/preflightFromResult';
 import { processingAfterSend, processingAfterSettle, processingAfterWorkflowStatus } from './ui/processing';
@@ -362,6 +360,7 @@ export default function App() {
   const [messagesMaximized, setMessagesMaximized] = useState(false);
   const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
   const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
+  const [providerWindowError, setProviderWindowError] = useState<string>();
   const [scrollFocusedProvider, setScrollFocusedProvider] = useState<AIProvider | undefined>();
   const [presentation, setPresentation] = useState<PresentationByProvider>(() => defaultPresentation());
   const [centerSurface, setCenterSurface] = useState<CenterSurface>('text');
@@ -1872,11 +1871,12 @@ export default function App() {
     // A native WKWebView paints above React regardless of CSS z-index.
     // Real page lives in a separate, movable OS window, while the workbench
     // stays in the readable text mode with all of its controls accessible.
+    setProviderWindowError(undefined);
     void (async () => {
       await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
       await host.provider.openWindow(provider);
     })().catch((error: unknown) => {
-      console.error('Could not open the provider page:', error);
+      setProviderWindowError(error instanceof Error ? error.message : String(error));
     });
   }, [ensureProviderLoadedHidden]);
 
@@ -2322,6 +2322,12 @@ export default function App() {
               </div>
             </div>
           </div>
+          {providerWindowError ? (
+            <div role="alert" className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+              <span>Could not open the separate provider window: {providerWindowError}</span>
+              <button type="button" onClick={() => setProviderWindowError(undefined)} className="rounded border border-current px-2 py-1">Dismiss</button>
+            </div>
+          ) : null}
           {processTrace && (processTrace.currentStatus || processTrace.steps.length > 0) ? (
             <details className="workbench-run-details mt-3 rounded-lg border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
               <summary className="cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300">
