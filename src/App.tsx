@@ -2332,7 +2332,9 @@ export default function App() {
                   </svg>
                   {isProcessing ? <span className="workbench-header-activity-dot" aria-hidden="true" /> : null}
                 </button>
-                <div className="relative">
+                <div className="relative" onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) setHeaderMoreOpen(false);
+                }}>
                   <button type="button" className={`workbench-icon-button ${headerMoreOpen ? 'workbench-icon-button-selected' : ''}`}
                     aria-haspopup="menu" aria-expanded={headerMoreOpen}
                     aria-label={translate('workbench.moreActions')} title={translate('workbench.moreActions')}
@@ -2540,8 +2542,10 @@ export default function App() {
                         </button>
                       );
                     })}
-                    <div className="relative">
-                      <button type="button" className={`workbench-new-chat-workflow rounded-full px-4 py-2 text-xs font-semibold ${moreWorkflowsOpen ? 'workbench-new-chat-workflow-selected' : ''}`}
+                    <div className="relative" onBlur={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget)) setMoreWorkflowsOpen(false);
+                    }}>
+                      <button type="button" className={`workbench-new-chat-workflow rounded-full px-4 py-2 text-xs font-semibold ${moreWorkflowsOpen || (presetId !== 'simple' && presetId !== 'consult') ? 'workbench-new-chat-workflow-selected' : ''}`}
                         aria-haspopup="menu" aria-expanded={moreWorkflowsOpen}
                         onClick={() => setMoreWorkflowsOpen((open) => !open)}
                         disabled={isProcessing}>{translate('workbench.moreWorkflows')} <span aria-hidden="true">⌄</span></button>
