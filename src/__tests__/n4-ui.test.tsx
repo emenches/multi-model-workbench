@@ -88,6 +88,23 @@ describe('N4 preset catalog', () => {
     );
   });
 
+  it('renders large descriptive cards when choosing a workflow in the modal', () => {
+    const tree = PresetCatalog({
+      mode: 'consult', selectedPresetId: 'consult', layout: 'dialog',
+      locale: 'en', onSelectPreset: vi.fn(),
+    });
+    const buttons = findAllElements(tree, (element) =>
+      element.type === 'button' && PRESET_CATALOG.some((preset) =>
+        textOf(element).includes(t(preset.displayNameKey, 'en'))
+      ),
+    );
+    expect(buttons).toHaveLength(6);
+    for (const preset of PRESET_CATALOG) {
+      const card = buttons.find((button) => textOf(button).includes(t(preset.displayNameKey, 'en')));
+      expect(textOf(card)).toContain(t(preset.descriptionKey, 'en'));
+    }
+  });
+
   it('selects the clicked mode and exposes default roles for preset selection', () => {
     const onSelectPreset = vi.fn();
     const tree = PresetCatalog({
@@ -198,6 +215,9 @@ describe('N4 process trace', () => {
       ['Con · Claude', 'active'],
     ]);
 
+    const compact = renderToStaticMarkup(<ProcessTrace trace={trace} locale={locale} compact />);
+    expect(compact).not.toContain('PROCESS TRACE');
+    expect(compact).toContain('Pro · ChatGPT');
     const html = renderToStaticMarkup(<ProcessTrace trace={trace} locale={locale} />);
     expect(html).toContain(t('processTrace.title', locale));
     expect(html).toContain('Debate: con');
