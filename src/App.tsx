@@ -307,7 +307,6 @@ export default function App() {
   const [workflowStatus, setWorkflowStatus] = useState('');
   const [mode, setMode] = useState<ChatMode>(initialConversation.active.mode);
   const [presetId, setPresetId] = useState<WorkflowPresetId>(initialConversation.active.presetId ?? initialConversation.active.mode);
-  const [presetDetailsId, setPresetDetailsId] = useState<WorkflowPresetId | undefined>();
   const [replayDrawerOpen, setReplayDrawerOpen] = useState(false);
   const [processTrace, setProcessTrace] = useState<ProcessTraceState | undefined>();
   const [processTraceDetailOpen, setProcessTraceDetailOpen] = useState(false);
@@ -1742,7 +1741,6 @@ export default function App() {
     setMessages([]);
     setMode('free');
     setPresetId('free');
-    setPresetDetailsId(undefined);
     setWorkflowStatus('');
     setProcessTrace(undefined);
     setReplayDrawerOpen(false);
@@ -1761,7 +1759,6 @@ export default function App() {
       setMessages(bubblesFromSession(session));
       setMode(session.mode);
       setPresetId(session.presetId ?? session.mode);
-      setPresetDetailsId(undefined);
       setWorkflowStatus('');
       setProcessTrace(undefined);
       setReplayDrawerOpen(false);
@@ -2008,7 +2005,6 @@ export default function App() {
       const nextPreset = presetForId(nextPresetId);
       setMode(nextPreset.graphId);
       setPresetId(nextPreset.id);
-      setPresetDetailsId((current) => (current === nextPreset.id ? undefined : nextPreset.id));
       if (nextPreset.id === 'brainstorm') {
         setTargetSelection({ targets: [...activeProviders], defaultsInitialized: true, userTouched: false });
       }
