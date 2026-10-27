@@ -98,6 +98,66 @@ function metaAdapter(overrides: Partial<TestAdapter> = {}): Partial<TestAdapter>
 }
 
 describe('injected engine input hardening', () => {
+  it('reports which capture gate is missing without exposing the user prompt', async () => {
+    vi.useFakeTimers();
+    const env = createEnv({ inputKind: 'textarea' });
+    const handler = await installEngine(env);
+    dispatchAdapter(handler, { provider: 'chatgpt' });
+    const prompt = 'PRIVATE_CAPTURE_DIAGNOSTIC_PROMPT';
+    send(handler, prompt, 'chatgpt');
+    await flushMicrotasks();
+
+    handler({ v: 1, action: 'CHECK_STATUS', provider: 'chatgpt' } as BridgeMessage);
+    expect(env.emitted.at(-1)).toMatchObject({
+      action: 'STATUS_REPORT',
+      provider: 'chatgpt',
+      payload: {
+        capturePhase: 'waiting-user-anchor',
+        captureUserNodes: 0,
+        captureResponseNodes: 0,
+        captureAnchorLatched: false,
+        captureTextChars: 0,
+      },
+    });
+    expect(JSON.stringify(env.emitted.at(-1))).not.toContain(prompt);
+  });
+
+  it.each([
+    '[data-content-search-unit-key$=":user"]',
+    '[data-chatgpt-search-unit-key$=":user"]',
+  ])('captures a completed ChatGPT answer after a matching %s user turn', async (selector) => {
+    vi.useFakeTimers();
+    const env = createEnv({ inputKind: 'textarea' });
+    const handler = await installEngine(env);
+    dispatchAdapter(handler, {
+      provider: 'chatgpt',
+      thinkingDetectors: ['.thinking'],
+      timing: { doneDelayMs: 100, chunkDebounceMs: 0, statusIntervalMs: 1_000_000, backupPollMs: 10 },
+    });
+    if (env.sendButton) env.sendButton.onClick = () => env.input.setVisibleText('');
+
+    const prompt = 'Give the answer in two words';
+    send(handler, prompt, 'chatgpt');
+    await vi.advanceTimersByTimeAsync(PRE_SEND_DELAY_MS);
+
+    const user = new FakeElement(env.document, 'div', prompt);
+    env.detectorElements.set(selector, [user]);
+    const turn = new FakeElement(env.document, 'article');
+    const response = new FakeElement(env.document, 'div', 'Two words');
+    const copy = new FakeElement(env.document, 'button');
+    copy.setAttribute('data-testid', CHATGPT_COPY_BUTTON_TEST_ID);
+    turn.appendChild(response);
+    turn.appendChild(copy);
+    env.detectorElements.set(CHATGPT_TURN_SELECTOR, [turn]);
+    env.responses = [response];
+    FakeMutationObserver.notify();
+
+    await vi.advanceTimersByTimeAsync(CHATGPT_TERMINAL_STABLE_MS + CHATGPT_TERMINAL_SAMPLE_INTERVAL_MS + 2_000);
+    expect(env.emitted).toContainEqual({
+      v: 1, action: 'RESPONSE_DONE', provider: 'chatgpt', payload: 'Two words',
+    });
+  });
+
   afterEach(() => {
     FakeMutationObserver.instances = [];
     vi.clearAllTimers();
