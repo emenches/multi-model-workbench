@@ -31,6 +31,10 @@ describe('live workflow progress', () => {
     expect(html).toContain('Provider reports generating');
     expect(html).toContain('View live page');
     expect(html).toContain('Initial answer · ChatGPT');
+    expect(html).toContain('0 of 1 steps confirmed');
+    expect(html).toContain('Elapsed');
+    expect(html).toContain('Awaiting first text');
+    expect(html).toContain('workbench-activity-sweep');
   });
 
   it('keeps an active waiting state honest and stops animating a confirmed answer', () => {
@@ -48,5 +52,7 @@ describe('live workflow progress', () => {
     expect(html).toContain('Done');
     expect(html).not.toContain('motion-safe:animate-spin');
     expect(html).not.toContain('View live page');
+    expect(html).toContain('1 of 1 steps confirmed');
+    expect(html).not.toContain('workbench-activity-sweep');
   });
 });
