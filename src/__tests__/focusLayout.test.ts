@@ -26,6 +26,13 @@ function commandHost(): PresentationCommandHost {
 }
 
 describe('focus layout helpers', () => {
+  it('defaults to a compact workbench sidebar while preserving manual resizing', () => {
+    expect(DEFAULT_FOCUS_PANE_WIDTH).toBeGreaterThanOrEqual(420);
+    expect(DEFAULT_FOCUS_PANE_WIDTH).toBeLessThanOrEqual(480);
+    expect(focusGridTemplateColumns(DEFAULT_FOCUS_PANE_WIDTH))
+      .toBe('440px 6px minmax(360px, 1fr)');
+  });
+
   it('clamps focus pane width while preserving control-pane minimum space', () => {
     expect(clampFocusPaneWidth(100, 1400)).toBe(420);
     expect(clampFocusPaneWidth(620.4, 1400)).toBe(620);
