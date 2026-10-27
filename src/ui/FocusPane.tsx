@@ -328,15 +328,15 @@ function FocusStage({
 
   return (
     <section
-      className="ai-sister-focus-stage flex min-h-[160px] flex-1 flex-col overflow-hidden border border-sky-300 dark:border-sky-900 bg-zinc-50 dark:bg-zinc-900"
+      className="ai-sister-focus-stage workbench-provider-stage flex min-h-[160px] flex-1 flex-col overflow-hidden rounded-2xl border border-sky-300 bg-zinc-50 dark:border-sky-900 dark:bg-zinc-900"
       onPointerDownCapture={() => onManualFocusControl(provider)}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-sky-300 dark:border-sky-900 px-3 py-2 text-sm">
+      <div className="workbench-provider-stage-toolbar flex flex-wrap items-center justify-between gap-2 border-b border-sky-300 px-3 py-2.5 text-sm dark:border-sky-900">
         <span className="flex min-w-0 items-center gap-2 truncate">
           <AiSisterAvatar provider={provider} size="sm" active={state.thinking} />
           <span className="truncate">{AI_PROVIDERS[provider].name}</span>
         </span>
-        <div className="flex flex-wrap justify-end gap-2 text-xs">
+        <div className="workbench-provider-stage-actions flex flex-wrap justify-end gap-2 text-xs">
           {centerSurface === 'text' ? (
             <button type="button" className="border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={onEnlargeCenter}>
               {t('provider.realPage')} <span aria-hidden="true">↗</span>
@@ -391,7 +391,7 @@ function FocusStage({
               <div
                 id={moreMenuId}
                 role="menu"
-                className="absolute right-0 z-20 mt-1 min-w-32 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 p-1 shadow-lg"
+                className="workbench-provider-stage-menu absolute right-0 z-20 mt-1 min-w-32 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-950"
               >
                 <button
                   type="button"
@@ -428,7 +428,7 @@ function FocusStage({
         </div>
       ) : null}
       {/* WebView 以此區域定位，讓上方標題列（含「文字檢視」返回鈕）保持可見 */}
-      <div ref={setCenterStageRef} className="flex min-h-0 flex-1 flex-col">
+      <div ref={setCenterStageRef} className="workbench-provider-stage-content flex min-h-0 flex-1 flex-col">
       {state.adapter === 'broken' ? (
         <div className="border-b border-red-300 dark:border-red-900 bg-red-50 dark:bg-red-950 px-3 py-2 text-xs text-red-800 dark:text-red-200">{t('provider.adapterBroken')}</div>
       ) : null}

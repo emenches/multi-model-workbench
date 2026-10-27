@@ -37,6 +37,18 @@ describe('live workflow progress', () => {
     expect(html).toContain('workbench-activity-sweep');
   });
 
+  it('summarizes live provider activity without requiring a full expanded timeline', () => {
+    const trace = reduceProcessTraceEvent(createProcessTrace('consult'), role);
+    const html = renderToStaticMarkup(createElement(ProcessTrace, {
+      trace, compact: true, expanded: false, locale: 'en', states: { chatgpt: chatgpt(true) },
+    }));
+    expect(html).toContain('workbench-trace-compact-item');
+    expect(html).toContain('Provider reports generating');
+    expect(html).toContain('Initial answer · ChatGPT');
+    expect(html).not.toContain('workbench-activity-sweep');
+    expect(html).not.toContain('workbench-trace-steps');
+  });
+
   it('keeps an active waiting state honest and stops animating a confirmed answer', () => {
     const active = reduceProcessTraceEvent(createProcessTrace('consult'), role);
     const waiting = renderToStaticMarkup(createElement(ProcessTrace, {
