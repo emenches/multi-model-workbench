@@ -1598,10 +1598,10 @@ pub async fn provider_open_window(
             return Err(format!("Could not move provider page into its own window: {error}"));
         }
     }
+    // A reparented WKWebView can retain its old panel-sized native frame if
+    // set_bounds is called while its new NSWindow is still hidden. Keep manual
+    // full-client sizing and reapply after showing the new window.
     provider_webview.set_auto_resize(false).map_err(|error| error.to_string())?;
-    let size = window.inner_size().map_err(|error| error.to_string())?;
-    set_webview_bounds(&provider_webview, PhysicalPosition::new(0, 0), size)?;
-    provider_webview.set_auto_resize(true).map_err(|error| error.to_string())?;
 
     if login.unwrap_or(false) {
         let adapter = adapters::get_adapter(&provider)?;
@@ -1610,35 +1610,65 @@ pub async fn provider_open_window(
         provider_webview.navigate(login_url).map_err(|error| error.to_string())?;
     }
 
-    // A normal macOS close button hides the provider page and returns the
-    // *same* browser instance to the invisible main-window parking area.
-    // Reopening Real page moves that same session back without new cookies.
-    let app_for_close = app.clone();
-    let view_for_close = provider_webview.clone();
-    let window_for_close = window.clone();
-    let provider_for_close = provider.clone();
+    // Use the native window's actual physical client size, not the previous
+    // pane size or a value measured while the window was hidden.
     if created_window {
+        let event_app = app.clone();
+        let event_provider = provider.clone();
+        let event_window = window.clone();
         window.on_window_event(move |event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-            api.prevent_close();
-            let _ = view_for_close.hide();
-            let _ = view_for_close.set_auto_resize(false);
-            if let Some(main) = app_for_close.get_window("main") {
-                let _ = view_for_close.reparent(&main);
-                let _ = set_webview_bounds(
-                    &view_for_close,
-                    PhysicalPosition::new(0, 0),
-                    PhysicalSize::new(1, 1),
-                );
-            }
-            let _ = window_for_close.hide();
-            let _ = app_for_close.emit_to("main", "provider-window://closed", provider_for_close.clone());
+            // Resolve the CURRENT webview by label. The original provider can
+            // be closed and recreated without leaving stale event callbacks.
+            let active_view = || event_app.get_webview(&provider_label(&event_provider));
+            match event {
+                tauri::WindowEvent::Resized(size) => {
+                    if let Some(view) = active_view() {
+                        if is_provider_detached(&view, &event_provider) {
+                            let _ = set_webview_bounds(
+                                &view,
+                                PhysicalPosition::new(0, 0),
+                                *size,
+                            );
+                        }
+                    }
+                }
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    if let Some(view) = active_view() {
+                        let _ = view.hide();
+                        let _ = view.set_auto_resize(false);
+                        if let Some(main) = event_app.get_window("main") {
+                            let _ = view.reparent(&main);
+                            let _ = set_webview_bounds(
+                                &view,
+                                PhysicalPosition::new(0, 0),
+                                PhysicalSize::new(1, 1),
+                            );
+                        }
+                    }
+                    let _ = event_window.hide();
+                    let _ = event_app.emit_to(
+                        "main",
+                        "provider-window://closed",
+                        event_provider.clone(),
+                    );
+                }
+                _ => {}
             }
         });
     }
 
-    provider_webview.show().map_err(|error| error.to_string())?;
+    // Making the host NSWindow visible FIRST is essential on macOS. WKWebView
+    // can otherwise retain the small native frame of the old React pane even
+    // if set_bounds returned Ok while the new NSWindow was hidden.
     window.show().map_err(|error| error.to_string())?;
+    let client_size = window.inner_size().map_err(|error| error.to_string())?;
+    set_webview_bounds(
+        &provider_webview,
+        PhysicalPosition::new(0, 0),
+        client_size,
+    )?;
+    provider_webview.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
     Ok(())
 }
