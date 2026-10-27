@@ -48,7 +48,7 @@ export function ProcessTrace({
 
   return (
     <>
-      <section aria-label={t('processTrace.title', locale)} className={`ai-sister-process-trace mt-2 min-h-0 overflow-hidden rounded-xl border ${compact ? 'border-transparent bg-transparent dark:bg-transparent' : 'border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900'}`}>
+      <section aria-label={t('processTrace.title', locale)} className={`ai-sister-process-trace workbench-process-trace mt-2 min-h-0 overflow-hidden rounded-xl border ${compact ? 'border-transparent bg-transparent dark:bg-transparent' : 'border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900'}`}>
         {!compact ? (
           <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-2.5 py-1.5 dark:border-zinc-800">
             <h2 className="text-[0.6875rem] font-semibold uppercase text-zinc-700 dark:text-zinc-300">{t('processTrace.title', locale)}</h2>

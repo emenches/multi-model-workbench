@@ -152,6 +152,7 @@ export const ja: Record<I18nKey, string> = {
   'input.reading': '読み取り中...',
   'input.insertFile': 'ファイルを挿入',
   'input.stop': '停止',
+  'input.sendHint': 'Enter で送信 · Shift+Enter で改行',
   'input.send': '送信',
   'input.removeFile': '削除',
   'input.bytes': 'バイト',

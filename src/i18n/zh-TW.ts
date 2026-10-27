@@ -140,6 +140,7 @@ export const zhTW: Record<I18nKey, string> = {
   'input.reading': '讀取中...',
   'input.insertFile': '插入檔案',
   'input.stop': '停止',
+  'input.sendHint': 'Enter 傳送 · Shift+Enter 換行',
   'input.send': '送出',
   'input.removeFile': '移除',
   'input.bytes': 'bytes',

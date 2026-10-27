@@ -133,6 +133,7 @@ export const I18N_KEYS = [
   'input.reading',
   'input.insertFile',
   'input.stop',
+  'input.sendHint',
   'input.send',
   'input.removeFile',
   'input.bytes',

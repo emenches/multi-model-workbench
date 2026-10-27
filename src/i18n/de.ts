@@ -152,6 +152,7 @@ export const de: Record<I18nKey, string> = {
   'input.reading': 'Wird gelesen...',
   'input.insertFile': 'Datei einfügen',
   'input.stop': 'Stopp',
+  'input.sendHint': 'Enter zum Senden · Shift+Enter für eine neue Zeile',
   'input.send': 'Senden',
   'input.removeFile': 'Entfernen',
   'input.bytes': 'Bytes',
