@@ -992,3 +992,19 @@ html:not(.ai-sister) .workbench-shell .workbench-activity-drawer .workbench-trac
   html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflows { gap: 6px; }
   html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflow { padding-inline: 10px; }
 }
+/* Single Agent chooser appears beside the workflow selection on a new chat. */
+html:not(.ai-sister) .workbench-shell .workbench-single-agent-picker select,
+html:not(.ai-sister) .workbench-shell .workbench-single-agent-header select {
+  background: var(--wb-surface);
+  border-color: var(--wb-border);
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-single-agent-picker select:focus-visible,
+html:not(.ai-sister) .workbench-shell .workbench-single-agent-header select:focus-visible {
+  outline: 2px solid var(--wb-accent);
+  outline-offset: 2px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-single-agent-header select:disabled {
+  opacity: .65;
+  cursor: not-allowed;
+}
