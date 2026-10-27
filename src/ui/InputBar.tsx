@@ -21,6 +21,11 @@ export function InputBar({
   onCancel,
   disabled,
   disabledPlaceholder,
+  projects = [],
+  currentProjectId,
+  onChooseProject,
+  onCreateProject,
+  projectsDisabled = false,
   sendBlocked = false,
   blockedMessage,
   isProcessing,
@@ -30,6 +35,11 @@ export function InputBar({
   onCancel: () => void;
   disabled: boolean;
   disabledPlaceholder?: string;
+  projects?: readonly { id: string; name: string }[];
+  currentProjectId?: string;
+  onChooseProject?: (projectId?: string) => void;
+  onCreateProject?: () => void;
+  projectsDisabled?: boolean;
   sendBlocked?: boolean;
   blockedMessage?: string;
   isProcessing: boolean;
@@ -40,6 +50,8 @@ export function InputBar({
   const [attachmentError, setAttachmentError] = useState<string | undefined>();
   const [dropActive, setDropActive] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const attachmentChipsRef = useRef<AttachmentChip[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -169,6 +181,7 @@ export function InputBar({
   const sendDisabled = disabled || sendBlocked || isProcessing || isSubmitting || isReadingFile || (!text.trim() && !hasReadyAttachments);
   const insertDisabled = disabled || isProcessing || isSubmitting || isReadingFile;
   const showDropActive = dropActive && canAddFiles;
+  const activeProjectName = projects.find((project) => project.id === currentProjectId)?.name;
 
   return (
     <div
@@ -205,17 +218,62 @@ export function InputBar({
           multiple
           onChange={handleFileChange}
         />
-        <button
-          type="button"
-          className="workbench-composer-attach flex min-h-9 items-center gap-1.5 rounded-lg border border-zinc-300 px-3 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={insertDisabled}
-        >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20.5 11.5 12 20a6 6 0 0 1-8.5-8.5l9-9a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 0 1-2.8-2.8l8.5-8.5"/>
-          </svg>
-          {isReadingFile ? t('input.reading', locale) : t('input.insertFile', locale)}
-        </button>
+        <div className="workbench-composer-more relative"
+          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) { setMoreOpen(false); setProjectMenuOpen(false); } }}
+          onKeyDown={(event) => { if (event.key === 'Escape') { setMoreOpen(false); setProjectMenuOpen(false); } }}>
+          <button type="button" className="workbench-composer-plus grid h-9 w-9 place-items-center rounded-full text-xl"
+            aria-label={t('composer.more', locale)} aria-haspopup="menu" aria-expanded={moreOpen}
+            onClick={() => { setMoreOpen((open) => !open); setProjectMenuOpen(false); }}>+</button>
+          {moreOpen ? (
+            <div className="workbench-composer-more-menu absolute bottom-full left-0 z-40 mb-2 w-64 rounded-2xl p-1.5 shadow-xl"
+              role="menu" aria-label={t('composer.more', locale)}>
+              <button type="button" role="menuitem" className="workbench-composer-menu-item"
+                disabled={insertDisabled}
+                onClick={() => { setMoreOpen(false); fileInputRef.current?.click(); }}>
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20.5 11.5 12 20a6 6 0 0 1-8.5-8.5l9-9a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>
+                {t('input.insertFile', locale)}
+              </button>
+              {onChooseProject ? (
+                <>
+                  <button type="button" role="menuitem" className="workbench-composer-menu-item"
+                    aria-expanded={projectMenuOpen} disabled={projectsDisabled}
+                    onClick={() => setProjectMenuOpen((open) => !open)}>
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" aria-hidden="true"><path d="M3 7h7l2 2h9v10H3z"/></svg>
+                    {t('composer.project', locale)}
+                    <span className="ml-auto text-xs opacity-60">{projectMenuOpen ? '⌃' : '⌄'}</span>
+                  </button>
+                  {projectMenuOpen ? (
+                    <div className="workbench-composer-project-choices max-h-52 overflow-y-auto" role="group" aria-label={t('composer.project', locale)}>
+                      <button type="button" role="menuitemradio" aria-checked={!currentProjectId} className="workbench-composer-menu-item"
+                        onClick={() => { onChooseProject(undefined); setMoreOpen(false); setProjectMenuOpen(false); }}>
+                        {t('sidebar.general', locale)}
+                      </button>
+                      {projects.map((project) => (
+                        <button key={project.id} type="button" role="menuitemradio" aria-checked={currentProjectId === project.id}
+                          className="workbench-composer-menu-item"
+                          onClick={() => { onChooseProject(project.id); setMoreOpen(false); setProjectMenuOpen(false); }}>
+                          <span className="min-w-0 truncate">{project.name}</span>
+                        </button>
+                      ))}
+                      {onCreateProject ? (
+                        <button type="button" role="menuitem" className="workbench-composer-menu-item"
+                          onClick={() => { setMoreOpen(false); setProjectMenuOpen(false); onCreateProject(); }}>
+                          + {t('sidebar.newProject', locale)}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {activeProjectName ? (
+          <button type="button" className="workbench-composer-project-tag min-w-0 max-w-36 truncate rounded-lg px-2 py-1 text-xs"
+            title={activeProjectName} disabled={projectsDisabled} onClick={() => { setMoreOpen(true); setProjectMenuOpen(true); }}>
+            {activeProjectName}
+          </button>
+        ) : null}
         {isProcessing ? (
           <button type="button" className="workbench-composer-stop min-h-9 rounded-lg border border-red-300 bg-red-50 px-3 text-xs font-medium text-red-800 hover:bg-red-100 dark:border-red-700 dark:bg-red-950 dark:text-red-100 dark:hover:bg-red-900" onClick={onCancel}>
             {t('input.stop', locale)}
