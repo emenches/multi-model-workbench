@@ -95,8 +95,9 @@ export async function applyCenterHiddenCommands({
   snapshot,
   shouldContinue = () => true,
   restoreRemoved = true,
+  getRestoreBounds,
 }: {
-  host: Pick<PresentationCommandHost, 'hide' | 'show'>;
+  host: Pick<PresentationCommandHost, 'hide' | 'show' | 'setBounds'>;
   previousHidden: ReadonlySet<AIProvider>;
   nextHidden: ReadonlySet<AIProvider>;
   snapshot: () => {
@@ -107,6 +108,8 @@ export async function applyCenterHiddenCommands({
   };
   shouldContinue?: () => boolean;
   restoreRemoved?: boolean;
+  /** If provided, block any show until the real, visible content stage exists. */
+  getRestoreBounds?: (provider: AIProvider) => DOMRectReadOnly | undefined;
 }): Promise<void> {
   if (restoreRemoved) {
     for (const provider of previousHidden) {
@@ -115,6 +118,12 @@ export async function applyCenterHiddenCommands({
       if (!shouldContinue()) return;
       if (current.overlayGuardOpen) continue;
       if (current.states[provider]?.webview === 'loaded' && !current.userHidden.has(provider) && current.presentation[provider] === 'center') {
+        if (getRestoreBounds) {
+          const bounds = getRestoreBounds(provider);
+          if (!bounds) continue;
+          await host.setBounds(provider, bounds);
+          if (!shouldContinue()) return;
+        }
         await host.show(provider);
       }
     }

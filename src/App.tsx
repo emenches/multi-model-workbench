@@ -484,7 +484,25 @@ export default function App() {
     setCenterSurfaceMode('text');
   }, [centeredProvider, setCenterSurfaceMode]);
 
-  useOverlayGuard(overlayGuardOpen, loadedModalProviders);
+  useOverlayGuard(overlayGuardOpen, loadedModalProviders, async (provider) => {
+    // The old modal cleanup called provider.show() for every loaded child,
+    // including side/parked views. Those native children can float over the
+    // entire React UI on macOS. Restore only the current native center.
+    if (presentationRef.current[provider] !== 'center' ||
+        centerSurfaceRef.current !== 'native' ||
+        userHiddenRef.current.has(provider) ||
+        overlayGuardOpenRef.current) return;
+    await nextAnimationFrame();
+    const bounds = nonEmptyRect(centerStageRef.current?.getBoundingClientRect());
+    if (!bounds) return;
+    await host.layout.setBounds(provider, bounds);
+    if (presentationRef.current[provider] === 'center' &&
+        centerSurfaceRef.current === 'native' &&
+        !overlayGuardOpenRef.current &&
+        !userHiddenRef.current.has(provider)) {
+      await host.provider.show(provider);
+    }
+  });
 
   useEffect(() => {
     const guard = makeFileDragGuard();
@@ -1145,6 +1163,9 @@ export default function App() {
         previousHidden: previous,
         nextHidden: next,
         snapshot,
+        getRestoreBounds: () => centerSurfaceRef.current === 'native'
+          ? nonEmptyRect(centerStageRef.current?.getBoundingClientRect())
+          : undefined,
         shouldContinue: shouldContinueNative,
         restoreRemoved: false,
       });
@@ -1158,6 +1179,9 @@ export default function App() {
           previousHidden: next,
           nextHidden: new Set(),
           snapshot,
+          getRestoreBounds: () => centerSurfaceRef.current === 'native'
+            ? nonEmptyRect(centerStageRef.current?.getBoundingClientRect())
+            : undefined,
           shouldContinue: () => centerSurfaceRef.current !== 'native',
         });
       }
@@ -1375,6 +1399,9 @@ export default function App() {
                 previousHidden: next,
                 nextHidden: new Set(),
                 snapshot,
+                getRestoreBounds: () => centerSurfaceRef.current === 'native'
+                  ? nonEmptyRect(centerStageRef.current?.getBoundingClientRect())
+                  : undefined,
                 shouldContinue: () => centerSurfaceRef.current !== 'native',
               });
             }
@@ -1388,6 +1415,9 @@ export default function App() {
       previousHidden: previous,
       nextHidden: next,
       snapshot,
+      getRestoreBounds: () => centerSurfaceRef.current === 'native'
+        ? nonEmptyRect(centerStageRef.current?.getBoundingClientRect())
+        : undefined,
     });
 
     if (!providerSetEquals(previous, next)) {

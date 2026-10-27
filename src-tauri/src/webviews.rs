@@ -1205,6 +1205,9 @@ pub async fn provider_open(
         .on_page_load(move |webview, payload| {
             match payload.event() {
                 PageLoadEvent::Started => {
+                    if chatgpt_renderer_auxiliary_url(&load_provider, payload.url()) {
+                        return;
+                    }
                     if load_provider == "grok" {
                         confirm_grok_page_load(&load_provider);
                     }
@@ -1212,6 +1215,12 @@ pub async fn provider_open(
                 }
                 PageLoadEvent::Finished => {
                     if load_provider != "grok" {
+                        if load_provider == "chatgpt"
+                            && adapters::url_matches_provider_app(&load_provider, payload.url())
+                                .unwrap_or(false)
+                        {
+                            let _ = recover_regular_provider_bridge(&load_app, &load_provider);
+                        }
                         return;
                     }
                     let Some(script) = load_delayed_grok_script.as_deref() else {
@@ -1243,11 +1252,11 @@ pub async fn provider_open(
             }
         })
         .on_navigation(move |url| {
-            // A DIL renderer is a legitimate ChatGPT page resource, often in
-            // a frame. Keep it inside the provider WebView, rather than
-            // handing it to the system browser. Do not grant it bridge access.
+            // DIL renderer frames/resources remain permitted by WebKit, but
+            // this top-level navigation callback must not replace ChatGPT's
+            // own document with a CDN runner lacking our provider bridge.
             if chatgpt_renderer_auxiliary_url(&nav_provider, url) {
-                return true;
+                return false;
             }
             if url.host_str() == Some("mac-bridge.invalid") {
                 return false;
@@ -1853,6 +1862,28 @@ fn bridge_resets_on_boot_rotation(
     }
 }
 
+/// Recover a missed document-start bridge after a ChatGPT page restart.
+ /// Only the recognized provider application document is eligible; eval_provider
+ /// rejects SSO and renderer URLs. Bootstrap independently refuses challenges
+ /// and non-top-frame documents. This never navigates or signs users out.
+fn recover_regular_provider_bridge(app: &AppHandle, provider: &str) -> Result<(), String> {
+    if provider != "chatgpt" {
+        return Ok(());
+    }
+    let state = current_state(provider);
+    if state.webview != "loaded" || state.login == "blocked" || state.thinking {
+        return Ok(());
+    }
+    let app_hosts = serde_json::to_string(&adapters::app_hosts_for_provider(provider)?)
+        .map_err(|error| error.to_string())?;
+    let provider_json = serde_json::to_string(provider).map_err(|error| error.to_string())?;
+    let js = format!(
+        "window.__MAC_PROVIDER__={provider_json};\nwindow.__MAC_APP_HOSTS__={app_hosts};\n{BOOTSTRAP_JS}"
+    );
+    eval_provider(app, provider, &js)?;
+    push_engine_and_adapter(app, provider)
+}
+
 pub(crate) fn push_engine_and_adapter(app: &AppHandle, provider: &str) -> Result<(), String> {
     let adapter = adapters::get_adapter(provider)?;
     let dispatch_adapter = serde_json::json!({
@@ -2379,6 +2410,11 @@ fn run_staleness_check(app: &AppHandle) {
         }
     }
     for provider in to_check {
+        // A missing document-start bridge cannot receive CHECK_STATUS. Restore
+        // it only for ChatGPT's verified app host, then request a fresh status.
+        if provider == "chatgpt" {
+            let _ = recover_regular_provider_bridge(app, &provider);
+        }
         let msg = serde_json::json!({ "v": 1, "action": "CHECK_STATUS", "provider": provider });
         let js = format!(
             "window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.dispatch({});",

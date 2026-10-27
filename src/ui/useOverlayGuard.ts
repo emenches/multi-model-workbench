@@ -3,7 +3,16 @@ import type { AIProvider } from '../../shared/types';
 import { host } from '../host';
 import { globalOverlayGuard } from './overlayGuard';
 
-export function useOverlayGuard(open: boolean, loadedProviders: AIProvider[]): void {
+export function useOverlayGuard(
+  open: boolean,
+  loadedProviders: AIProvider[],
+  safeRestore: (provider: AIProvider) => Promise<void>,
+): void {
+  // A provider child WebView must never be shown just because a modal closed.
+  // Only the caller knows whether it is actually the visible native center and
+  // which measured bounds it belongs in.
+  const restoreRef = useRef(safeRestore);
+  restoreRef.current = safeRestore;
   const loadedProvidersRef = useRef(loadedProviders);
   const loadedProvidersKey = loadedProviders.join('|');
   loadedProvidersRef.current = loadedProviders;
@@ -18,7 +27,7 @@ export function useOverlayGuard(open: boolean, loadedProviders: AIProvider[]): v
       globalOverlayGuard.close(
         {
           hide: host.provider.hide,
-          show: host.provider.show,
+          show: (provider) => restoreRef.current(provider),
         },
         loadedProvidersRef.current,
       );
