@@ -2200,6 +2200,54 @@ export default function App() {
               ) : null}
               <p className="mt-2 text-[0.65rem] text-zinc-500 dark:text-zinc-400">Connected means the page is available. Workflow steps finish only after their answer is received.</p>
             </section>
+            {!providerInspectorOpen ? (
+              <section aria-label="Workflow activity overview" className="workbench-context-panel mx-3 mb-3 flex min-h-0 flex-1 flex-col rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+                <div className="workbench-context-heading flex items-center justify-between gap-2 pb-3">
+                  <h2 className="text-[0.6875rem] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">Activity</h2>
+                  <button type="button"
+                    className="workbench-context-inspect rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[0.6875rem] font-medium text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
+                    aria-expanded={providerInspectorOpen} aria-controls="workbench-provider-inspector"
+                    onClick={() => setProviderInspectorOpen(true)}>
+                    Provider view
+                    <span className="ml-1" aria-hidden="true">↗</span>
+                  </button>
+                </div>
+                {processTrace?.steps.some((step) => step.kind !== 'fanout') ? (
+                  <ol className="workbench-context-list min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+                    {processTrace.steps.filter((step) => step.kind !== 'fanout').map((step) => (
+                      <li key={step.id} className="workbench-context-item flex items-start gap-2.5 rounded-lg px-2.5 py-2">
+                        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                          step.status === 'done' ? 'bg-emerald-500' : step.status === 'failed' ? 'bg-red-500' : step.status === 'active' ? 'bg-sky-500' : 'bg-zinc-400'
+                        }`} aria-hidden="true" />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-medium">{step.label}</div>
+                          <div className="mt-1 flex items-center gap-1.5 text-[0.6875rem] text-zinc-500 dark:text-zinc-400">
+                            {step.status === 'active' ? <span className="workbench-live-indicator" aria-hidden="true" /> : null}
+                            {step.status === 'done' ? translate('processTrace.done')
+                              : step.status === 'failed' ? translate('processTrace.failed')
+                              : step.status === 'active' ? translate('processTrace.active')
+                              : translate('processTrace.pending')}
+                            {step.status === 'active' && step.content ? ` · ${step.content.length.toLocaleString(locale)} chars` : ''}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <div className="workbench-context-empty flex min-h-[145px] flex-1 flex-col items-center justify-center p-4 text-center">
+                    <div className="workbench-context-empty-icon mb-3 grid h-10 w-10 place-items-center rounded-xl" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 17h4l3-9 4 12 3-7h4" />
+                      </svg>
+                    </div>
+                    <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">No active run</p>
+                    <p className="mt-1 max-w-48 text-[0.6875rem] leading-relaxed text-zinc-500 dark:text-zinc-400">
+                      Workflow activity will appear here as models respond.
+                    </p>
+                  </div>
+                )}
+              </section>
+            ) : null}
             <div id="workbench-provider-inspector"
               className="workbench-provider-inspector min-h-0 flex-1"
               hidden={!providerInspectorOpen}>
@@ -2257,7 +2305,9 @@ export default function App() {
               <div className="workbench-conversation-identity min-w-0 flex-1">
                 <div className="workbench-header-eyebrow">MULTI-MODEL WORKSPACE</div>
                 <div className="flex flex-wrap items-center gap-2.5">
-                  <h1 className="workbench-conversation-title truncate text-xl font-semibold">Conversation</h1>
+                  <h1 className="workbench-conversation-title truncate text-xl font-semibold" title={sessions.find((session) => session.id === activeSessionId)?.title ?? 'Conversation'}>
+                    {sessions.find((session) => session.id === activeSessionId)?.title ?? 'Conversation'}
+                  </h1>
                   {isProcessing ? <span className="workbench-header-live flex items-center gap-1.5"><span className="workbench-live-indicator" aria-hidden="true" /> Live</span> : null}
                 </div>
               </div>

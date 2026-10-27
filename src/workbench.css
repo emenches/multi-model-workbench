@@ -570,3 +570,42 @@ html:not(.ai-sister) .workbench-dialog-backdrop button {
     transition-duration: .01ms !important;
   }
 }
+
+/* Left-side activity overview occupies the idle provider workspace, and never
+   drives additional provider reads or navigation. */
+html:not(.ai-sister) .workbench-shell .workbench-context-panel {
+  background: var(--wb-surface);
+  border-color: var(--wb-border);
+  border-radius: 14px;
+  box-shadow: var(--wb-elevation);
+  overflow: hidden;
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-heading {
+  border-bottom: 1px solid var(--wb-border);
+  margin-bottom: 7px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-inspect {
+  background: var(--wb-surface-soft);
+  border-color: var(--wb-border);
+  color: var(--wb-secondary);
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-inspect:hover {
+  border-color: var(--wb-accent);
+  color: var(--wb-accent);
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-list {
+  scrollbar-width: thin;
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-item {
+  background: var(--wb-surface-soft);
+  border: 1px solid transparent;
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-item:has(.workbench-live-indicator) {
+  border-color: var(--wb-border);
+  background: var(--wb-accent-soft);
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-empty-icon {
+  background: var(--wb-surface-soft);
+  color: var(--wb-secondary);
+  border: 1px solid var(--wb-border);
+}
