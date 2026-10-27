@@ -5,7 +5,7 @@ Native provider webviews can cover React buttons, especially after scroll or lay
 
 ## Fix
 - Park a native provider view by **hiding it before changing its offscreen bounds**, never by moving it offscreen and then showing it. Some WKWebView implementations may clamp visible offscreen child surfaces to the window and obscure the toolbar. The app's existing `background_throttling(Disabled)` setting remains. This preserves provider webview and cookie profiles.
-- Disallow automatic *top-level* browser window/popup creation for ChatGPT's narrowly recognized internal DIL runner URL (HTTPS `cdn.platform.openai.com/deployments/dil/.../runner.html`). The normal embedded HTML page, subresources and iframes remain under the provider's control; **do not block all requests to the CDN**.
+- Treat ChatGPT's narrowly recognized internal DIL renderer URL (HTTPS `cdn.platform.openai.com/deployments/dil/.../runner.html`) as an allowed navigation **inside** its existing provider WebView, without the OS-browser handoff. Deny requests to spawn a separate native popup for that renderer. Ordinary subresources and frames remain under ChatGPT's control; **do not block all requests to the CDN**.
 - When a provider webview is loaded but its DOM status remains unknown, display an explicit **Reload** action on the app toolbar to retry the page bridge without signing out.
 - Do **not** equate a signed-in preview with a functioning automation bridge. No forced `logged_in` status.
 
