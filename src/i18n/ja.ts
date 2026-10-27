@@ -160,6 +160,7 @@ export const ja: Record<I18nKey, string> = {
   'processTrace.waitingEvents': 'ワークフローイベントを待っています。',
   'processTrace.pending': '保留中',
   'processTrace.active': '実行中',
+  'processTrace.failed': '失敗',
   'processTrace.done': '完了',
   'processTrace.fanout': '並列送信',
   'processTrace.sendingTo': '送信先',
