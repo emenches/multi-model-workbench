@@ -385,6 +385,9 @@ export default function App() {
   const [messagesMaximized, setMessagesMaximized] = useState(false);
   const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
   const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
+  const [activityPanelOpen, setActivityPanelOpen] = useState(false);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [modelSettingsProvider, setModelSettingsProvider] = useState<AIProvider>();
   const [providerWindowError, setProviderWindowError] = useState<string>();
   const [providerWindowGeometry, setProviderWindowGeometry] = useState<ProviderWindowGeometry>();
@@ -2124,7 +2127,11 @@ export default function App() {
       <div
         ref={gridRef}
         className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)]"
-        style={{ gridTemplateColumns: messagesMaximized ? '0px 0px minmax(0,1fr)' : focusGridTemplateColumns(focusPaneWidth) }}
+        style={{ gridTemplateColumns: messagesMaximized
+          ? '0px 0px minmax(0,1fr)'
+          : providerInspectorOpen
+            ? focusGridTemplateColumns(focusPaneWidth)
+            : `${sessionSidebarCollapsed ? '60px' : '208px'} 0px minmax(0,1fr)` }}
       >
         <div
           aria-hidden={messagesMaximized || undefined}
@@ -2164,169 +2171,14 @@ export default function App() {
             onAssignProject={assignConversationProject}
             onCreateProject={createSidebarProject}
           />
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-            {/* 放大檢視時暫時收起選單區讓 webview 吃滿高度；checkpoint / 逾時對話框
-                是 inline 渲染在這個區塊內，出現時必須讓區塊重新顯示，否則使用者按不到。 */}
-            <section
-              id="workflow-control-shelf"
-              aria-label={translate('preset.catalog.aria')}
-              className={`ai-sister-workflow-shelf workbench-workspace-shelf shrink-0 border-b border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/70 ${
-                stageExpanded && !checkpoint && !(stepTimeout && !stepTimeout.timedOut) ? 'hidden' : ''
-              }`}
-            >
-              <div className="workbench-workspace-heading mb-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Workspace</div>
-                  <div className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                    {activeProject(effectiveProjectStore)?.name ?? 'General'}
-                  </div>
-                </div>
-                <button type="button"
-                  className="workbench-options-button shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium dark:border-zinc-700"
-                  onClick={() => setWorkflowOptionsOpen((open) => !open)}
-                  aria-expanded={workflowOptionsOpen} aria-controls="workbench-workflow-options">
-                  Tools & modes
-                </button>
-              </div>
-              <details className="workbench-project-settings mt-2">
-                <summary className="cursor-pointer rounded-lg px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800">
-                  {translate('sidebar.projectSettings')}
-                </summary>
-                <div className="mt-2">
-                  <ProjectPicker
-                    store={effectiveProjectStore}
-                    disabled={isProcessing || !projectsReady}
-                    onSave={saveProjectStore}
-                    loadError={projectLoadError}
-                  />
-                </div>
-              </details>
-              {checkpoint ? (
-                <details className="mt-2 border border-amber-300 bg-white dark:border-amber-900 dark:bg-zinc-950" open>
-                  <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:text-amber-100 dark:hover:bg-amber-950">
-                    {translate('checkpoint.confirmEachStep')}
-                  </summary>
-                  <div className="border-t border-amber-300 px-3 pb-3 dark:border-amber-900">
-                    <CheckpointCard
-                      checkpoint={checkpoint}
-                      draft={checkpointDraft}
-                      onDraftChange={setCheckpointDraft}
-                      onNativeEdit={(provider) => {
-                        void forceProviderNativeCenter(provider);
-                      }}
-                      locale={locale}
-                    />
-                  </div>
-                </details>
-              ) : null}
-              {/* Parallel Consult steps start independent countdowns. A single
-                  last-started countdown can point at a provider that already
-                  finished while another provider is still generating. The
-                  always-on trace shows actual confirmation; retain the real
-                  timed-out retry dialog below instead. */}
-            </section>
-            <section aria-label="AI connections" className="workbench-provider-dock mx-3 my-3 shrink-0 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+          {providerInspectorOpen && !messagesMaximized ? (
+            <div className="workbench-inspector-workspace flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
-                  Providers · {activeProviders.filter((provider) => isSendable(states[provider])).length} connected
-                </h2>
-                <button type="button"
-                  aria-expanded={providerInspectorOpen}
-                  aria-controls="workbench-provider-inspector"
-                  onClick={() => setProviderInspectorOpen((open) => !open)}
-                  className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700">
-                  {providerInspectorOpen ? 'Hide details' : 'Details'}
-                </button>
+                <h2 className="text-xs font-semibold">{translate('sidebar.agents')}</h2>
+                <button type="button" className="rounded-lg border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700"
+                  onClick={() => setProviderInspectorOpen(false)} aria-label={translate('workbench.hideDetails')}>{translate('workbench.hideDetails')}</button>
               </div>
-              <div className="workbench-provider-grid grid grid-cols-2 gap-2">
-                {activeProviders.map((provider) => (
-                  <div key={provider} className="workbench-provider-tile flex min-w-0 flex-col gap-1 rounded-lg border border-zinc-200 px-2 py-2 dark:border-zinc-800">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`h-2 w-2 shrink-0 rounded-full ${isSendable(states[provider]) ? 'bg-emerald-500' : 'bg-amber-500'}`} aria-hidden="true" />
-                      <span className="truncate text-xs font-semibold">{AI_PROVIDERS[provider].name}</span>
-                    </div>
-                    <span className="text-[0.65rem] text-zinc-500 dark:text-zinc-400">
-                      {isSendable(states[provider]) ? 'Connected' : states[provider].login === 'logged_out' ? 'Sign in' : 'Checking'}
-                    </span>
-                    <div className="flex flex-wrap gap-1">
-                      <button type="button"
-                        className="rounded-md px-1 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-zinc-800"
-                        onClick={() => openProviderModelSettings(provider)}>
-                        Model & effort ↗
-                      </button>
-                      <button type="button"
-                        className="rounded-md px-1 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                        onClick={() => {
-                          setProviderInspectorOpen(true);
-                          void changeProviderPresentationManually(provider, 'center');
-                        }}>
-                        Inspect
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {modelSettingsProvider && activeProviders.includes(modelSettingsProvider) ? (
-                <ProviderModelControls
-                  provider={modelSettingsProvider}
-                  onOpenProvider={openProviderModelSettings}
-                  onClose={() => setModelSettingsProvider(undefined)}
-                />
-              ) : null}
-              <p className="mt-2 text-[0.65rem] text-zinc-500 dark:text-zinc-400">Connected means the page is available. Workflow steps finish only after their answer is received.</p>
-            </section>
-            {!providerInspectorOpen ? (
-              <section aria-label="Workflow activity overview" className="workbench-context-panel mx-3 mb-3 flex min-h-0 flex-1 flex-col rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-                <div className="workbench-context-heading flex items-center justify-between gap-2 pb-3">
-                  <h2 className="text-[0.6875rem] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">{translate('workbench.activity')}</h2>
-                  <button type="button"
-                    className="workbench-context-inspect rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[0.6875rem] font-medium text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
-                    aria-expanded={providerInspectorOpen} aria-controls="workbench-provider-inspector"
-                    onClick={() => setProviderInspectorOpen(true)}>
-                    {translate('workbench.providerView')}
-                    <span className="ml-1" aria-hidden="true">↗</span>
-                  </button>
-                </div>
-                {processTrace?.steps.some((step) => step.kind !== 'fanout') ? (
-                  <ol className="workbench-context-list min-h-0 flex-1 space-y-1.5 overflow-y-auto">
-                    {processTrace.steps.filter((step) => step.kind !== 'fanout').map((step) => (
-                      <li key={step.id} className="workbench-context-item flex items-start gap-2.5 rounded-lg px-2.5 py-2">
-                        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                          step.status === 'done' ? 'bg-emerald-500' : step.status === 'failed' ? 'bg-red-500' : step.status === 'active' ? 'bg-sky-500' : 'bg-zinc-400'
-                        }`} aria-hidden="true" />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs font-medium">{step.label}</div>
-                          <div className="mt-1 flex items-center gap-1.5 text-[0.6875rem] text-zinc-500 dark:text-zinc-400">
-                            {step.status === 'active' ? <span className="workbench-live-indicator" aria-hidden="true" /> : null}
-                            {step.status === 'done' ? translate('processTrace.done')
-                              : step.status === 'failed' ? translate('processTrace.failed')
-                              : step.status === 'active' ? translate('processTrace.active')
-                              : translate('processTrace.pending')}
-                            {step.status === 'active' && step.content ? ` · ${step.content.length.toLocaleString(locale)} ${translate('workbench.charactersShort')}` : ''}
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <div className="workbench-context-empty flex min-h-[145px] flex-1 flex-col items-center justify-center p-4 text-center">
-                    <div className="workbench-context-empty-icon mb-3 grid h-10 w-10 place-items-center rounded-xl" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M3 17h4l3-9 4 12 3-7h4" />
-                      </svg>
-                    </div>
-                    <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">{translate('workbench.noActiveRun')}</p>
-                    <p className="mt-1 max-w-48 text-[0.6875rem] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                      {translate('workbench.activityHint')}
-                    </p>
-                  </div>
-                )}
-              </section>
-            ) : null}
-            <div id="workbench-provider-inspector"
-              className="workbench-provider-inspector min-h-0 flex-1"
-              hidden={!providerInspectorOpen}>
-            <FocusPane
+              <FocusPane
               providers={activeProviders}
               centeredProvider={centeredProvider}
               scrollFocusedProvider={scrollFocusedProvider}
@@ -2358,7 +2210,7 @@ export default function App() {
               onToggleStageExpanded={() => setStageExpanded((current) => !current)}
             />
             </div>
-          </div>
+          ) : null}
         </div>
 
         <div
@@ -2367,6 +2219,7 @@ export default function App() {
         >
           <Resizer
             label={translate('layout.resizeFocusPane')}
+            disabled={!providerInspectorOpen || messagesMaximized}
             onDrag={dragFocusPane}
             value={focusPaneWidth}
             min={DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.minFocusPaneWidth}
