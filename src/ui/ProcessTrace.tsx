@@ -10,10 +10,12 @@ export function ProcessTrace({
   trace,
   locale = 'en',
   onDetailOpenChange,
+  compact = false,
 }: {
   trace: ProcessTraceState;
   locale?: Locale;
   onDetailOpenChange?: (open: boolean) => void;
+  compact?: boolean;
 }) {
   const [detailStep, setDetailStep] = useState<ProcessTraceStep | undefined>();
 
@@ -28,13 +30,15 @@ export function ProcessTrace({
 
   return (
     <>
-      <section aria-label={t('processTrace.title', locale)} className="ai-sister-process-trace mt-2 shrink-0 overflow-hidden rounded border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-2.5 py-1.5 dark:border-zinc-800">
-          <h2 className="text-[0.6875rem] font-semibold uppercase text-zinc-700 dark:text-zinc-300">{t('processTrace.title', locale)}</h2>
-          <div className="min-w-0 truncate text-right text-[0.6875rem] text-sky-700 dark:text-sky-200">{trace.currentStatus || t('processTrace.settled', locale)}</div>
-        </div>
+      <section aria-label={t('processTrace.title', locale)} className={`ai-sister-process-trace mt-2 shrink-0 overflow-hidden rounded-lg border ${compact ? 'border-transparent bg-transparent dark:bg-transparent' : 'border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900'}`}>
+        {!compact ? (
+          <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-2.5 py-1.5 dark:border-zinc-800">
+            <h2 className="text-[0.6875rem] font-semibold uppercase text-zinc-700 dark:text-zinc-300">{t('processTrace.title', locale)}</h2>
+            <div className="min-w-0 truncate text-right text-[0.6875rem] text-sky-700 dark:text-sky-200">{trace.currentStatus || t('processTrace.settled', locale)}</div>
+          </div>
+        ) : null}
         {trace.steps.length > 0 ? (
-          <ol className="max-h-36 divide-y divide-zinc-200 overflow-auto dark:divide-zinc-800">
+          <ol className="max-h-56 divide-y divide-zinc-200 overflow-auto dark:divide-zinc-800">
             {trace.steps.map((step) => (
               <li key={step.id}>
                 <button
