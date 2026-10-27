@@ -1002,10 +1002,12 @@ enum NewWindowAction {
     DenySilent,
 }
 
-/// Embedded Claude verification can repeatedly send unapproved URLs outside
-/// the isolated session. Do not open them as OS-browser CAPTCHA tabs.
-fn external_handoff_allowed(provider: &str) -> bool {
-    provider != "claude"
+/// Provider-generated links are not user clicks. Do not launch the system
+/// browser when Gemini, ChatGPT or Claude request disallowed popups/redirects.
+/// The sole automatic fallback is the explicitly verified Grok auth return;
+/// allowlisted Google/other SSO popups are still hosted inside Tauri.
+fn external_handoff_allowed(provider: &str, url: &tauri::Url) -> bool {
+    grok_external_auth_handoff_needs_app_return(provider, url)
 }
 
 /// Auxiliary ChatGPT reply renderers belong inside their existing page/iframe.
@@ -1322,7 +1324,7 @@ pub async fn provider_open(
                         serde_json::json!({ "provider": &nav_provider, "host": host }),
                     );
                 }
-                if external_handoff_allowed(&nav_provider) {
+                if external_handoff_allowed(&nav_provider, url) {
                     let _ = nav_app.opener().open_url(url.as_str(), None::<&str>);
                     schedule_grok_external_auth_return(&nav_app, &nav_provider, url);
                 }
@@ -1403,7 +1405,7 @@ pub async fn provider_open(
                             serde_json::json!({ "provider": &popup_provider, "host": host }),
                         );
                     }
-                    if external_handoff_allowed(&popup_provider) {
+                    if external_handoff_allowed(&popup_provider, &url) {
                         let _ = popup_app.opener().open_url(url.as_str(), None::<&str>);
                         schedule_grok_external_auth_return(&popup_app, &popup_provider, &url);
                     }
@@ -2932,12 +2934,16 @@ mod tests {
     }
 
     #[test]
-    fn claude_verification_redirects_do_not_launch_system_browser() {
-        assert!(!external_handoff_allowed("claude"));
-        for provider in ["chatgpt", "gemini", "grok", "meta"] {
-            assert!(external_handoff_allowed(provider));
+    fn provider_generated_external_links_do_not_launch_browser() {
+        for provider in ["chatgpt", "claude", "gemini", "grok", "meta"] {
+            assert!(!external_handoff_allowed(provider, &url("https://example.com/popups")));
+            assert!(!external_handoff_allowed(provider, &url("https://challenges.cloudflare.com/turnstile")));
+            assert!(!external_handoff_allowed(provider, &url("https://accounts.google.com/unexpected")));
         }
-        assert_eq!(decide_new_window_action(&url("https://claude.ai/login"), true), NewWindowAction::AllowPopup);
+        // Preserve the narrow Grok external-auth recovery exception.
+        assert!(external_handoff_allowed("grok", &url("https://auth.x.ai/oauth/authorize?state=test")));
+        assert!(!external_handoff_allowed("gemini", &url("https://auth.x.ai/oauth/authorize?state=test")));
+        assert_eq!(decide_new_window_action(&url("https://accounts.google.com/o/oauth2/v2/auth"), true), NewWindowAction::AllowPopup);
         assert_eq!(decide_new_window_action(&url("https://challenges.cloudflare.com/turnstile"), false), NewWindowAction::DenyExternal);
     }
 
