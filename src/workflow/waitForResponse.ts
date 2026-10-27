@@ -45,6 +45,13 @@ function handleBridgeMessage(message: BridgeMessage): void {
   for (const waiter of [...waiters.values()]) {
     if (waiter.provider !== message.provider) continue;
     const answer = payloadText(message.payload);
+    // Defense in depth: native ChatGPT may expose a stable Chat/Work
+    // heading and terminal controls before the actual response body is
+    // readable. A heading-only DONE is not a successful Consult result.
+    if (message.provider === 'chatgpt' && isChatGptHeadingOnly(answer)) {
+      settle(waiter, 'reject', new Error('ChatGPT returned a heading instead of an answer; response capture was incomplete'));
+      return;
+    }
     settle(waiter, 'resolve', answer);
     // Provider-side "[Error: ...]" is data consumed by the workflow's
     // existing recovery logic, never a successfully completed answer.
@@ -64,6 +71,10 @@ function handleBridgeMessage(message: BridgeMessage): void {
     });
     return;
   }
+}
+
+function isChatGptHeadingOnly(value: string): boolean {
+  return /^(?:#{1,6}\s+)?(?:\*{1,2})?chatgpt\s+said\s*[:：]?(?:\*{1,2})?$/i.test(value.trim());
 }
 
 function payloadText(payload: unknown): string {

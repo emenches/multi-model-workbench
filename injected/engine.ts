@@ -595,6 +595,24 @@ class InactiveSendOperationError extends Error {
     const strictResponses = Array.from(document.querySelectorAll(adapter.responseSelectors.join(', ')));
     const assistantUnits = Array.from(document.querySelectorAll(CHATGPT_ASSISTANT_UNIT_SELECTOR));
     const responseNodes = strictResponses.length;
+    // Text-free DOM health probe: if the native assistant unit contains a long
+    // response while our serializer sees only a heading, these lengths differ.
+    // Only inspect the most recent *post-anchor* assistant unit; old turns are
+    // not evidence of this response.
+    const latestUnit = [...assistantUnits].reverse().find((unit) =>
+      !anchor || elementFollows(anchor, unit),
+    );
+    const latestUnitTextContent = latestUnit?.textContent?.trim() ?? '';
+    const latestUnitInnerText = latestUnit && 'innerText' in latestUnit
+      ? String((latestUnit as Element & { innerText?: unknown }).innerText ?? '').trim()
+      : '';
+    const latestUnitSerializedText = latestUnit ? serializeResponseText(latestUnit) : '';
+    const latestUnitMarkdownNodes = latestUnit
+      ? latestUnit.querySelectorAll(
+          '.markdown, [data-markdown-text-style="assistant-message"], [data-message-author-role="assistant"]',
+        ).length
+      : 0;
+    const latestUnitFrames = latestUnit ? latestUnit.querySelectorAll('iframe').length : 0;
     const rejected = { beforeAnchor: 0, asUser: 0, baseline: 0, empty: 0, scaffold: 0, echo: 0, eligible: 0 };
     for (const response of [...new Set([...strictResponses, ...assistantUnits])]) {
       if (anchor && !elementFollows(anchor, response)) rejected.beforeAnchor += 1;
@@ -628,6 +646,11 @@ class InactiveSendOperationError extends Error {
       captureUserNodes: document.querySelectorAll(CHATGPT_USER_MESSAGE_SELECTOR).length,
       captureResponseNodes: responseNodes,
       captureAssistantUnits: assistantUnits.length,
+      captureLatestUnitDomChars: latestUnitTextContent.length,
+      captureLatestUnitRenderedChars: latestUnitInnerText.length,
+      captureLatestUnitSerializedChars: latestUnitSerializedText.length,
+      captureLatestUnitMarkdownNodes: latestUnitMarkdownNodes,
+      captureLatestUnitFrames: latestUnitFrames,
       captureRejectedBeforeAnchor: rejected.beforeAnchor,
       captureRejectedAsUser: rejected.asUser,
       captureRejectedBaseline: rejected.baseline,
