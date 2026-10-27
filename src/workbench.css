@@ -790,3 +790,205 @@ html:not(.ai-sister) .workbench-shell .workbench-process-trace {
 @media (prefers-reduced-motion: reduce) {
   .workbench-thinking-orbit-a,.workbench-thinking-orbit-b,.workbench-thinking-center,.workbench-thinking-dot { animation: none !important; }
 }
+
+
+/* Workbench v2 · conversation-first layout.
+   Default navigation is only a narrow project/chat sidebar. Native page
+   inspection opens the existing FocusPane on demand. */
+html:not(.ai-sister) .workbench-shell .workbench-left-shell {
+  min-width: 0;
+  background: var(--wb-sidebar);
+}
+html:not(.ai-sister) .workbench-shell .workbench-inspector-workspace {
+  background: var(--wb-canvas);
+  border-left: 1px solid var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-sidebar {
+  background: var(--wb-sidebar);
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-brand {
+  min-height: 54px;
+  padding-block: 8px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-conversation {
+  box-shadow: none;
+  border-color: var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-project {
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-project:hover,
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-section-title button:hover {
+  background: var(--wb-hover);
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-row .workbench-session-item {
+  min-height: 35px;
+  padding-block: 7px;
+  font-size: 12px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-project-control {
+  opacity: .30;
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-row:hover .workbench-session-project-control,
+html:not(.ai-sister) .workbench-shell .workbench-session-project-control:focus-visible,
+html:not(.ai-sister) .workbench-shell .workbench-session-row:hover .workbench-session-delete {
+  opacity: 1;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-menu,
+html:not(.ai-sister) .workbench-shell .workbench-project-create {
+  background: var(--wb-surface);
+  border-color: var(--wb-border);
+  color: var(--wb-ink);
+}
+
+/* Connected agents are compact affordances in the conversation header. */
+html:not(.ai-sister) .workbench-shell .workbench-connected-agent-strip {
+  margin-top: 11px;
+  gap: 7px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-agent-pill,
+html:not(.ai-sister) .workbench-shell .workbench-agent-add,
+html:not(.ai-sister) .workbench-shell .workbench-agent-tools,
+html:not(.ai-sister) .workbench-shell .workbench-activity-button {
+  background: var(--wb-surface-soft);
+  border: 1px solid var(--wb-border);
+  color: var(--wb-secondary);
+  transition: background 150ms ease, border-color 150ms ease;
+}
+html:not(.ai-sister) .workbench-shell .workbench-agent-pill {
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-agent-pill:hover,
+html:not(.ai-sister) .workbench-shell .workbench-agent-add:hover,
+html:not(.ai-sister) .workbench-shell .workbench-agent-tools:hover,
+html:not(.ai-sister) .workbench-shell .workbench-activity-button:hover {
+  background: var(--wb-hover);
+  border-color: var(--wb-strong-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-agent-menu,
+html:not(.ai-sister) .workbench-shell .workbench-model-controls-popover {
+  background: var(--wb-surface);
+  color: var(--wb-ink);
+  border-color: var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-conversation-header-sub {
+  margin-top: 8px;
+}
+
+/* No giant dashboard when starting a chat. A simple workflow pick-list sits
+   over one real InputBar, which is reused after the first message is sent. */
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-screen {
+  min-height: 100%;
+  max-width: 900px;
+  margin-inline: auto;
+  padding-bottom: min(15vh, 100px);
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-title {
+  color: var(--wb-ink);
+  font-size: clamp(23px, 2.1vw, 31px);
+  font-weight: 640;
+  letter-spacing: -.045em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflow {
+  border-color: var(--wb-border);
+  background: var(--wb-surface-soft);
+  color: var(--wb-secondary);
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflow:hover:not(:disabled) {
+  border-color: var(--wb-accent);
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflow-selected {
+  background: var(--wb-accent-soft);
+  border-color: var(--wb-accent);
+  color: var(--wb-accent);
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-project select {
+  background: var(--wb-surface);
+  color: var(--wb-ink);
+  border-color: var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-composer {
+  width: 100%;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-composer .workbench-composer {
+  min-height: 110px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-screen .workbench-composer-hint {
+  opacity: .7;
+}
+html:not(.ai-sister) .workbench-shell .workbench-conversation-workspace:has(.workbench-new-chat-screen) .workbench-conversation-header-sub {
+  display: none;
+}
+
+/* The activity view is a right-edge drawer, not a permanent wall of progress
+   cards between the user and the conversation transcript. */
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer {
+  position: absolute;
+  z-index: 24;
+  right: 12px;
+  top: 151px;
+  bottom: 110px;
+  width: clamp(235px, 24vw, 315px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--wb-border);
+  border-radius: 15px;
+  background: var(--wb-surface);
+  box-shadow: 0 18px 50px rgba(12,25,45,.13);
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer-content {
+  scrollbar-width: thin;
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer .workbench-trace-steps {
+  max-height: none;
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer .workbench-trace-step-active {
+  background: var(--wb-accent-soft);
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer .workbench-process-trace {
+  background: transparent;
+  border: 0;
+  margin-top: 0;
+}
+html:not(.ai-sister) .workbench-shell .workbench-reading-with-activity {
+  margin-right: clamp(245px, 25vw, 325px);
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer .workbench-trace-steps > li {
+  min-width: 0;
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer .workbench-trace-steps .grid {
+  grid-template-columns: minmax(0,1fr);
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer .workbench-trace-steps .grid > :last-child {
+  grid-column: 1;
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer .workbench-trace-steps .grid > :first-child {
+  grid-column: 1;
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer .workbench-trace-steps .grid > :nth-child(2) {
+  grid-column: 1;
+}
+@media (max-width: 1200px) {
+  html:not(.ai-sister) .workbench-shell .workbench-activity-drawer {
+    top: 145px;
+    width: min(320px, calc(100% - 24px));
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-reading-with-activity {
+    margin-right: 0;
+  }
+}
+@media (max-width: 900px) {
+  html:not(.ai-sister) .workbench-shell .workbench-activity-drawer {
+    top: 136px;
+    bottom: 94px;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-new-chat-screen {
+    padding-bottom: 20px;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflows { gap: 6px; }
+  html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflow { padding-inline: 10px; }
+}
