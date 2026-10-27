@@ -172,7 +172,7 @@ function applyProviderResponse(
   // before this reducer receives the original DONE event. Never create a
   // duplicate free-response row (or demote a confirmed step) in that case.
   const alreadyConfirmed = trace.steps.some(
-    (step) => step.provider === provider && (step.kind === 'role' || step.kind === 'response') && step.status === 'done',
+    (step) => step.provider === provider && (step.kind === 'role' || step.kind === 'response') && (step.status === 'done' || step.status === 'failed'),
   );
   const nextSteps = matchIndex >= 0 || trace.mode !== 'free' || alreadyConfirmed
     ? steps
