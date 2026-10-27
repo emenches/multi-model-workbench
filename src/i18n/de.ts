@@ -7,6 +7,13 @@ export const de: Record<I18nKey, string> = {
   'mode.coding.name': 'Programmieren',
   'mode.roundtable.name': 'Diskussionsrunde',
   'preset.catalog.aria': 'Vorlagenkatalog',
+  'preset.single.displayName': 'Einzelner Agent',
+  'preset.single.meta': 'Eine KI · direkter Chat',
+  'preset.single.description': 'Direkter Chat mit einer KI. Folgefragen bleiben beim gewählten Modell; keine Review- oder Zusammenfassungsphase.',
+  'preset.single.costLabel': 'Eine KI · direkte Antwort',
+  'singleAgent.choose': 'Agent auswählen',
+  'singleAgent.ready': 'Bereit',
+  'singleAgent.signIn': 'Anmeldung erforderlich',
   'preset.free.displayName': 'Parallele Antworten',
   'preset.free.meta': '< 1 Min.',
   'preset.free.description':

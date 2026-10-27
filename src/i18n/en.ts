@@ -7,6 +7,13 @@ export const en: Record<I18nKey, string> = {
   'mode.coding.name': 'Coding',
   'mode.roundtable.name': 'Roundtable',
   'preset.catalog.aria': 'Preset catalog',
+  'preset.single.displayName': 'Single Agent',
+  'preset.single.meta': 'One AI · direct chat',
+  'preset.single.description': 'Talk directly with one selected AI. Your follow-ups stay with that agent; no reviews or synthesis stages.',
+  'preset.single.costLabel': 'One AI · direct response',
+  'singleAgent.choose': 'Choose agent',
+  'singleAgent.ready': 'Ready',
+  'singleAgent.signIn': 'Sign in required',
   'preset.free.displayName': 'Free fan-out',
   'preset.free.meta': '< 1 min',
   'preset.free.description':
