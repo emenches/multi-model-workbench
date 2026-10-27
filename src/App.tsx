@@ -2317,7 +2317,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className={`flex h-7 w-7 items-center justify-center border text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
+                  className={`flex min-h-9 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
                     messagesMaximized ? 'border-sky-400 bg-sky-50 dark:border-sky-800 dark:bg-sky-950' : 'border-zinc-300 dark:border-zinc-700'
                   }`}
                   aria-label={translate(messagesMaximized ? 'header.restoreMessages' : 'header.maximizeMessages')}
@@ -2340,6 +2340,7 @@ export default function App() {
                       <path d="M21 15v6h-6" />
                     </svg>
                   )}
+                  <span>{translate(messagesMaximized ? 'header.restoreMessages' : 'header.maximizeMessages')}</span>
                 </button>
                 {import.meta.env.DEV ? (
                   <button
