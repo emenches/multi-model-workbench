@@ -72,11 +72,15 @@ describe('App workflow controls', () => {
     expect(html.indexOf('id="workflow-control-shelf"')).toBeLessThan(html.indexOf('id="provider-connections-title"'));
   });
 
-  it('includes the optional AI-Sister commemorative surface without changing the default app structure', () => {
+  it('preserves optional AI-Sister branding while keeping the workbench layout uncluttered', () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, { language: 'en', children: createElement(App) }));
 
-    expect(html).toContain('ai-sister-ensemble-card');
-    expect(html).toContain('AI-Sister Commemorative Edition');
+    // The oversized commemorative card was intentionally removed from the
+    // default workspace in favor of the modal workflow chooser. The optional
+    // theme remains accessible through its brand mark and edition subtitle.
+    expect(html).toContain('ai-sister-brand-mark');
+    expect(html).toContain('AI-Sister Edition');
+    expect(html).not.toContain('ai-sister-ensemble-card');
     expect(html).toContain('app-shell');
   });
 });

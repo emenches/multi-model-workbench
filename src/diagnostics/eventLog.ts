@@ -220,6 +220,17 @@ export function eventFromBridgeMessage(message: BridgeMessage): EventLogInput | 
   if (message.action === 'ADAPTER_UPDATE') return adapterUpdateEvent(message);
   if (message.action === 'WORKFLOW_STATUS') return workflowStatusEvent(message);
   if (message.action === 'ROLE_ASSIGNMENT') return roleAssignmentEvent(message);
+  if (message.action === 'WORKFLOW_STEP_CONFIRMED') {
+    const provider = safeProvider(message.provider);
+    const value = recordPayload(message.payload);
+    const turn = numberProp(value, 'turn');
+    return {
+      provider,
+      kind: 'workflow-step',
+      summary: `${provider ? providerName(provider) : 'Provider'} workflow answer accepted`,
+      detail: { turn: turn ?? null, transport: message.transport ?? null },
+    };
+  }
   if (message.action === 'CANCEL_WORKFLOW') {
     return {
       kind: 'workflow-error',

@@ -88,6 +88,23 @@ describe('N4 preset catalog', () => {
     );
   });
 
+  it('renders large descriptive cards when choosing a workflow in the modal', () => {
+    const tree = PresetCatalog({
+      mode: 'consult', selectedPresetId: 'consult', layout: 'dialog',
+      locale: 'en', onSelectPreset: vi.fn(),
+    });
+    const buttons = findAllElements(tree, (element) =>
+      element.type === 'button' && PRESET_CATALOG.some((preset) =>
+        textOf(element).includes(t(preset.displayNameKey, 'en'))
+      ),
+    );
+    expect(buttons).toHaveLength(6);
+    for (const preset of PRESET_CATALOG) {
+      const card = buttons.find((button) => textOf(button).includes(t(preset.displayNameKey, 'en')));
+      expect(textOf(card)).toContain(t(preset.descriptionKey, 'en'));
+    }
+  });
+
   it('selects the clicked mode and exposes default roles for preset selection', () => {
     const onSelectPreset = vi.fn();
     const tree = PresetCatalog({
@@ -178,12 +195,17 @@ describe('N4 preset catalog', () => {
   });
 });
 
+function confirmed(provider: AIProvider, turn: number): BridgeMessage {
+  return { v: 1, action: 'WORKFLOW_STEP_CONFIRMED', provider, payload: { turn, text: `${provider} response` }, transport: 'local' };
+}
+
 describe('N4 process trace', () => {
   it.each(['en', 'zh-TW'] as const)('reduces role assignments, workflow status, and responses into ordered %s step rows', (locale) => {
     let trace = createProcessTrace('debate', [], locale);
     trace = reduceProcessTraceEvent(trace, status('Debate: pro'), locale);
     trace = reduceProcessTraceEvent(trace, role('chatgpt', 'pro', 'Pro', 1), locale);
     trace = reduceProcessTraceEvent(trace, response('chatgpt', 'RESPONSE_DONE'), locale);
+    trace = reduceProcessTraceEvent(trace, confirmed('chatgpt', 1), locale);
     trace = reduceProcessTraceEvent(trace, status('Debate: con'), locale);
     trace = reduceProcessTraceEvent(trace, role('claude', 'con', 'Con', 2), locale);
 
@@ -193,6 +215,9 @@ describe('N4 process trace', () => {
       ['Con · Claude', 'active'],
     ]);
 
+    const compact = renderToStaticMarkup(<ProcessTrace trace={trace} locale={locale} compact />);
+    expect(compact).not.toContain('PROCESS TRACE');
+    expect(compact).toContain('Pro · ChatGPT');
     const html = renderToStaticMarkup(<ProcessTrace trace={trace} locale={locale} />);
     expect(html).toContain(t('processTrace.title', locale));
     expect(html).toContain('Debate: con');
@@ -212,7 +237,9 @@ describe('N4 process trace', () => {
 
     trace = reduceProcessTraceEvent(trace, response('chatgpt', 'RESPONSE_CHUNK'), locale);
     trace = reduceProcessTraceEvent(trace, response('chatgpt', 'RESPONSE_DONE'), locale);
+    trace = reduceProcessTraceEvent(trace, confirmed('chatgpt', 1), locale);
     trace = reduceProcessTraceEvent(trace, response('gemini', 'RESPONSE_DONE'), locale);
+    trace = reduceProcessTraceEvent(trace, confirmed('gemini', 2), locale);
 
     expect(trace.steps.map((step) => [step.label, step.status])).toEqual([
       [t('processTrace.fanout', locale), 'done'],

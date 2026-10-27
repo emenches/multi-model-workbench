@@ -1,6 +1,6 @@
 import type { AIProvider, BridgeMessage } from '../../shared/types';
 import { AI_PROVIDERS } from '../../shared/constants';
-import { onBridgeMessage } from '../bridge/bus';
+import { onBridgeMessage, publishBridgeMessage } from '../bridge/bus';
 import { AWAITING_ABSOLUTE_MAX_MS, AWAITING_MAX_MS, onProviderBootRotation, setProviderAwaiting } from '../bridge/pull';
 import { ProviderPageReloadedError } from './providerResponse';
 import { clearActiveTurn } from './state';
@@ -44,7 +44,17 @@ function handleBridgeMessage(message: BridgeMessage): void {
   if (message.transport !== 'pull' && message.transport !== 'local') return;
   for (const waiter of [...waiters.values()]) {
     if (waiter.provider !== message.provider) continue;
-    settle(waiter, 'resolve', payloadText(message.payload));
+    const answer = payloadText(message.payload);
+    settle(waiter, 'resolve', answer);
+    // UI progress must reflect the actual in-flight waiter accepting DONE.
+    // An orphan or delayed provider response cannot complete an unrelated step.
+    publishBridgeMessage({
+      v: 1,
+      action: 'WORKFLOW_STEP_CONFIRMED',
+      provider: waiter.provider,
+      transport: 'local',
+      payload: { turn: waiter.turn, text: answer },
+    });
     return;
   }
 }
