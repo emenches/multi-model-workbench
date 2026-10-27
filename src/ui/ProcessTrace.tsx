@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Locale } from '../i18n/resolve';
+import type { AIProvider, ProviderState } from '../../shared/types';
+import { activeStepActivity } from './activeStepActivity';
 import { t } from '../i18n/t';
 import { AiSisterAvatar } from './AiSisterTheme';
 import { ModalDialog } from './ModalDialog';
@@ -11,13 +13,26 @@ export function ProcessTrace({
   locale = 'en',
   onDetailOpenChange,
   compact = false,
+  states,
+  onViewProvider,
 }: {
   trace: ProcessTraceState;
   locale?: Locale;
   onDetailOpenChange?: (open: boolean) => void;
   compact?: boolean;
+  states?: Partial<Record<AIProvider, ProviderState>>;
+  onViewProvider?: (provider: AIProvider) => void;
 }) {
   const [detailStep, setDetailStep] = useState<ProcessTraceStep | undefined>();
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const hasActive = trace.steps.some((step) => step.status === 'active');
+
+  useEffect(() => {
+    if (!hasActive) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [hasActive]);
 
   useEffect(() => () => onDetailOpenChange?.(false), [onDetailOpenChange]);
 
@@ -39,31 +54,60 @@ export function ProcessTrace({
         ) : null}
         {trace.steps.length > 0 ? (
           <ol className="max-h-56 divide-y divide-zinc-200 overflow-auto dark:divide-zinc-800">
-            {trace.steps.map((step) => (
+            {trace.steps.map((step) => {
+              const activity = activeStepActivity(step, Boolean(step.provider && states?.[step.provider]?.thinking), nowMs);
+              const phaseText = activity
+                ? activity.phase === 'no-update'
+                  ? `${t('processTrace.noRecentOutput', locale)} · ${activity.secondsWithoutNewText}s`
+                  : `${t(activity.phase === 'generating' ? 'processTrace.generating' : activity.phase === 'receiving' ? 'processTrace.receiving' : 'processTrace.awaiting', locale)} · ${activity.elapsedSeconds}s`
+                : '';
+              return (
               <li key={step.id}>
-                <button
-                  type="button"
-                  className="grid w-full grid-cols-[auto_6rem_minmax(0,1fr)] items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-white disabled:cursor-default dark:hover:bg-zinc-950"
-                  disabled={!step.content}
-                  onClick={() => {
-                    if (!step.content) return;
-                    setDetailStep(step);
-                    onDetailOpenChange?.(true);
-                  }}
-                  title={step.content || step.detail || step.label}
-                >
-                  <span className="flex items-center gap-1" aria-hidden="true">
-                    <span className={`h-2 w-2 rounded-full ${statusDotClass(step.status)}`} />
-                    {step.provider ? <AiSisterAvatar provider={step.provider} size="xs" active={step.status === 'active'} /> : null}
-                  </span>
-                  <span className={`truncate text-[0.6875rem] font-medium uppercase ${statusClass(step.status)}`}>{statusLabel(step.status, locale)}</span>
-                  <span className="min-w-0 truncate text-zinc-800 dark:text-zinc-200">
-                    <span className="font-medium">{step.label}</span>
-                    {step.detail ? <span className="text-zinc-500 dark:text-zinc-400"> — {step.detail}</span> : null}
-                  </span>
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="grid min-w-0 flex-1 grid-cols-[auto_6.5rem_minmax(0,1fr)] items-center gap-2 px-2.5 py-2 text-left text-xs hover:bg-white disabled:cursor-default dark:hover:bg-zinc-950"
+                    disabled={!step.content}
+                    onClick={() => {
+                      if (!step.content) return;
+                      setDetailStep(step);
+                      onDetailOpenChange?.(true);
+                    }}
+                    title={step.content || step.detail || step.label}
+                  >
+                    <span className="flex items-center gap-1" aria-hidden="true">
+                      <span className={`h-2 w-2 rounded-full ${statusDotClass(step.status)}`} />
+                      {step.provider ? <AiSisterAvatar provider={step.provider} size="xs" active={step.status === 'active'} /> : null}
+                    </span>
+                    <span className={`flex items-center gap-1 truncate text-[0.6875rem] font-medium uppercase ${statusClass(step.status)}`}>
+                      {step.status === 'active' ? (
+                        <span role="img" aria-label={t('processTrace.active', locale)}
+                          className="inline-block h-3 w-3 shrink-0 rounded-full border-2 border-sky-500 border-t-transparent motion-safe:animate-spin"
+                        />
+                      ) : null}
+                      {statusLabel(step.status, locale)}
+                    </span>
+                    <span className="min-w-0 overflow-hidden text-zinc-800 dark:text-zinc-200">
+                      <span className="block truncate font-medium">{step.label}</span>
+                      {activity ? (
+                        <span className="block truncate text-[0.6875rem] text-sky-700 dark:text-sky-300">
+                          {phaseText}
+                        </span>
+                      ) : step.detail ? (
+                        <span className="block truncate text-[0.6875rem] text-zinc-500 dark:text-zinc-400">{step.detail}</span>
+                      ) : null}
+                    </span>
+                  </button>
+                  {activity && step.provider && onViewProvider ? (
+                    <button type="button"
+                      className="mr-1 shrink-0 rounded-md border border-zinc-200 px-2 py-1.5 text-[0.6875rem] text-sky-700 hover:bg-sky-50 dark:border-zinc-800 dark:text-sky-300 dark:hover:bg-zinc-900"
+                      onClick={() => onViewProvider(step.provider!)}
+                    >{t('processTrace.viewLive', locale)}</button>
+                  ) : null}
+                </div>
               </li>
-            ))}
+              );
+            })}
           </ol>
         ) : (
           <div className="px-2.5 py-2 text-xs text-zinc-500 dark:text-zinc-500">{t('processTrace.waitingEvents', locale)}</div>
@@ -100,17 +144,20 @@ export function ProcessTrace({
 function statusLabel(status: ProcessTraceStepStatus, locale: Locale): string {
   if (status === 'pending') return t('processTrace.pending', locale);
   if (status === 'active') return t('processTrace.active', locale);
+  if (status === 'failed') return t('processTrace.failed', locale);
   return t('processTrace.done', locale);
 }
 
 function statusClass(status: ProcessTraceStepStatus): string {
   if (status === 'pending') return 'text-zinc-500 dark:text-zinc-500';
   if (status === 'active') return 'text-sky-700 dark:text-sky-300';
+  if (status === 'failed') return 'text-red-700 dark:text-red-300';
   return 'text-emerald-700 dark:text-emerald-300';
 }
 
 function statusDotClass(status: ProcessTraceStepStatus): string {
   if (status === 'pending') return 'bg-zinc-400';
   if (status === 'active') return 'bg-sky-500';
+  if (status === 'failed') return 'bg-red-500';
   return 'bg-emerald-500';
 }

@@ -66,6 +66,34 @@ describe('Consult completion is signal-driven, not guessed from status', () => {
     expect(trace.steps[0]?.detail).toBe('Complete answer');
   });
 
+  it('shows actual provider failure and never reclassifies it as Done after a late reply', () => {
+    let trace = createProcessTrace('consult');
+    trace = reduceProcessTraceEvent(trace, role('chatgpt', 'First', 7));
+    trace = reduceProcessTraceEvent(trace, {
+      v: 1, action: 'WORKFLOW_STEP_FAILED', provider: 'chatgpt',
+      transport: 'local', payload: { turn: 7, reason: 'ChatGPT response timed out after 600s' },
+    });
+    expect(trace.steps[0]).toMatchObject({
+      status: 'failed',
+      detail: 'ChatGPT response timed out after 600s',
+    });
+    trace = reduceProcessTraceEvent(trace, confirmed('chatgpt', 7, 'Very late answer'));
+    trace = reduceProcessTraceEvent(trace, answer('chatgpt', 'RESPONSE_DONE', 'Late raw answer'));
+    trace = settleProcessTrace(trace);
+    expect(trace.steps[0]?.status).toBe('failed');
+    expect(trace.steps[0]?.content).toBeUndefined();
+  });
+
+  it('keeps aggregate fanout failed if one provider errors while another is done', () => {
+    let trace = createProcessTrace('free', ['chatgpt', 'gemini']);
+    trace = reduceProcessTraceEvent(trace, confirmed('gemini', 1, 'Gemini final'));
+    trace = reduceProcessTraceEvent(trace, {
+      v: 1, action: 'WORKFLOW_STEP_FAILED', provider: 'chatgpt',
+      transport: 'local', payload: { turn: 2, reason: 'Adapter did not return an answer' },
+    });
+    expect(trace.steps.map((step) => step.status)).toEqual(['failed', 'failed', 'done']);
+  });
+
   it('does not turn unconfirmed free fan-out messages into completed rows', () => {
     let trace = createProcessTrace('free', ['chatgpt', 'gemini']);
     trace = reduceProcessTraceEvent(trace, answer('gemini', 'RESPONSE_CHUNK', 'Still streaming'));

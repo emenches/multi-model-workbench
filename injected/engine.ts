@@ -541,7 +541,10 @@ class InactiveSendOperationError extends Error {
       bridge.emit({ v: 1, action: 'STATUS_REPORT', payload: { dom: 'unknown', bootId: bridge.bootId } });
       return;
     }
-    let login: 'logged_in' | 'logged_out' | 'blocked' = 'logged_out';
+    // A page can temporarily have neither its composer nor login controls
+    // during navigation/hydration. Absence of a composer is NOT proof that
+    // the session has signed out. Report unknown until there is evidence.
+    let login: 'unknown' | 'logged_in' | 'logged_out' | 'blocked' = 'unknown';
     if (isProviderChallengeActive(adapter.provider)) {
       login = 'blocked';
     } else if (adapter.provider === 'meta' && queryInput(adapter) !== null) {
@@ -557,8 +560,6 @@ class InactiveSendOperationError extends Error {
         (queryInput(adapter) !== null || queryFirstVisible([GROK_LIVE_STOP_BUTTON_SELECTOR]) !== null))
     ) {
       login = 'logged_in';
-    } else if (adapter.provider === 'gemini' && location.hostname === 'gemini.google.com') {
-      login = 'blocked';
     }
     bridge.emit({
       v: 1,
@@ -2031,7 +2032,13 @@ class InactiveSendOperationError extends Error {
   // already on screen still has to pass responseBaselineEls, responseTextIsBeyondBaseline,
   // isUserMessageElement, and isLikelyPromptEcho — the same filters the other providers use.
   function chatGptMayReadResponseWithoutAnchor(): boolean {
-    return waitingForResponse && chatGptResponseGenerationObserved;
+    if (!waitingForResponse) return false;
+    if (chatGptResponseGenerationObserved) return true;
+    // ChatGPT can render the answer without exposing its brief thinking phase.
+    // If THIS send previously had a verified matching user turn which then
+    // unmounted, keep reading fresh assistant nodes behind strict pre-send
+    // element/text baselines. Never use this path for an unconfirmed send.
+    return chatGptUserTurnAnchorLatched && !chatGptPendingDraftStillInComposer(adapter!);
   }
 
   function noteChatGptResponseGeneration(): void {

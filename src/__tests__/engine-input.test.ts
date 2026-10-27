@@ -301,6 +301,25 @@ describe('injected engine input hardening', () => {
     expect(errorDone(env)).toBeUndefined();
   });
 
+  it.each(['chatgpt', 'gemini', 'claude'] as const)(
+    'reports %s as unknown while the signed-in page is still hydrating, not signed out',
+    async (provider) => {
+      const env = createEnv({ inputKind: 'textarea' });
+      const handler = await installEngine(env);
+      dispatchAdapter(handler, {
+        provider,
+        loginDetectors: ['#not-mounted-yet'],
+        loggedOutDetectors: ['#not-a-login-form'],
+      });
+      expect(env.emitted.at(-1)).toEqual({
+        v: 1,
+        action: 'STATUS_REPORT',
+        provider,
+        payload: { dom: 'ready', login: 'unknown', thinking: false, bootId: 'boot1' },
+      });
+    },
+  );
+
   it('reports ChatGPT logged out when the login form and a stale composer coexist', async () => {
     const env = createEnv({ inputKind: 'textarea' });
     env.detectorElements.set('[data-testid="login-form"]', [new FakeElement(env.document, 'form')]);
@@ -369,7 +388,7 @@ describe('injected engine input hardening', () => {
       v: 1,
       action: 'STATUS_REPORT',
       provider: 'grok',
-      payload: { dom: 'ready', login: 'logged_out', thinking: false, bootId: 'boot1' },
+      payload: { dom: 'ready', login: 'unknown', thinking: false, bootId: 'boot1' },
     });
 
     send(handler, 'must not enter a hidden textarea');
@@ -395,7 +414,7 @@ describe('injected engine input hardening', () => {
       v: 1,
       action: 'STATUS_REPORT',
       provider: 'grok',
-      payload: { dom: 'ready', login: 'logged_out', thinking: false, bootId: 'boot1' },
+      payload: { dom: 'ready', login: 'unknown', thinking: false, bootId: 'boot1' },
     });
   });
 
@@ -1641,6 +1660,77 @@ describe('injected engine input hardening', () => {
       action: 'RESPONSE_DONE',
       provider: 'chatgpt',
       payload: 'reply that stayed visible after the bubble detached',
+    });
+    expect(env.emitted.some((message) => message.payload === staleAnswer.textContent)).toBe(false);
+    expect(errorDone(env)).toBeUndefined();
+  });
+
+  it('reads a verified fresh ChatGPT answer after its user bubble disappears without a thinking indicator', async () => {
+    vi.useFakeTimers();
+    const env = createEnv({ inputKind: 'textarea' });
+    // Older turns share this prefix, the same way the language-policy preamble matches every
+    // later round, so removing the optimistic bubble does not grow the live match count.
+    const prompt = `Keep the exact long handoff context. ${'context '.repeat(120)}round two question`;
+    const priorTurn = new FakeElement(env.document, 'div', prompt.slice(0, 240));
+    const staleAnswer = new FakeElement(env.document, 'div', 'answer already on screen before this send');
+    env.userMessages = [priorTurn];
+    env.responses = [staleAnswer];
+    let optimistic: FakeElement | undefined;
+    if (env.sendButton) {
+      env.sendButton.onClick = () => {
+        env.input.setVisibleText('');
+        optimistic = new FakeElement(env.document, 'div', prompt);
+        env.userMessages = [priorTurn, optimistic];
+      };
+    }
+    const handler = await installEngine(env);
+    dispatchAdapter(handler, {
+      provider: 'chatgpt',
+      thinkingDetectors: ['.thinking'],
+      timing: { doneDelayMs: 100, chunkDebounceMs: 0, statusIntervalMs: 1_000_000, backupPollMs: 1_000_000 },
+    });
+
+    send(handler, prompt, 'chatgpt');
+    await vi.advanceTimersByTimeAsync(PRE_SEND_DELAY_MS + CHATGPT_INITIAL_SEND_CONFIRMATION_DELAY_MS);
+
+    expect(env.sendButton?.clickCount).toBe(1);
+    expect(errorDone(env)).toBeUndefined();
+    expect(optimistic?.isConnected).toBe(true);
+
+    optimistic!.isConnected = false;
+    env.userMessages = [priorTurn];
+    // The provider's reasoning indicator was too brief to observe.
+    // The send WAS verified by its matching user turn before it unmounted.
+    FakeMutationObserver.notify();
+
+    expect(env.emitted.some((message) => message.payload === staleAnswer.textContent)).toBe(false);
+    expect(env.emitted.some((message) => message.action === 'RESPONSE_CHUNK')).toBe(false);
+
+    const turn = new FakeElement(env.document, 'article');
+    const copyButton = new FakeElement(env.document, 'button');
+    copyButton.setAttribute('data-testid', CHATGPT_COPY_BUTTON_TEST_ID);
+    const response = new FakeElement(env.document, 'div', 'fresh answer after verified bubble disappeared without thinking status');
+    turn.appendChild(response);
+    turn.appendChild(copyButton);
+    env.detectorElements.set(CHATGPT_TURN_SELECTOR, [turn]);
+    env.responses = [staleAnswer, response];
+    FakeMutationObserver.notify();
+
+    await vi.advanceTimersByTimeAsync(CHATGPT_TERMINAL_STABLE_MS - 1);
+    expect(env.emitted.filter((message) => message.action === 'RESPONSE_DONE')).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(CHATGPT_TERMINAL_SAMPLE_INTERVAL_MS + 1);
+
+    expect(env.emitted).toContainEqual({
+      v: 1,
+      action: 'RESPONSE_CHUNK',
+      provider: 'chatgpt',
+      payload: 'fresh answer after verified bubble disappeared without thinking status',
+    });
+    expect(env.emitted).toContainEqual({
+      v: 1,
+      action: 'RESPONSE_DONE',
+      provider: 'chatgpt',
+      payload: 'fresh answer after verified bubble disappeared without thinking status',
     });
     expect(env.emitted.some((message) => message.payload === staleAnswer.textContent)).toBe(false);
     expect(errorDone(env)).toBeUndefined();

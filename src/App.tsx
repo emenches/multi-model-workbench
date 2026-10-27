@@ -798,7 +798,7 @@ export default function App() {
         }
         return;
       }
-      if (message.action === 'WORKFLOW_STEP_CONFIRMED') {
+      if (message.action === 'WORKFLOW_STEP_CONFIRMED' || message.action === 'WORKFLOW_STEP_FAILED') {
         // A provider's raw RESPONSE_DONE is not proof that the running graph
         // accepted the answer. Only the active waiter emits this local event.
         // Keep it out of the chat transcript; it updates progress only.
@@ -1890,6 +1890,18 @@ export default function App() {
     });
   }, [ensureProviderLoadedHidden]);
 
+  const viewWorkflowProvider = useCallback((provider: AIProvider) => {
+    // Inspect the actual provider page without restarting or claiming a step
+    // has completed. Uses the existing permanent native window and session.
+    setProviderWindowError(undefined);
+    void (async () => {
+      await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
+      setProviderWindowGeometry(await host.provider.openWindow(provider));
+    })().catch((error: unknown) => {
+      setProviderWindowError(error instanceof Error ? error.message : String(error));
+    });
+  }, [ensureProviderLoadedHidden]);
+
   const openProviderModelSettings = useCallback((provider: AIProvider) => {
     setModelSettingsProvider(provider);
     setProviderWindowError(undefined);
@@ -2362,7 +2374,7 @@ export default function App() {
                 <h2 className="text-xs font-semibold">Workflow progress</h2>
                 <span className="max-w-full truncate text-xs text-zinc-500 dark:text-zinc-400">{processTrace.currentStatus || translate('processTrace.settled')}</span>
               </div>
-              <ProcessTrace trace={processTrace} locale={locale} compact onDetailOpenChange={setProcessTraceDetailOpen} />
+              <ProcessTrace trace={processTrace} locale={locale} compact states={states} onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen} />
             </section>
           ) : null}
           <div
@@ -2550,13 +2562,18 @@ export function ChatArea({
   states: Record<AIProvider, ProviderState>;
 }) {
   if (messages.length === 0) {
-    const anyReady = (Object.keys(states) as AIProvider[]).some((provider) => isSendable(states[provider]));
+    const providers = Object.values(states);
+    const anyReady = providers.some((state) => isSendable(state));
+    const anyChecking = providers.some((state) =>
+      (state.webview === 'loaded' || state.webview === 'creating') &&
+      (state.login === 'unknown' || state.dom === 'unknown'),
+    );
     return (
       <div className="grid min-h-32 place-items-center p-6 text-center" role="status">
         <div>
           <div className="text-sm font-medium text-zinc-700 dark:text-zinc-200">{translateKey('chat.noMessages', locale)}</div>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            {translateKey(anyReady ? 'chat.readyPrompt' : 'chat.noProviders', locale)}
+            {translateKey(anyReady ? 'chat.readyPrompt' : anyChecking ? 'chat.reconnecting' : 'chat.noProviders', locale)}
           </p>
         </div>
       </div>
