@@ -59,8 +59,12 @@ export const host = {
     show: (provider: AIProvider, focus = false): Promise<void> => invoke('provider_show', { provider, focus }),
     hide: (provider: AIProvider): Promise<void> => invoke('provider_hide', { provider }),
     park: async (provider: AIProvider, bounds: DOMRectReadOnly): Promise<void> => {
+      // On WKWebView, keeping an offscreen native child *visible* can clamp
+      // its view back onto the application and cover React controls. Hide it
+      // first, then store fallback bounds while it is not painted.
+      // Hidden provider profiles and background scripts remain loaded.
+      await invoke('provider_hide', { provider });
       await invoke('provider_set_bounds', { provider, bounds: toBounds(bounds) });
-      await invoke('provider_show', { provider, focus: false });
     },
     eval: (provider: AIProvider, js: string): Promise<void> => invoke('provider_eval', { provider, js }),
     evalWithCallback: (provider: AIProvider, js: string): Promise<string> =>
