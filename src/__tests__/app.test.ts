@@ -97,6 +97,8 @@ describe('App workflow controls', () => {
     expect(html).toContain('var(--wb-sidebar-width, 252px)');
     expect(html).toContain('Checking agent connections');
     expect(html).toContain('workbench-new-chat-screen');
+    expect(html).toContain('What would you like to chat about?');
+    expect(html).not.toContain('What would you like to work on?');
     expect(html).toContain('workbench-new-chat-mode');
     expect(html).toContain('workbench-experience-switch');
     expect(html).toContain('aria-pressed="true">Chat');
