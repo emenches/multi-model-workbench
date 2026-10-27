@@ -32,8 +32,9 @@ export function ProcessTrace({
   const totalSteps = trace.steps.filter((step) => step.kind !== 'fanout').length;
   const hasActive = trace.steps.some((step) => step.status === 'active');
   const highlightedSteps = liveSteps.length > 0
-    ? liveSteps
+    ? liveSteps.slice(0, 2)
     : trace.steps.filter((step) => step.kind !== 'fanout' && step.status === 'failed').slice(-2);
+  const additionalActiveCount = Math.max(0, liveSteps.length - highlightedSteps.length);
 
   useEffect(() => {
     if (!hasActive) return;
@@ -88,6 +89,11 @@ export function ProcessTrace({
                 {trace.currentStatus || formatI18n(t('processTrace.stepsConfirmed', locale), { done: confirmedSteps, total: totalSteps })}
               </span>
             )}
+            {additionalActiveCount > 0 ? (
+              <span className="workbench-trace-compact-overflow shrink-0 px-2 text-[0.6875rem] text-zinc-500 dark:text-zinc-400">
+                +{formatI18n(t('processTrace.activeCount', locale), { count: additionalActiveCount })}
+              </span>
+            ) : null}
           </div>
         ) : null}
         {expanded && totalSteps > 0 ? (
