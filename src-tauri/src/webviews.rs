@@ -1001,6 +1001,12 @@ enum NewWindowAction {
     DenySilent,
 }
 
+/// Embedded Claude verification can repeatedly send unapproved URLs outside
+/// the isolated session. Do not open them as OS-browser CAPTCHA tabs.
+fn external_handoff_allowed(provider: &str) -> bool {
+    provider != "claude"
+}
+
 fn decide_new_window_action(url: &tauri::Url, allowlisted: bool) -> NewWindowAction {
     if url.host_str() == Some("mac-bridge.invalid") {
         return NewWindowAction::DenySilent;
@@ -1246,8 +1252,10 @@ pub async fn provider_open(
                         serde_json::json!({ "provider": &nav_provider, "host": host }),
                     );
                 }
-                let _ = nav_app.opener().open_url(url.as_str(), None::<&str>);
-                schedule_grok_external_auth_return(&nav_app, &nav_provider, url);
+                if external_handoff_allowed(&nav_provider) {
+                    let _ = nav_app.opener().open_url(url.as_str(), None::<&str>);
+                    schedule_grok_external_auth_return(&nav_app, &nav_provider, url);
+                }
             }
             false
         })
@@ -1276,6 +1284,9 @@ pub async fn provider_open(
                         WebviewUrl::External("about:blank".parse().expect("static url")),
                     )
                     .window_features(features)
+                    // Keep auth popups decorated and initially bounded.
+                    .decorations(true)
+                    .inner_size(760.0, 640.0)
                     .title(popup_initial_title(&url))
                     .on_document_title_changed(|window, title| {
                         let _ = window.set_title(&title);
@@ -1306,7 +1317,8 @@ pub async fn provider_open(
                             }
                             NewWindowResponse::Create { window }
                         }
-                        Err(_) => NewWindowResponse::Allow,
+                        // Avoid fallback to an unmanaged native popup.
+                        Err(_) => NewWindowResponse::Deny,
                     }
                 }
                 NewWindowAction::DenySilent => NewWindowResponse::Deny,
@@ -1318,8 +1330,10 @@ pub async fn provider_open(
                             serde_json::json!({ "provider": &popup_provider, "host": host }),
                         );
                     }
-                    let _ = popup_app.opener().open_url(url.as_str(), None::<&str>);
-                    schedule_grok_external_auth_return(&popup_app, &popup_provider, &url);
+                    if external_handoff_allowed(&popup_provider) {
+                        let _ = popup_app.opener().open_url(url.as_str(), None::<&str>);
+                        schedule_grok_external_auth_return(&popup_app, &popup_provider, &url);
+                    }
                     NewWindowResponse::Deny
                 }
             }
@@ -2400,7 +2414,7 @@ mod tests {
         accept_status_for_session_reset, adopt_grok_bridge_boot, bridge_resets_on_boot_rotation,
         cancel_grok_navigation, cancel_grok_popup_recovery, cancel_session_reset,
         challenge_auxiliary_navigation_allowed, claim_grok_popup_recovery, confirm_grok_page_load,
-        decide_new_window_action, delayed_grok_bridge_script, eval_callback_reports_true,
+        decide_new_window_action, external_handoff_allowed, delayed_grok_bridge_script, eval_callback_reports_true,
         expire_grok_navigation_start_lease, fresh_session_boot, gemini_sorry_navigation_active,
         generic_staleness_dispatch_allowed, grok_app_title_ready,
         grok_auth_popup_may_complete_login, grok_bridge_drive_allowed, grok_bridge_host_action,
@@ -2683,6 +2697,16 @@ mod tests {
         .expect("exact integer limits should remain valid");
         assert_eq!(position, PhysicalPosition::new(i32::MIN, i32::MAX));
         assert_eq!(size, PhysicalSize::new(1, u32::MAX));
+    }
+
+    #[test]
+    fn claude_verification_redirects_do_not_launch_system_browser() {
+        assert!(!external_handoff_allowed("claude"));
+        for provider in ["chatgpt", "gemini", "grok", "meta"] {
+            assert!(external_handoff_allowed(provider));
+        }
+        assert_eq!(decide_new_window_action(&url("https://claude.ai/login"), true), NewWindowAction::AllowPopup);
+        assert_eq!(decide_new_window_action(&url("https://challenges.cloudflare.com/turnstile"), false), NewWindowAction::DenyExternal);
     }
 
     #[test]
