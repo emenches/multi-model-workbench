@@ -151,7 +151,7 @@ export const ja: Record<I18nKey, string> = {
   'input.connectProvider': 'プロバイダーを接続して開始',
   'input.checkingProviders': 'エージェントの接続を確認しています…',
   'input.sendSelectedProviders': '選択したプロバイダーへ送信',
-  'input.messagePlaceholder': 'メッセージを入力…（Enterで送信、Shift+Enterで改行）',
+  'input.messagePlaceholder': 'メッセージを入力…',
   'input.modeNotReady': 'このモードを使うには、あと{remaining}件のAI接続が必要です',
   'input.preparing': '確認中…',
   'input.preparingSession': '新しいAIセッションを準備しています…',
