@@ -321,6 +321,10 @@ export default function App() {
   const [preflight, setPreflight] = useState<{ mode: PreflightSubject; result: PreflightResult } | undefined>();
   const [stepTimeout, setStepTimeout] = useState<StepTimeoutDialogState | undefined>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Developer transport testing is opt-in, never part of the default chat.
+  const [showDevDiagnostics, setShowDevDiagnostics] = useState(
+    import.meta.env.DEV && import.meta.env.VITE_M1_AUTOTEST === '1',
+  );
   // The M1 project store is separate from global conversations and provider browser profiles.
   const [projectStore, setProjectStore] = useState<ProjectStore>(EMPTY_PROJECT_STORE);
   const [projectLoadError, setProjectLoadError] = useState<string>();
@@ -2194,6 +2198,17 @@ export default function App() {
                     </svg>
                   )}
                 </button>
+                {import.meta.env.DEV ? (
+                  <button
+                    type="button"
+                    className={`rounded-md border px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 ${showDevDiagnostics ? 'border-sky-500 text-sky-700 dark:text-sky-300' : 'border-zinc-300 dark:border-zinc-700'}`}
+                    onClick={() => setShowDevDiagnostics((current) => !current)}
+                    aria-pressed={showDevDiagnostics}
+                    aria-controls="workbench-dev-diagnostics"
+                  >
+                    Diagnostics
+                  </button>
+                ) : null}
                 <button type="button" className="border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={() => setSettingsOpen(true)}>
                   {translate('header.settings')}
                 </button>
@@ -2252,8 +2267,22 @@ export default function App() {
             }}
           >
             <ChatArea messages={messages} locale={locale} states={states} />
-            {import.meta.env.DEV ? <EchoPanel /> : null}
           </div>
+          {import.meta.env.DEV && showDevDiagnostics ? (
+            <section
+              id="workbench-dev-diagnostics"
+              aria-label="Developer transport diagnostics"
+              className="mt-2 max-h-60 shrink-0 overflow-auto rounded-lg border border-zinc-300 bg-zinc-50 p-2 dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-xs font-medium">Developer transport diagnostics</h3>
+                <button type="button" className="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700" onClick={() => setShowDevDiagnostics(false)}>
+                  Hide
+                </button>
+              </div>
+              <EchoPanel />
+            </section>
+          ) : null}
           <div className="ai-sister-conversation-composer shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800">
             <InputBar
               onSend={send}

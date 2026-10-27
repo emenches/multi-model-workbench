@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  appendResponseLanguageReminder,
   createResponseLanguagePolicy,
   isResponseLanguagePolicy,
   prependResponseLanguagePolicy,
@@ -10,6 +11,24 @@ import {
 describe('response language policy', () => {
   it('keeps prompts unchanged when no response-language policy was supplied', () => {
     expect(prependResponseLanguagePolicy('original prompt')).toBe('original prompt');
+    expect(appendResponseLanguageReminder('original prompt')).toBe('original prompt');
+  });
+
+  it('reinforces original user language after non-English workflow instructions', () => {
+    const policy = createResponseLanguagePolicy('auto', 'en');
+    const routed = appendResponseLanguageReminder(
+      prependResponseLanguagePolicy('這裡有一些工作流程指示。', policy),
+      policy,
+    );
+    expect(routed).toContain('primary language of the ORIGINAL USER QUESTION');
+    expect(routed).toContain('Do not copy the language of preceding workflow instructions');
+    expect(routed).toContain('Keep direct quotations, code, names and citations');
+  });
+
+  it('respects explicit user language requests even with a fixed setting', () => {
+    const routed = appendResponseLanguageReminder('Prompt', createResponseLanguagePolicy('de', 'en'));
+    expect(routed).toContain('German (de)');
+    expect(routed).toContain('explicitly requests another output language');
   });
 
   it('uses question and conversation language before the interface fallback in Auto mode', () => {
