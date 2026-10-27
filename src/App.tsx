@@ -798,7 +798,7 @@ export default function App() {
         }
         return;
       }
-      if (message.action === 'WORKFLOW_STEP_CONFIRMED') {
+      if (message.action === 'WORKFLOW_STEP_CONFIRMED' || message.action === 'WORKFLOW_STEP_FAILED') {
         // A provider's raw RESPONSE_DONE is not proof that the running graph
         // accepted the answer. Only the active waiter emits this local event.
         // Keep it out of the chat transcript; it updates progress only.
