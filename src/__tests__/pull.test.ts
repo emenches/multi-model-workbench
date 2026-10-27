@@ -243,6 +243,40 @@ describe('pull transport', () => {
     cleanup();
   });
 
+  it('records a sanitized timeout reason and retry attempt during ChatGPT recovery', async () => {
+    vi.useFakeTimers();
+    const { messages, cleanup } = collectMessages();
+    setProviderAwaiting(provider, true);
+    handleTitleMessage({ v: 1, action: 'STATUS_REPORT', provider, bootId: 'stable', seq: 1, transport: 'title' });
+    vi.mocked(host.provider.evalWithCallback)
+      .mockRejectedValueOnce(new Error('eval_with_callback timed out'))
+      .mockRejectedValueOnce(new Error('eval_with_callback timed out'))
+      .mockResolvedValueOnce(JSON.stringify([]));
+    const first = pullProvider(provider);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await first;
+    expect(messages).toContainEqual(expect.objectContaining({
+      provider,
+      action: 'STATUS_REPORT',
+      transport: 'local',
+      payload: { pullDiagnostic: 'failed', pullFailureKind: 'callback_timeout', recoveryAttempt: 0 },
+    }));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(messages).toContainEqual(expect.objectContaining({
+      provider,
+      action: 'STATUS_REPORT',
+      transport: 'local',
+      payload: { pullDiagnostic: 'retrying', recoveryAttempt: 1 },
+    }));
+    expect(messages).toContainEqual(expect.objectContaining({
+      provider,
+      action: 'STATUS_REPORT',
+      transport: 'local',
+      payload: { pullDiagnostic: 'recovered', recoveryAttempt: 1 },
+    }));
+    cleanup();
+  });
+
   it('bulkReady title hints trigger a pull', async () => {
     vi.mocked(host.provider.evalWithCallback).mockResolvedValue(JSON.stringify([]));
     handleTitleMessage({

@@ -14,6 +14,8 @@ const pending = new Set<AIProvider>();
 const degraded = new Set<AIProvider>();
 const recoveryTimers = new Map<AIProvider, ReturnType<typeof globalThis.setTimeout>>();
 const recoveryAttempts = new Map<AIProvider, number>();
+type PullFailureKind = 'callback_timeout' | 'callback_closed' | 'webview_unavailable' | 'invalid_json' | 'invalid_batch' | 'eval_failed';
+const lastPullFailure = new Map<AIProvider, PullFailureKind>();
 const pollTimers = new Map<AIProvider, ReturnType<typeof globalThis.setInterval>>();
 const pullInflight = new Map<AIProvider, { promise: Promise<void>; force: boolean }>();
 const activeBoot = new Map<AIProvider, string>();
@@ -175,8 +177,29 @@ async function pullProviderInner(provider: AIProvider, options: { force?: boolea
   const batch = await pullWithRetry(provider);
   if (!batch) {
     markDegraded(provider, 'pull_failed');
+    publish({
+      v: 1,
+      action: 'STATUS_REPORT',
+      provider,
+      payload: {
+        pullDiagnostic: 'failed',
+        pullFailureKind: lastPullFailure.get(provider) ?? 'eval_failed',
+        recoveryAttempt: recoveryAttempts.get(provider) ?? 0,
+      },
+      transport: 'local',
+    });
     return;
   }
+  if (degraded.has(provider)) {
+    publish({
+      v: 1,
+      action: 'STATUS_REPORT',
+      provider,
+      payload: { pullDiagnostic: 'recovered', recoveryAttempt: recoveryAttempts.get(provider) ?? 0 },
+      transport: 'local',
+    });
+  }
+  lastPullFailure.delete(provider);
   // A successful callback is direct evidence the old provider document is
   // responsive again. Keep boot/mid watermarks intact; never forge DONE.
   if (degraded.has(provider)) recoverProvider(provider);
@@ -235,6 +258,13 @@ function schedulePullRecovery(provider: AIProvider): void {
     recoveryTimers.delete(provider);
     if (!pending.has(provider) || !degraded.has(provider)) return;
     recoveryAttempts.set(provider, attempts + 1);
+    publish({
+      v: 1,
+      action: 'STATUS_REPORT',
+      provider,
+      payload: { pullDiagnostic: 'retrying', recoveryAttempt: attempts + 1 },
+      transport: 'local',
+    });
     void pullProvider(provider, { force: true });
   }, PULL_RECOVERY_DELAY_MS * (attempts + 1));
   recoveryTimers.set(provider, timer);
@@ -288,14 +318,37 @@ export async function pullWithRetry(provider: AIProvider): Promise<BridgeMessage
         provider,
         'window.__MAC_BRIDGE__ ? window.__MAC_BRIDGE__.peekOutbox() : []',
       );
-      const parsed = parsePullResult(raw);
-      if (!Array.isArray(parsed)) throw new Error('pull result is not an array');
+      let parsed: unknown;
+      try {
+        parsed = parsePullResult(raw);
+      } catch {
+        lastPullFailure.set(provider, 'invalid_json');
+        if (attempt === 0) await sleep(1000);
+        continue;
+      }
+      if (!Array.isArray(parsed)) {
+        lastPullFailure.set(provider, 'invalid_batch');
+        if (attempt === 0) await sleep(1000);
+        continue;
+      }
+      lastPullFailure.delete(provider);
       return parsed as BridgeMessage[];
-    } catch {
+    } catch (error) {
+      lastPullFailure.set(provider, classifyPullFailure(error));
       if (attempt === 0) await sleep(1000);
     }
   }
   return null;
+}
+
+// Do not include raw WKWebView callback exceptions in diagnostics: they can
+// contain browser or site content. Only recognized, fixed error categories.
+function classifyPullFailure(error: unknown): PullFailureKind {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (/timed out|timeout/i.test(message)) return 'callback_timeout';
+  if (/channel closed|cancelled|canceled/i.test(message)) return 'callback_closed';
+  if (/webview not found|provider webview|window not found/i.test(message)) return 'webview_unavailable';
+  return 'eval_failed';
 }
 
 export function parsePullResult(raw: string): unknown {
@@ -314,6 +367,7 @@ export function resetBridgePullForTests(): void {
   for (const timer of recoveryTimers.values()) globalThis.clearTimeout(timer);
   recoveryTimers.clear();
   recoveryAttempts.clear();
+  lastPullFailure.clear();
   activeBoot.clear();
   lastSeenBoot.clear();
   awaitingEpoch.clear();
