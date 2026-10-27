@@ -149,6 +149,7 @@ export const ja: Record<I18nKey, string> = {
   'onboarding.hint': '接続バーからいつでも他のAIを接続できます。',
   'input.workflowRunning': 'ワークフロー実行中',
   'input.connectProvider': 'プロバイダーを接続して開始',
+  'input.checkingProviders': 'エージェントの接続を確認しています…',
   'input.sendSelectedProviders': '選択したプロバイダーへ送信',
   'input.messagePlaceholder': 'メッセージを入力…（Enterで送信、Shift+Enterで改行）',
   'input.modeNotReady': 'このモードを使うには、あと{remaining}件のAI接続が必要です',

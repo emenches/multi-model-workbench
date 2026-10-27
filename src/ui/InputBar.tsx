@@ -20,6 +20,7 @@ export function InputBar({
   onSend,
   onCancel,
   disabled,
+  disabledPlaceholder,
   sendBlocked = false,
   blockedMessage,
   isProcessing,
@@ -28,6 +29,7 @@ export function InputBar({
   onSend: (text: string) => boolean | void | Promise<boolean | void>;
   onCancel: () => void;
   disabled: boolean;
+  disabledPlaceholder?: string;
   sendBlocked?: boolean;
   blockedMessage?: string;
   isProcessing: boolean;
@@ -160,7 +162,7 @@ export function InputBar({
   const placeholder = isProcessing
     ? t('input.workflowRunning', locale)
     : disabled
-      ? t('input.connectProvider', locale)
+      ? disabledPlaceholder ?? t('input.connectProvider', locale)
       : sendBlocked
         ? blockedMessage ?? t('input.connectProvider', locale)
         : t('input.messagePlaceholder', locale);

@@ -147,6 +147,7 @@ export const en: Record<I18nKey, string> = {
   'onboarding.hint': 'You can connect more AIs at any time from the connection bar.',
   'input.workflowRunning': 'Workflow running',
   'input.connectProvider': 'Connect a provider to start',
+  'input.checkingProviders': 'Checking agent connections…',
   'input.sendSelectedProviders': 'Send to selected providers',
   'input.messagePlaceholder': 'Type a message… (Enter to send, Shift+Enter for a new line)',
   'input.modeNotReady': 'Connect {remaining} more AI(s) to use this mode',

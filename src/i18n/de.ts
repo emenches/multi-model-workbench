@@ -149,6 +149,7 @@ export const de: Record<I18nKey, string> = {
   'onboarding.hint': 'Über die Verbindungsleiste kannst du jederzeit weitere KIs verbinden.',
   'input.workflowRunning': 'Workflow läuft',
   'input.connectProvider': 'Zum Starten einen Anbieter verbinden',
+  'input.checkingProviders': 'Agentenverbindungen werden geprüft…',
   'input.sendSelectedProviders': 'An ausgewählte Anbieter senden',
   'input.messagePlaceholder': 'Nachricht eingeben… (Enter zum Senden, Shift+Enter für eine neue Zeile)',
   'input.modeNotReady': 'Für diesen Modus fehlen noch {remaining} KI-Verbindungen',

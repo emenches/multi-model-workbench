@@ -130,6 +130,7 @@ export const I18N_KEYS = [
   'onboarding.hint',
   'input.workflowRunning',
   'input.connectProvider',
+  'input.checkingProviders',
   'input.sendSelectedProviders',
   'input.messagePlaceholder',
   'input.modeNotReady',

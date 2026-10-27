@@ -85,7 +85,6 @@ import {
   centerHiddenProviders,
   centerPresentationProvider,
   defaultPresentation,
-  restorableOpenProviders,
   setProviderPresentation,
   type PresentationByProvider,
   type WebviewPresentationState,
@@ -271,6 +270,20 @@ export function presentationHiddenProvidersForCenterSurface({
   return new Set([centered]);
 }
 
+// Keep previously-open agents visible while their native sessions are verified.
+// Sidebar-free restoration needs a native stage only for a visibly centered page.
+export function canRestoreWithoutInspectorPane(presentation: WebviewPresentationState, surface: 'text' | 'native', hasCenterStage: boolean): boolean {
+  return presentation !== 'center' || surface !== 'native' || hasCenterStage;
+}
+
+export function agentHeaderStatus(state: ProviderState, wasOpen: boolean, restoring: boolean): 'ready' | 'checking' | 'open' | null {
+  if (state.login === 'logged_out' || state.login === 'blocked') return null;
+  if (isSendable(state)) return 'ready';
+  if (state.webview === 'creating' || state.webview === 'loaded' || state.login === 'logged_in') return 'checking';
+  if (wasOpen) return restoring ? 'checking' : 'open';
+  return null;
+}
+
 function renderablePayload(payload: unknown): { content: string; truncated: boolean } {
   if (typeof payload === 'string') return { content: payload, truncated: false };
   if (payload && typeof payload === 'object' && 'text' in payload) {
@@ -434,6 +447,7 @@ export default function App() {
   );
   const overlayGuardOpenRef = useRef(false);
   const pendingRestore = useRef<Set<AIProvider>>(new Set());
+  const restoringProviders = useRef<Set<AIProvider>>(new Set());
   const dragStartFocusPaneWidth = useRef(defaultSettings().focusPaneWidth);
   const activeResponses = useRef(new Map<AIProvider, ActiveProviderResponse>());
   const replayContextSessionRef = useRef<string | undefined>(
@@ -453,7 +467,10 @@ export default function App() {
   const savedSimpleAgent = sessions.find((session) => session.id === activeSessionId)?.singleProvider;
   // If a chat explicitly selected an agent, preserve that choice even if it
   // signs out. Never silently redirect a conversation to another model.
-  const simpleAgent = savedSimpleAgent ?? activeProviders.find((provider) => isSendable(states[provider]));
+  const simpleAgent = savedSimpleAgent
+    ?? activeProviders.find((provider) => isSendable(states[provider]))
+    ?? activeProviders.find((provider) => appSettings.openProviders.includes(provider)
+      && states[provider].login !== 'logged_out' && states[provider].login !== 'blocked');
   const simpleTargets = simpleChatTargets(
     simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, states,
   );
@@ -492,6 +509,9 @@ export default function App() {
   const missingModeProviderCount = mode === 'consult'
     ? Math.max(0, MIN_CONSULT_PROVIDERS - readyModeProviders.length)
     : Math.max(0, requiredModeProviders.length - readyModeProviders.length);
+  const connectionsChecking = !settingsLoaded || !connectionSnapshotLoaded || !initialRestoreComplete
+    || activeProviders.some((provider) => states[provider].webview === 'creating'
+      || (states[provider].webview === 'loaded' && states[provider].login === 'unknown'));
   const noSendableProviders = !settingsLoaded || (presetId === 'simple'
     ? simpleTargets.length !== 1
     : presetId === 'brainstorm'
@@ -764,7 +784,11 @@ export default function App() {
         setLanguage(loaded.language);
         setFocusPaneWidth(loaded.focusPaneWidth);
         setPresentation(loaded.presentation);
-        pendingRestore.current = new Set(restorableOpenProviders(loaded.openProviders, loaded.presentation));
+        // Saved native pages must restore without a mounted inspector (including
+        // pages formerly displayed as chips). Never auto-open the standby model.
+        pendingRestore.current = new Set(loaded.openProviders.filter((provider) =>
+          activeProvidersForStandby(loaded.standbyProvider).includes(provider),
+        ));
         setInitialRestoreComplete(pendingRestore.current.size === 0);
       })
       .catch(() => {
@@ -1042,8 +1066,7 @@ export default function App() {
   const restoreProvider = useCallback(
     async (provider: AIProvider) => {
       const target = presentationRef.current[provider];
-      if (target === 'chip') return;
-      if (target === 'side') {
+      if (target === 'chip' || target === 'side') {
         await ensureProviderLoadedHidden(
           provider,
           hiddenProviderLoadBounds(),
@@ -1100,19 +1123,28 @@ export default function App() {
     });
   }, []);
 
+  const beginSavedProviderRestore = useCallback((provider: AIProvider) => {
+    if (!pendingRestore.current.has(provider) || restoringProviders.current.has(provider)) return;
+    pendingRestore.current.delete(provider);
+    restoringProviders.current.add(provider);
+    void restoreProvider(provider).catch(() => {
+      // A failed restore stays not-sendable; its header pill offers a manual Open.
+    }).finally(() => {
+      restoringProviders.current.delete(provider);
+      if (pendingRestore.current.size === 0 && restoringProviders.current.size === 0) {
+        setInitialRestoreComplete(true);
+      }
+    });
+  }, [restoreProvider]);
+
   const setPaneRef = useCallback(
     (provider: AIProvider, el: HTMLElement | null) => {
       paneRefs.current[provider] = el;
       if (!el) return;
       void syncBounds(provider);
-      if (pendingRestore.current.has(provider)) {
-        pendingRestore.current.delete(provider);
-        void restoreProvider(provider).finally(() => {
-          if (pendingRestore.current.size === 0) setInitialRestoreComplete(true);
-        });
-      }
+      beginSavedProviderRestore(provider);
     },
-    [restoreProvider, syncBounds],
+    [beginSavedProviderRestore, syncBounds],
   );
 
   const resyncNativeBounds = useCallback(() => {
@@ -1153,35 +1185,22 @@ export default function App() {
       const provider = centerPresentationProvider(presentationRef.current);
       if (!provider) return;
       if (centerSurfaceRef.current === 'native') void syncBounds(provider);
-      if (pendingRestore.current.has(provider)) {
-        pendingRestore.current.delete(provider);
-        void restoreProvider(provider).finally(() => {
-          if (pendingRestore.current.size === 0) setInitialRestoreComplete(true);
-        });
-      }
+      beginSavedProviderRestore(provider);
     },
-    [restoreProvider, syncBounds],
+    [beginSavedProviderRestore, syncBounds],
   );
 
   useEffect(() => {
-    if (!settingsLoaded || initialRestoreComplete || pendingRestore.current.size === 0) return;
-
+    if (!settingsLoaded || initialRestoreComplete) return;
     for (const provider of Array.from(pendingRestore.current)) {
-      const state = presentation[provider];
-      if (state === 'chip') {
-        pendingRestore.current.delete(provider);
-        continue;
-      }
-      const hasPlaceholder = state === 'center' ? Boolean(centerStageRef.current) : Boolean(paneRefs.current[provider]);
-      if (!hasPlaceholder) continue;
-      pendingRestore.current.delete(provider);
-      void restoreProvider(provider).finally(() => {
-        if (pendingRestore.current.size === 0) setInitialRestoreComplete(true);
-      });
+      // Invisible native pages have no React pane to wait for.
+      if (!canRestoreWithoutInspectorPane(presentation[provider], centerSurfaceRef.current, Boolean(centerStageRef.current))) continue;
+      beginSavedProviderRestore(provider);
     }
-
-    if (pendingRestore.current.size === 0) setInitialRestoreComplete(true);
-  }, [centeredProvider, initialRestoreComplete, presentation, restoreProvider, settingsLoaded]);
+    if (pendingRestore.current.size === 0 && restoringProviders.current.size === 0) {
+      setInitialRestoreComplete(true);
+    }
+  }, [beginSavedProviderRestore, centeredProvider, initialRestoreComplete, presentation, settingsLoaded]);
 
   const persistPresentation = useCallback(
     async (next: PresentationByProvider) => {
@@ -2180,9 +2199,9 @@ export default function App() {
       <select id="workbench-simple-agent-select" className="workbench-simple-agent-select rounded-xl border px-3 py-2 text-xs font-semibold"
         value={simpleAgent ?? ''} disabled={isProcessing} aria-label={translate('preset.simple.agentLabel')}
         onChange={(event) => selectSimpleAgent(event.target.value as AIProvider)}>
-        {!simpleAgent ? <option value="">{translate('preset.simple.noAgent')}</option> : null}
+        {!simpleAgent ? <option value="">{translate(connectionsChecking ? 'connection.stale' : 'preset.simple.noAgent')}</option> : null}
         {simpleAgent && !simpleTargets.length
-          ? <option value={simpleAgent}>{AI_PROVIDERS[simpleAgent].name} · {translate('connection.notReady')}</option>
+          ? <option value={simpleAgent}>{AI_PROVIDERS[simpleAgent].name} · {translate(connectionsChecking ? 'connection.stale' : 'connection.notReady')}</option>
           : null}
         {activeProviders.filter((provider) => isSendable(states[provider])).map((provider) => (
           <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>
@@ -2198,6 +2217,7 @@ export default function App() {
       onSend={send}
       onCancel={cancelWorkflow}
       disabled={noSendableProviders}
+      disabledPlaceholder={connectionsChecking ? translate('input.checkingProviders') : undefined}
       sendBlocked={modeSendBlocked}
       blockedMessage={modeBlockedMessage}
       isProcessing={isProcessing}
@@ -2214,7 +2234,7 @@ export default function App() {
           ? '0px 0px minmax(0,1fr)'
           : providerInspectorOpen
             ? focusGridTemplateColumns(focusPaneWidth)
-            : `${sessionSidebarCollapsed ? '60px' : '208px'} 0px minmax(0,1fr)` }}
+            : `${sessionSidebarCollapsed ? '60px' : 'var(--wb-sidebar-width, 252px)'} 0px minmax(0,1fr)` }}
       >
         <div
           aria-hidden={messagesMaximized || undefined}
@@ -2396,20 +2416,32 @@ export default function App() {
               ) : null}
             </div>
             <div className="workbench-connected-agent-strip mt-3 flex flex-wrap items-center gap-1.5" aria-label={translate('sidebar.agents')}>
-              {activeProviders.filter((provider) => states[provider].login === 'logged_in').map((provider) => (
-                <button key={provider} type="button" className="workbench-agent-pill inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs"
-                  onClick={() => openProviderModelSettings(provider)} title={AI_PROVIDERS[provider].name}>
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true"/>
-                  {AI_PROVIDERS[provider].name}
-                </button>
-              ))}
+              {activeProviders.map((provider) => {
+                const status = agentHeaderStatus(states[provider], appSettings.openProviders.includes(provider), connectionsChecking);
+                if (!status) return null;
+                const statusLabel = translate(status === 'ready' ? 'connection.ready' : status === 'checking' ? 'connection.stale' : 'connection.noWebview');
+                return (
+                  <button key={provider} type="button" data-agent-status={status}
+                    className="workbench-agent-pill inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs"
+                    onClick={() => {
+                      if (status === 'ready') openProviderModelSettings(provider);
+                      else void openProviderLogin(provider).catch((error: unknown) => setProviderWindowError(error instanceof Error ? error.message : String(error)));
+                    }}
+                    aria-label={`${AI_PROVIDERS[provider].name}: ${statusLabel}`}
+                    title={`${AI_PROVIDERS[provider].name} · ${statusLabel}`}>
+                    <span className="workbench-agent-status-dot" aria-hidden="true"/>
+                    <span>{AI_PROVIDERS[provider].name}</span>
+                    <span className="workbench-agent-status-label">{statusLabel}</span>
+                  </button>
+                );
+              })}
               <div className="relative">
                 <button type="button" className="workbench-agent-add rounded-full border px-3 py-1.5 text-xs"
                   aria-haspopup="menu" aria-expanded={agentMenuOpen}
                   onClick={() => setAgentMenuOpen((open) => !open)}>+ {translate('sidebar.addAgent')}</button>
                 {agentMenuOpen ? (
                   <div className="workbench-agent-menu absolute left-0 top-full z-30 mt-1 min-w-48 space-y-1 rounded-xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900" role="menu">
-                    {activeProviders.filter((provider) => states[provider].login !== 'logged_in').map((provider) => (
+                    {activeProviders.filter((provider) => !agentHeaderStatus(states[provider], appSettings.openProviders.includes(provider), connectionsChecking)).map((provider) => (
                       <button key={provider} type="button" role="menuitem"
                         className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
                         onClick={() => { setAgentMenuOpen(false); void openProviderLogin(provider).catch((error: unknown) => setProviderWindowError(error instanceof Error ? error.message : String(error))); }}>

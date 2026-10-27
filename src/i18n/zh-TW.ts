@@ -137,6 +137,7 @@ export const zhTW: Record<I18nKey, string> = {
   'onboarding.hint': '之後隨時都能從連線列加入更多 AI。',
   'input.workflowRunning': 'Workflow 執行中',
   'input.connectProvider': '請先連線一個 AI',
+  'input.checkingProviders': '正在檢查代理程式連線…',
   'input.sendSelectedProviders': '傳送給已選的 AI',
   'input.messagePlaceholder': '輸入訊息…（Enter 傳送，Shift+Enter 換行）',
   'input.modeNotReady': '此模式還需要連線 {remaining} 個 AI',
