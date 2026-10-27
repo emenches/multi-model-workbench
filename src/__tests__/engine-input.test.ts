@@ -301,6 +301,25 @@ describe('injected engine input hardening', () => {
     expect(errorDone(env)).toBeUndefined();
   });
 
+  it.each(['chatgpt', 'gemini', 'claude'] as const)(
+    'reports %s as unknown while the signed-in page is still hydrating, not signed out',
+    async (provider) => {
+      const env = createEnv({ inputKind: 'textarea' });
+      const handler = await installEngine(env);
+      dispatchAdapter(handler, {
+        provider,
+        loginDetectors: ['#not-mounted-yet'],
+        loggedOutDetectors: ['#not-a-login-form'],
+      });
+      expect(env.emitted.at(-1)).toEqual({
+        v: 1,
+        action: 'STATUS_REPORT',
+        provider,
+        payload: { dom: 'ready', login: 'unknown', thinking: false, bootId: 'boot1' },
+      });
+    },
+  );
+
   it('reports ChatGPT logged out when the login form and a stale composer coexist', async () => {
     const env = createEnv({ inputKind: 'textarea' });
     env.detectorElements.set('[data-testid="login-form"]', [new FakeElement(env.document, 'form')]);
