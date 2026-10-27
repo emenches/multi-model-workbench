@@ -158,6 +158,65 @@ describe('injected engine input hardening', () => {
     });
   });
 
+  it('captures a new unstyled ChatGPT assistant unit, never the old assistant unit', async () => {
+    vi.useFakeTimers();
+    const env = createEnv({ inputKind: 'contenteditable' });
+    mountProseMirrorComposer(env);
+    appendChatWorkExchange(env, {
+      turnKey: 'historical-unit',
+      prompt: CHAT_WORK_HISTORY_PROMPT,
+      answer: CHAT_WORK_HISTORY_ANSWER,
+      actionLabel: 'Copy',
+    });
+    const handler = await installEngine(env);
+    dispatchAdapter(handler, bundledChatGptAdapter());
+    if (!env.sendButton) throw new Error('send button missing');
+    env.sendButton.onClick = () => {
+      env.input.replaceChildren();
+      env.input.setVisibleText('');
+      const turn = new FakeElement(env.document, 'div');
+      turn.setAttribute('data-turn-key', 'new-unit');
+      const user = new FakeElement(env.document, 'div', 'Please summarize');
+      user.setAttribute('data-user-message-bubble', 'true');
+      const unit = new FakeElement(env.document, 'div');
+      unit.setAttribute('data-content-search-unit-key', 'new-unit:2:assistant');
+      unit.appendChild(new FakeElement(env.document, 'div', 'A final answer without markdown styling'));
+      const row = new FakeElement(env.document, 'div');
+      row.setAttribute('class', 'turn-action-controls');
+      row.appendChild(new FakeElement(env.document, 'button'));
+      turn.appendChild(user);
+      turn.appendChild(unit);
+      turn.appendChild(row);
+      env.document.body.appendChild(turn);
+    };
+    send(handler, 'Please summarize', 'chatgpt');
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(CHAT_WORK_SETTLE_MS);
+    expect(env.emitted).toContainEqual({
+      v: 1, action: 'RESPONSE_DONE', provider: 'chatgpt',
+      payload: 'A final answer without markdown styling',
+    });
+    expect(env.emitted.some((m) => m.payload === CHAT_WORK_HISTORY_ANSWER)).toBe(false);
+  });
+
+  it('counts earlier matching ChatGPT response nodes without exposing their text', async () => {
+    vi.useFakeTimers();
+    const env = createEnv({ inputKind: 'textarea' });
+    const handler = await installEngine(env);
+    dispatchAdapter(handler, { provider: 'chatgpt' });
+    send(handler, 'PRIVATE CURRENT PROMPT', 'chatgpt');
+    await flushMicrotasks();
+    env.responses = [new FakeElement(env.document, 'div', 'PRIVATE PREVIOUS RESPONSE')];
+    env.userMessages = [new FakeElement(env.document, 'div', 'PRIVATE CURRENT PROMPT')];
+    handler({ v: 1, action: 'CHECK_STATUS', provider: 'chatgpt' } as BridgeMessage);
+    expect(env.emitted.at(-1)).toMatchObject({
+      action: 'STATUS_REPORT',
+      payload: { capturePhase: 'candidate-rejected', captureRejectedBeforeAnchor: 1, captureTextChars: 0 },
+    });
+    expect(JSON.stringify(env.emitted.at(-1))).not.toContain('PRIVATE PREVIOUS RESPONSE');
+    expect(JSON.stringify(env.emitted.at(-1))).not.toContain('PRIVATE CURRENT PROMPT');
+  });
+
   afterEach(() => {
     FakeMutationObserver.instances = [];
     vi.clearAllTimers();

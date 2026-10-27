@@ -75,6 +75,11 @@ const CHATGPT_USER_MESSAGE_SELECTORS = [
   '[data-chatgpt-search-unit-key$=":user"]',
 ];
 const CHATGPT_USER_MESSAGE_SELECTOR = CHATGPT_USER_MESSAGE_SELECTORS.join(', ');
+// Chat/Work's assistant unit survives layout changes in the nested markdown body.
+const CHATGPT_ASSISTANT_UNIT_SELECTOR = [
+  '[data-content-search-unit-key$=":assistant"]',
+  '[data-chatgpt-search-unit-key$=":assistant"]',
+].join(', ');
 const CHATGPT_LIVE_SEND_BUTTON_SELECTORS = [
   'button[data-testid="composer-submit-button"]',
   'button[aria-label="Send message"]',
@@ -587,13 +592,27 @@ class InactiveSendOperationError extends Error {
     if (!waitingForResponse || adapter?.provider !== 'chatgpt') return {};
     const anchor = refreshChatGptUserTurnAnchor(adapter);
     const mayRead = Boolean(anchor) || chatGptMayReadResponseWithoutAnchor();
-    const responseNodes = document.querySelectorAll(adapter.responseSelectors.join(', ')).length;
+    const strictResponses = Array.from(document.querySelectorAll(adapter.responseSelectors.join(', ')));
+    const assistantUnits = Array.from(document.querySelectorAll(CHATGPT_ASSISTANT_UNIT_SELECTOR));
+    const responseNodes = strictResponses.length;
+    const rejected = { beforeAnchor: 0, asUser: 0, baseline: 0, empty: 0, echo: 0, eligible: 0 };
+    for (const response of [...new Set([...strictResponses, ...assistantUnits])]) {
+      if (anchor && !elementFollows(anchor, response)) rejected.beforeAnchor += 1;
+      else if (!anchor && responseBaselineEls.has(response)) rejected.baseline += 1;
+      else if (isUserMessageElement(response)) rejected.asUser += 1;
+      else {
+        const text = extractResponseText(response);
+        if (!text) rejected.empty += 1;
+        else if (isLikelyPromptEcho(text, pendingPromptText)) rejected.echo += 1;
+        else rejected.eligible += 1;
+      }
+    }
     const candidate = mayRead ? getLatestResponseCandidate() : null;
     const turn = candidate ? currentChatGptCompletionTurn(candidate.element) : null;
     const completion = turn && candidate ? chatGptCompletionEvidence(turn, candidate) : null;
     const capturePhase = !mayRead
       ? 'waiting-user-anchor'
-      : responseNodes === 0
+      : !candidate && responseNodes === 0 && assistantUnits.length === 0
         ? 'assistant-selector-missing'
         : !candidate
           ? 'candidate-rejected'
@@ -606,6 +625,13 @@ class InactiveSendOperationError extends Error {
       capturePhase,
       captureUserNodes: document.querySelectorAll(CHATGPT_USER_MESSAGE_SELECTOR).length,
       captureResponseNodes: responseNodes,
+      captureAssistantUnits: assistantUnits.length,
+      captureRejectedBeforeAnchor: rejected.beforeAnchor,
+      captureRejectedAsUser: rejected.asUser,
+      captureRejectedBaseline: rejected.baseline,
+      captureRejectedEmpty: rejected.empty,
+      captureRejectedEcho: rejected.echo,
+      captureEligibleNodes: rejected.eligible,
       captureAnchor: Boolean(anchor),
       captureAnchorLatched: chatGptUserTurnAnchorLatched,
       captureGenerationSeen: chatGptResponseGenerationObserved,
@@ -720,8 +746,13 @@ class InactiveSendOperationError extends Error {
 
     const existingResponses = document.querySelectorAll(activeAdapter.responseSelectors.join(', '));
     lastSeenResponseEl = existingResponses.length > 0 ? existingResponses[existingResponses.length - 1] : null;
-    responseBaselineEls = new Set(existingResponses);
-    responseBaselineTextCounts = countResponseTextKeys(Array.from(existingResponses));
+    // Snapshot alternate Chat/Work assistant units as well; none predating
+    // this send may qualify as a fresh answer even after a DOM remount.
+    const baselineCandidates = activeAdapter.provider === 'chatgpt'
+      ? [...existingResponses, ...document.querySelectorAll(CHATGPT_ASSISTANT_UNIT_SELECTOR)]
+      : Array.from(existingResponses);
+    responseBaselineEls = new Set(baselineCandidates);
+    responseBaselineTextCounts = countResponseTextKeys(baselineCandidates);
     responseGeneration += 1;
     activeResponseGeneration = responseGeneration;
     waitingForResponse = true;
@@ -1328,7 +1359,7 @@ class InactiveSendOperationError extends Error {
     // through to the baseline filters below instead of staying silent.
     if (adapter.provider === 'chatgpt' && !chatGptAnchor && !chatGptMayReadResponseWithoutAnchor()) return null;
     const responseEls = Array.from(document.querySelectorAll(adapter.responseSelectors.join(', ')));
-    if (responseEls.length === 0) return null;
+    if (responseEls.length === 0 && adapter.provider !== 'chatgpt') return null;
     for (let index = responseEls.length - 1; index >= 0; index -= 1) {
       const response = responseEls[index];
       if (chatGptAnchor && !elementFollows(chatGptAnchor, response)) continue;
@@ -1337,6 +1368,24 @@ class InactiveSendOperationError extends Error {
       const text = extractResponseText(response);
       if (!chatGptAnchor && waitingForResponse && text && !responseTextIsBeyondBaseline(text, responseEls)) continue;
       if (text && !isLikelyPromptEcho(text, pendingPromptText)) return { element: response, text };
+    }
+    // Some authenticated Chat/Work pages render a complete answer inside a
+    // new assistant unit without any adapter-specific markdown element.
+    // Require a verified post-send user bubble AND the same new-element,
+    // new-text, assistant-role, ordering, and prompt-echo protections.
+    // The existing current-turn stable completion signal still controls DONE.
+    if (adapter.provider === 'chatgpt' && waitingForResponse && chatGptUserTurnAnchorLatched) {
+      const units = Array.from(document.querySelectorAll(CHATGPT_ASSISTANT_UNIT_SELECTOR));
+      for (let index = units.length - 1; index >= 0; index -= 1) {
+        const response = units[index];
+        if (chatGptAnchor && !elementFollows(chatGptAnchor, response)) continue;
+        if (responseBaselineEls.has(response) || isUserMessageElement(response)) continue;
+        const text = extractResponseText(response);
+        if (!text || !responseTextIsBeyondBaseline(text, units)) continue;
+        if (isLikelyPromptEcho(text, pendingPromptText)) continue;
+        if (/^(?:pro thinking|thinking|reasoning|searching|working on it|finalizing answer)$/i.test(text.trim())) continue;
+        return { element: response, text };
+      }
     }
     return null;
   }
