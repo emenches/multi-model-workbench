@@ -664,3 +664,16 @@ html.ai-sister .workbench-new-conversation {
   background: rgba(30,20,58,.7);
   color: #f8f7ff;
 }
+
+
+/* The dock responds to the actual width left after the conversation rail. */
+html:not(.ai-sister) .workbench-shell .workbench-provider-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 176px), 1fr));
+}
+/* Native avatar fallback stays minimal in the default workbench theme.
+   The commemorative portrait artwork is reserved for the opt-in theme. */
+html:not(.ai-sister) .workbench-shell .workbench-context-item .workbench-live-indicator {
+  width: 6px;
+  height: 6px;
+  box-shadow: none;
+}
