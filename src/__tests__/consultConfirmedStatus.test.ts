@@ -15,8 +15,11 @@ const role = (provider: AIProvider, label: string, turn: number): BridgeMessage 
 const answer = (provider: AIProvider, action: 'RESPONSE_CHUNK' | 'RESPONSE_DONE', payload: string): BridgeMessage =>
   ({ v: 1, action, provider, payload, transport: 'pull' });
 
+const confirmed = (provider: AIProvider, turn: number, text: string): BridgeMessage =>
+  ({ v: 1, action: 'WORKFLOW_STEP_CONFIRMED', provider, payload: { turn, text }, transport: 'local' });
+
 describe('Consult completion is signal-driven, not guessed from status', () => {
-  it.each(['en', 'zh-TW', 'ja', 'de'] as const)('requires RESPONSE_DONE even after another workflow status in %s', (locale) => {
+  it.each(['en', 'zh-TW', 'ja', 'de'] as const)('requires the in-flight waiter to confirm each role in %s', (locale) => {
     let trace = createProcessTrace('consult', [], locale);
     trace = reduceProcessTraceEvent(trace, status('First and Second answering'), locale);
     trace = reduceProcessTraceEvent(trace, role('gemini', 'Second', 1), locale);
@@ -31,6 +34,11 @@ describe('Consult completion is signal-driven, not guessed from status', () => {
     expect(trace.steps[0]?.status).toBe('active');
 
     trace = reduceProcessTraceEvent(trace, answer('gemini', 'RESPONSE_DONE', 'Confirmed final Gemini answer'), locale);
+    // The provider sent DONE but no matching waiter accepted it yet.
+    expect(trace.steps[0]?.status).toBe('active');
+    trace = reduceProcessTraceEvent(trace, confirmed('gemini', 2, 'Stale answer'), locale);
+    expect(trace.steps[0]?.status).toBe('active');
+    trace = reduceProcessTraceEvent(trace, confirmed('gemini', 1, 'Confirmed final Gemini answer'), locale);
     expect(trace.steps[0]?.status).toBe('done');
     expect(trace.steps[0]?.content).toBe('Confirmed final Gemini answer');
     expect(trace.steps[0]?.detail).not.toContain(t('processTrace.completionUnconfirmed', locale));
@@ -51,6 +59,7 @@ describe('Consult completion is signal-driven, not guessed from status', () => {
     let trace = createProcessTrace('consult');
     trace = reduceProcessTraceEvent(trace, role('chatgpt', 'First', 5));
     trace = reduceProcessTraceEvent(trace, answer('chatgpt', 'RESPONSE_DONE', 'Complete answer'));
+    trace = reduceProcessTraceEvent(trace, confirmed('chatgpt', 5, 'Complete answer'));
     trace = settleProcessTrace(trace);
     expect(trace.steps).toHaveLength(1);
     expect(trace.steps[0]?.status).toBe('done');
