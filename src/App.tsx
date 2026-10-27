@@ -6,7 +6,7 @@ import { isRenderableResponseMessage } from './bridge/render';
 import { publishBridgeMessage } from './bridge/bus';
 import { EchoPanel } from './dev/EchoPanel';
 import { getRuntimeAppVersion } from './appVersion';
-import { host } from './host';
+import { host, type ProviderWindowGeometry } from './host';
 import { ProjectPicker } from './workspace/ProjectPicker';
 import { MIN_CONSULT_PROVIDERS, availableConsultProviders, chooseConsultRoles } from './ui/consultAvailability';
 import { EMPTY_PROJECT_STORE, activeProject, mergeProjectContext, type ProjectStore } from './workspace/model';
@@ -361,6 +361,7 @@ export default function App() {
   const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
   const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
   const [providerWindowError, setProviderWindowError] = useState<string>();
+  const [providerWindowGeometry, setProviderWindowGeometry] = useState<ProviderWindowGeometry>();
   const [scrollFocusedProvider, setScrollFocusedProvider] = useState<AIProvider | undefined>();
   const [presentation, setPresentation] = useState<PresentationByProvider>(() => defaultPresentation());
   const [centerSurface, setCenterSurface] = useState<CenterSurface>('text');
@@ -1872,9 +1873,11 @@ export default function App() {
     // Real page lives in a separate, movable OS window, while the workbench
     // stays in the readable text mode with all of its controls accessible.
     setProviderWindowError(undefined);
+    setProviderWindowGeometry(undefined);
     void (async () => {
       await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
-      await host.provider.openWindow(provider);
+      const dimensions = await host.provider.openWindow(provider);
+      setProviderWindowGeometry(dimensions);
     })().catch((error: unknown) => {
       setProviderWindowError(error instanceof Error ? error.message : String(error));
     });
@@ -1926,7 +1929,8 @@ export default function App() {
       // Keep the same browser instance/profile so workflows still see login.
       await changeProviderPresentationRef.current(provider, 'center');
       await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
-      await host.provider.openWindow(provider, true);
+      const dimensions = await host.provider.openWindow(provider, true);
+      setProviderWindowGeometry(dimensions);
       setCenterSurfaceMode('text');
     },
     [ensureProviderLoadedHidden, setCenterSurfaceMode],
@@ -2322,6 +2326,17 @@ export default function App() {
               </div>
             </div>
           </div>
+          {providerWindowGeometry && import.meta.env.DEV ? (
+            <div role="status" className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+              <span className="font-semibold">Native page geometry</span>
+              <span>Window {providerWindowGeometry.windowWidth} × {providerWindowGeometry.windowHeight} physical px</span>
+              <span>WebView {providerWindowGeometry.webviewWidth} × {providerWindowGeometry.webviewHeight} physical px</span>
+              <span>Position {providerWindowGeometry.webviewX},{providerWindowGeometry.webviewY}</span>
+              <button type="button" className="ml-auto rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700" onClick={() => setProviderWindowGeometry(undefined)}>
+                Hide
+              </button>
+            </div>
+          ) : null}
           {providerWindowError ? (
             <div role="alert" className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
               <span>Could not open the separate provider window: {providerWindowError}</span>
