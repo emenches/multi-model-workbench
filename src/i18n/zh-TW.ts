@@ -139,7 +139,7 @@ export const zhTW: Record<I18nKey, string> = {
   'input.connectProvider': '請先連線一個 AI',
   'input.checkingProviders': '正在檢查代理程式連線…',
   'input.sendSelectedProviders': '傳送給已選的 AI',
-  'input.messagePlaceholder': '輸入訊息…（Enter 傳送，Shift+Enter 換行）',
+  'input.messagePlaceholder': '輸入訊息…',
   'input.modeNotReady': '此模式還需要連線 {remaining} 個 AI',
   'input.preparing': '檢查中…',
   'input.preparingSession': '正在準備全新的 AI 對話…',
