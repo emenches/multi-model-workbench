@@ -6,11 +6,10 @@ import { isRenderableResponseMessage } from './bridge/render';
 import { publishBridgeMessage } from './bridge/bus';
 import { EchoPanel } from './dev/EchoPanel';
 import { getRuntimeAppVersion } from './appVersion';
-import { host } from './host';
+import { host, type ProviderWindowGeometry } from './host';
 import { ProjectPicker } from './workspace/ProjectPicker';
-import { usableLoginStageBounds } from './ui/loginStageBounds';
 import { MIN_CONSULT_PROVIDERS, availableConsultProviders, chooseConsultRoles } from './ui/consultAvailability';
-import { EMPTY_PROJECT_STORE, mergeProjectContext, type ProjectStore } from './workspace/model';
+import { EMPTY_PROJECT_STORE, activeProject, mergeProjectContext, type ProjectStore } from './workspace/model';
 import { useI18n } from './i18n/context';
 import { MODE_NAME_KEYS } from './i18n/modes';
 import type { Locale } from './i18n/resolve';
@@ -61,6 +60,7 @@ import { makeFileDragGuard } from './ui/fileDrop';
 import { PreflightDialog } from './ui/PreflightDialog';
 import { PresetCatalog } from './ui/PresetCatalog';
 import { createProcessTrace, reduceProcessTraceEvent, settleProcessTrace, type ProcessTraceState } from './ui/processTraceModel';
+import { ProcessTrace } from './ui/ProcessTrace';
 import { ReplayPanel, type ReplaySource } from './ui/ReplayPanel';
 import { SessionCheckpointNotice } from './ui/SessionCheckpointNotice';
 import { loadSessionSidebarCollapsed, saveSessionSidebarCollapsed } from './ui/sessionSidebarPreference';
@@ -94,7 +94,7 @@ import {
   waitForPresentationTargetBounds,
 } from './ui/presentationCommands';
 import { preflightGraph, workflowGraphs } from './workflow/graph';
-import { defaultRolesForPreset, presetForId } from './ui/presetCatalogData';
+import { PRESET_CATALOG, defaultRolesForPreset, presetForId } from './ui/presetCatalogData';
 import { buildPreflightDialogModel } from './ui/preflightModel';
 import { preflightFromResult, type PreflightSubject } from './ui/preflightFromResult';
 import { processingAfterSend, processingAfterSettle, processingAfterWorkflowStatus } from './ui/processing';
@@ -358,6 +358,10 @@ export default function App() {
   const [focusPaneWidth, setFocusPaneWidth] = useState(() => defaultSettings().focusPaneWidth);
   const [stageExpanded, setStageExpanded] = useState(false);
   const [messagesMaximized, setMessagesMaximized] = useState(false);
+  const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
+  const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
+  const [providerWindowError, setProviderWindowError] = useState<string>();
+  const [providerWindowGeometry, setProviderWindowGeometry] = useState<ProviderWindowGeometry>();
   const [scrollFocusedProvider, setScrollFocusedProvider] = useState<AIProvider | undefined>();
   const [presentation, setPresentation] = useState<PresentationByProvider>(() => defaultPresentation());
   const [centerSurface, setCenterSurface] = useState<CenterSurface>('text');
@@ -1864,9 +1868,20 @@ export default function App() {
 
   const enlargeCenter = useCallback(() => {
     const provider = centerPresentationProvider(presentationRef.current);
-    setCenterSurfaceMode('native');
-    if (provider) void changeProviderPresentationRef.current(provider, 'center');
-  }, [setCenterSurfaceMode]);
+    if (!provider) return;
+    // A native WKWebView paints above React regardless of CSS z-index.
+    // Real page lives in a separate, movable OS window, while the workbench
+    // stays in the readable text mode with all of its controls accessible.
+    setProviderWindowError(undefined);
+    setProviderWindowGeometry(undefined);
+    void (async () => {
+      await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
+      const dimensions = await host.provider.openWindow(provider);
+      setProviderWindowGeometry(dimensions);
+    })().catch((error: unknown) => {
+      setProviderWindowError(error instanceof Error ? error.message : String(error));
+    });
+  }, [ensureProviderLoadedHidden]);
 
   const collapseCenter = useCallback(() => {
     const provider = centerPresentationProvider(presentationRef.current);
@@ -1910,21 +1925,15 @@ export default function App() {
         await nextAnimationFrame();
       }
       if (overlayGuardOpenRef.current) throw new Error('Cannot open provider login while an overlay is active');
-      await nextAnimationFrame();
-      await forceProviderNativeCenter(provider);
-      // Native WebViews paint over React, so never open login at unmeasured
-      // fallback coordinates that could cover the provider controls.
-      let stageBounds: DOMRectReadOnly | undefined;
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        stageBounds = usableLoginStageBounds(centerStageRef.current?.getBoundingClientRect());
-        if (stageBounds) break;
-        await nextAnimationFrame();
-      }
-      if (!stageBounds) throw new Error('Login content panel is not positioned yet; retry.');
-      await host.provider.open(provider, stageBounds);
-      await host.provider.openLogin(provider, stageBounds);
+      // Open authentication in a movable, native standalone provider window.
+      // Keep the same browser instance/profile so workflows still see login.
+      await changeProviderPresentationRef.current(provider, 'center');
+      await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
+      const dimensions = await host.provider.openWindow(provider, true);
+      setProviderWindowGeometry(dimensions);
+      setCenterSurfaceMode('text');
     },
-    [forceProviderNativeCenter],
+    [ensureProviderLoadedHidden, setCenterSurfaceMode],
   );
 
   const openPreflightLogin = useCallback(
@@ -2064,13 +2073,28 @@ export default function App() {
                 stageExpanded && !checkpoint && !(stepTimeout && !stepTimeout.timedOut) ? 'hidden' : ''
               }`}
             >
-              <AiSisterEnsembleCard />
+              <div className="workbench-workspace-heading mb-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Workspace</div>
+                  <div className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                    {activeProject(projectStore)?.name ?? 'General'}
+                  </div>
+                </div>
+                <button type="button"
+                  className="workbench-options-button shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium dark:border-zinc-700"
+                  onClick={() => setWorkflowOptionsOpen((open) => !open)}
+                  aria-expanded={workflowOptionsOpen} aria-controls="workbench-workflow-options">
+                  {workflowOptionsOpen ? 'Hide tools' : 'Tools & modes'}
+                </button>
+              </div>
               <ProjectPicker
                 store={projectStore}
                 disabled={isProcessing || !projectsReady}
                 onSave={saveProjectStore}
                 loadError={projectLoadError}
               />
+              <div id="workbench-workflow-options" hidden={!workflowOptionsOpen && !checkpoint && !stepTimeout} className="workbench-options mt-3">
+              <AiSisterEnsembleCard />
               <PresetCatalog
                 mode={mode}
                 selectedPresetId={presetId}
@@ -2112,7 +2136,46 @@ export default function App() {
               {stepTimeout && !stepTimeout.timedOut ? (
                 <StepTimeoutDialog event={stepTimeout} onClose={() => setStepTimeout(undefined)} locale={locale} />
               ) : null}
+              </div>
             </section>
+            <section aria-label="AI connections" className="workbench-provider-dock mx-3 mb-3 mt-auto rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+                  Providers · {activeProviders.filter((provider) => isSendable(states[provider])).length} connected
+                </h2>
+                <button type="button"
+                  aria-expanded={providerInspectorOpen}
+                  aria-controls="workbench-provider-inspector"
+                  onClick={() => setProviderInspectorOpen((open) => !open)}
+                  className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700">
+                  {providerInspectorOpen ? 'Hide details' : 'Details'}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {activeProviders.map((provider) => (
+                  <div key={provider} className="workbench-provider-tile flex min-w-0 flex-col gap-1 rounded-lg border border-zinc-200 px-2 py-2 dark:border-zinc-800">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${isSendable(states[provider]) ? 'bg-emerald-500' : 'bg-amber-500'}`} aria-hidden="true" />
+                      <span className="truncate text-xs font-semibold">{AI_PROVIDERS[provider].name}</span>
+                    </div>
+                    <span className="text-[0.65rem] text-zinc-500 dark:text-zinc-400">
+                      {isSendable(states[provider]) ? 'Connected' : states[provider].login === 'logged_out' ? 'Sign in' : 'Checking'}
+                    </span>
+                    <button type="button" className="self-start rounded-md px-1 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-zinc-800"
+                      onClick={() => {
+                        setProviderInspectorOpen(true);
+                        void changeProviderPresentationManually(provider, 'center');
+                      }}>
+                      Inspect
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[0.65rem] text-zinc-500 dark:text-zinc-400">Connected means the page is available. Workflow steps finish only after their answer is received.</p>
+            </section>
+            <div id="workbench-provider-inspector"
+              className="workbench-provider-inspector min-h-0 flex-1"
+              hidden={!providerInspectorOpen}>
             <FocusPane
               providers={activeProviders}
               centeredProvider={centeredProvider}
@@ -2144,6 +2207,7 @@ export default function App() {
               stageExpanded={stageExpanded}
               onToggleStageExpanded={() => setStageExpanded((current) => !current)}
             />
+            </div>
           </div>
         </div>
 
@@ -2172,6 +2236,23 @@ export default function App() {
                     {presetId === 'brainstorm' ? translate(presetForId(presetId).displayNameKey) : translate(MODE_NAME_KEYS[mode])}
                   </span>
                   <span className="min-w-0 truncate text-xs text-zinc-600 dark:text-zinc-400">{workflowStatus || translate('processTrace.settled')}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Mode</span>
+                    <select
+                      aria-label="Workflow mode"
+                      value={presetId}
+                      disabled={isProcessing}
+                      onChange={(event) => selectPreset(event.target.value as WorkflowPresetId)}
+                      className="workbench-mode-select max-w-48 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    >
+                      {PRESET_CATALOG.map((preset) => (
+                        <option key={preset.id} value={preset.id}>{translate(preset.displayNameKey)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <span className="hidden text-xs text-zinc-500 dark:text-zinc-400 xl:inline">Ready = connected, not necessarily finished responding.</span>
                 </div>
               </div>
               {/* One group, so the controls wrap as a block and stay right-aligned on the new row. */}
@@ -2245,6 +2326,32 @@ export default function App() {
               </div>
             </div>
           </div>
+          {providerWindowGeometry && import.meta.env.DEV ? (
+            <div role="status" className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+              <span className="font-semibold">Native page geometry</span>
+              <span>Window {providerWindowGeometry.windowWidth} × {providerWindowGeometry.windowHeight} physical px</span>
+              <span>WebView {providerWindowGeometry.webviewWidth} × {providerWindowGeometry.webviewHeight} physical px</span>
+              <span>Position {providerWindowGeometry.webviewX},{providerWindowGeometry.webviewY}</span>
+              <button type="button" className="ml-auto rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700" onClick={() => setProviderWindowGeometry(undefined)}>
+                Hide
+              </button>
+            </div>
+          ) : null}
+          {providerWindowError ? (
+            <div role="alert" className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+              <span>Could not open the separate provider window: {providerWindowError}</span>
+              <button type="button" onClick={() => setProviderWindowError(undefined)} className="rounded border border-current px-2 py-1">Dismiss</button>
+            </div>
+          ) : null}
+          {processTrace && (processTrace.currentStatus || processTrace.steps.length > 0) ? (
+            <details className="workbench-run-details mt-3 rounded-lg border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+              <summary className="cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Workflow progress
+                {processTrace.currentStatus ? <span className="ml-2 font-normal text-zinc-500 dark:text-zinc-400">{processTrace.currentStatus}</span> : null}
+              </summary>
+              <ProcessTrace trace={processTrace} locale={locale} onDetailOpenChange={setProcessTraceDetailOpen} />
+            </details>
+          ) : null}
           <div
             id="replay-history-panel"
             hidden={!replayDrawerOpen}
@@ -2290,7 +2397,7 @@ export default function App() {
           ) : null}
           <div
             ref={transcriptRef}
-            className="ai-sister-conversation-transcript mt-3 min-h-0 flex-1 overflow-auto border-y border-zinc-200 dark:border-zinc-800 py-3"
+            className="ai-sister-conversation-transcript workbench-reading-area mt-3 min-h-0 flex-1 overflow-auto border-y border-zinc-200 dark:border-zinc-800 py-4"
             onScroll={(event) => {
               transcriptStickToEndRef.current = isTranscriptNearEnd(event.currentTarget);
               handleTranscriptScroll();

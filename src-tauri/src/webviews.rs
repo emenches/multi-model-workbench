@@ -11,6 +11,7 @@ use std::{
 use tauri::{
     utils::config::BackgroundThrottlingPolicy,
     webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder},
+    window::WindowBuilder,
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
 };
 use tauri_plugin_opener::OpenerExt;
@@ -1081,6 +1082,11 @@ pub async fn provider_open(
     settings::ensure_provider_active_locked(&app, &provider)?;
     let label = provider_label(&provider);
     if let Some(webview) = app.get_webview(&label) {
+        // A separately hosted Real page is controlled only by its own native
+        // window, never by the React content-stage positioning loop.
+        if is_provider_detached(&webview, &provider) {
+            return Ok(current_state(&provider));
+        }
         // Place the native child before showing it: otherwise previously parked
         // login content may momentarily cover the HTML toolbar.
         set_webview_bounds(&webview, position, size)?;
@@ -1409,6 +1415,9 @@ fn close_provider(app: &AppHandle, provider: &str) -> Result<(), String> {
     if let Some(webview) = app.get_webview(&label) {
         webview.close().map_err(|error| error.to_string())?;
     }
+    if let Some(window) = app.get_window(&provider_page_window_label(provider)) {
+        let _ = window.hide();
+    }
     if let Ok(mut guard) = runtime().lock() {
         guard.engine_boot.remove(provider);
         guard.bridge_boot.remove(provider);
@@ -1448,6 +1457,9 @@ pub async fn provider_show(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("webview not found: {label}"))?;
+    if is_provider_detached(&webview, &provider) {
+        return Ok(());
+    }
     webview.show().map_err(|error| error.to_string())?;
     if provider_show_should_focus(focus) {
         webview.set_focus().map_err(|error| error.to_string())?;
@@ -1466,6 +1478,10 @@ pub async fn provider_hide(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("webview not found: {label}"))?;
+    if is_provider_detached(&webview, &provider) {
+        // Background parking must not blank a user-opened standalone page.
+        return Ok(());
+    }
     webview.hide().map_err(|error| error.to_string())
 }
 
@@ -1483,6 +1499,10 @@ pub async fn provider_set_bounds(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("webview not found: {label}"))?;
+    if is_provider_detached(&webview, &provider) {
+        // A separate window owns its own bounds and auto-resize.
+        return Ok(());
+    }
     set_webview_bounds(&webview, position, size)
 }
 
@@ -1542,6 +1562,169 @@ async fn eval_provider_with_callback(
         .await
         .map_err(|_| "eval_with_callback timed out".to_string())?
         .map_err(|_| "eval_with_callback response channel closed".to_string())
+}
+
+
+/// Apply the native page window's current client size to its attached
+/// provider view. Reparenting preserves the old child size. Use Tauri's
+/// independent size/position setters rather than the combined bounds route
+/// that has left WKWebView at its old pane dimensions on macOS.
+fn fit_detached_provider_to_window(
+    provider_view: &tauri::Webview,
+    parent_window: &tauri::Window,
+) -> Result<(), String> {
+    let size = parent_window.inner_size().map_err(|error| error.to_string())?;
+    provider_view
+        .set_position(tauri::Position::Physical(PhysicalPosition::new(0, 0)))
+        .map_err(|error| error.to_string())?;
+    provider_view
+        .set_size(tauri::Size::Physical(size))
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderWindowGeometry {
+    window_width: u32,
+    window_height: u32,
+    webview_width: u32,
+    webview_height: u32,
+    webview_x: i32,
+    webview_y: i32,
+}
+
+fn detached_provider_geometry(
+    provider_view: &tauri::Webview,
+    parent_window: &tauri::Window,
+) -> Result<ProviderWindowGeometry, String> {
+    let window = parent_window.inner_size().map_err(|error| error.to_string())?;
+    let webview = provider_view.size().map_err(|error| error.to_string())?;
+    let origin = provider_view.position().map_err(|error| error.to_string())?;
+    Ok(ProviderWindowGeometry {
+        window_width: window.width,
+        window_height: window.height,
+        webview_width: webview.width,
+        webview_height: webview.height,
+        webview_x: origin.x,
+        webview_y: origin.y,
+    })
+}
+
+#[tauri::command]
+pub async fn provider_open_window(
+    app: AppHandle,
+    webview: tauri::Webview,
+    provider: String,
+    login: Option<bool>,
+) -> Result<ProviderWindowGeometry, String> {
+    ensure_control_webview(&webview)?;
+    settings::ensure_provider_active(&app, &provider)?;
+    let provider_webview = get_provider_webview(&app, &provider)?;
+    let window_label = provider_page_window_label(&provider);
+
+    let created_window = app.get_window(&window_label).is_none();
+    let window = if let Some(existing) = app.get_window(&window_label) {
+        existing
+    } else {
+        let window = WindowBuilder::new(&app, window_label.clone())
+            .title(format!("{} — Multi-Model Workbench", provider.to_uppercase()))
+            .inner_size(940.0, 700.0)
+            .min_inner_size(520.0, 380.0)
+            .visible(false)
+            .build()
+            .map_err(|error| error.to_string())?;
+        window
+    };
+
+    if !is_provider_detached(&provider_webview, &provider) {
+        provider_webview.hide().map_err(|error| error.to_string())?;
+        if let Err(error) = provider_webview.reparent(&window) {
+            let _ = window.hide();
+            return Err(format!("Could not move provider page into its own window: {error}"));
+        }
+    }
+    // A reparented WKWebView can retain its old panel-sized native frame if
+    // set_bounds is called while its new NSWindow is still hidden. Keep manual
+    // full-client sizing and reapply after showing the new window.
+    provider_webview.set_auto_resize(false).map_err(|error| error.to_string())?;
+
+    if login.unwrap_or(false) {
+        let adapter = adapters::get_adapter(&provider)?;
+        let login_url = tauri::Url::parse(&adapter.urls.login)
+            .map_err(|error| format!("Invalid provider login URL: {error}"))?;
+        provider_webview.navigate(login_url).map_err(|error| error.to_string())?;
+    }
+
+    // Use the native window's actual physical client size, not the previous
+    // pane size or a value measured while the window was hidden.
+    if created_window {
+        let event_app = app.clone();
+        let event_provider = provider.clone();
+        let event_window = window.clone();
+        window.on_window_event(move |event| {
+            // Resolve the CURRENT webview by label. The original provider can
+            // be closed and recreated without leaving stale event callbacks.
+            let active_view = || event_app.get_webview(&provider_label(&event_provider));
+            match event {
+                tauri::WindowEvent::Resized(_size) => {
+                    if let Some(view) = active_view() {
+                        if is_provider_detached(&view, &event_provider) {
+                            let _ = fit_detached_provider_to_window(
+                                &view,
+                                &event_window,
+                            );
+                        }
+                    }
+                }
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    if let Some(view) = active_view() {
+                        let _ = view.hide();
+                        let _ = view.set_auto_resize(false);
+                        if let Some(main) = event_app.get_window("main") {
+                            let _ = view.reparent(&main);
+                            let _ = set_webview_bounds(
+                                &view,
+                                PhysicalPosition::new(0, 0),
+                                PhysicalSize::new(1, 1),
+                            );
+                        }
+                    }
+                    let _ = event_window.hide();
+                    let _ = event_app.emit_to(
+                        "main",
+                        "provider-window://closed",
+                        event_provider.clone(),
+                    );
+                }
+                _ => {}
+            }
+        });
+    }
+
+    // Making the host NSWindow visible FIRST is essential on macOS. WKWebView
+    // can otherwise retain the small native frame of the old React pane even
+    // if set_bounds returned Ok while the new NSWindow was hidden.
+    window.show().map_err(|error| error.to_string())?;
+    fit_detached_provider_to_window(&provider_webview, &window)?;
+    provider_webview.show().map_err(|error| error.to_string())?;
+    // Some WKWebView versions defer native frame layout while hidden.
+    // After both parent and child are visible, apply the final client
+    // rectangle once more. Further user resizes are handled by Resized.
+    fit_detached_provider_to_window(&provider_webview, &window)?;
+    // Await the first NSWindow layout once, then report measured geometry
+    // instead of silently assuming the native frame matches the requested
+    // bounds. This gives actionable evidence if macOS still renders a tiny
+    // WKWebView despite a successful Tauri sizing call.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    if is_provider_detached(&provider_webview, &provider) {
+        fit_detached_provider_to_window(&provider_webview, &window)?;
+    }
+    window.set_focus().map_err(|error| error.to_string())?;
+    let geometry = detached_provider_geometry(&provider_webview, &window)?;
+    eprintln!("Workbench provider window opened {}: {:?}", provider, geometry);
+    Ok(geometry)
 }
 
 #[tauri::command]
@@ -2155,6 +2338,15 @@ pub(crate) fn ensure_control_webview(webview: &tauri::Webview) -> Result<(), Str
 fn provider_label(provider: &str) -> String {
     format!("ai-{provider}")
 }
+
+fn provider_page_window_label(provider: &str) -> String {
+    format!("provider-page-{provider}")
+}
+
+fn is_provider_detached(webview: &tauri::Webview, provider: &str) -> bool {
+    webview.window().label() == provider_page_window_label(provider)
+}
+
 
 fn set_webview_bounds<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,

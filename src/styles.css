@@ -438,3 +438,90 @@ html.ai-sister .ai-sister-conversation-workspace button:not(:disabled):hover {
     animation-iteration-count: 1 !important;
   }
 }
+
+
+/* Workbench v1 — a calmer, conversation-first shell. Real provider pages
+   are native windows, never HTML overlays. */
+.app-shell {
+  --workbench-radius: 12px;
+}
+.app-shell .ai-sister-workflow-shelf {
+  padding: 14px;
+  background-color: #fafafa;
+}
+html.dark .app-shell .ai-sister-workflow-shelf {
+  background-color: #161619;
+}
+.app-shell .ai-sister-conversation-workspace {
+  padding: clamp(14px, 2vw, 26px);
+}
+.app-shell .ai-sister-conversation-toolbar {
+  padding-bottom: 16px;
+}
+.app-shell .workbench-reading-area {
+  scrollbar-gutter: stable;
+}
+.app-shell .workbench-reading-area > * {
+  max-width: 920px;
+  margin-inline: auto;
+}
+.app-shell .ai-sister-conversation-composer {
+  padding-top: 14px;
+  max-width: 980px;
+  width: 100%;
+  margin-inline: auto;
+}
+.app-shell .workbench-options-button,
+.app-shell .workbench-mode-select {
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.app-shell .workbench-options-button:hover {
+  background-color: rgba(125,125,125,.1);
+}
+.app-shell .workbench-options[hidden] {
+  display: none !important;
+}
+.app-shell .workbench-options {
+  padding-top: 12px;
+  border-top: 1px solid rgba(125,125,125,.18);
+}
+.app-shell .ai-sister-preset-card,
+.app-shell .ai-sister-process-trace {
+  border-radius: var(--workbench-radius);
+}
+.app-shell .ai-sister-conversation-workspace button,
+.app-shell .ai-sister-session-sidebar button {
+  border-radius: 9px;
+}
+.app-shell .ai-sister-mode-badge {
+  border-radius: 999px;
+}
+@media (max-width: 1200px) {
+  .app-shell .ai-sister-conversation-workspace {
+    padding: 12px;
+  }
+  .app-shell .ai-sister-workflow-shelf {
+    padding: 10px;
+  }
+}
+
+
+/* Provider dock remains visible; heavy native preview is opt-in. */
+.app-shell .workbench-provider-inspector[hidden] {
+  display: none !important;
+}
+.app-shell .workbench-provider-dock {
+  box-shadow: 0 2px 12px rgba(0,0,0,.035);
+}
+html.dark .app-shell .workbench-provider-dock {
+  box-shadow: none;
+}
+.app-shell .workbench-provider-tile {
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+.app-shell .workbench-provider-tile:hover {
+  border-color: rgba(75,85,99,.4);
+}
+.app-shell .ai-sister-conversation-workspace .workbench-mode-select {
+  min-height: 36px;
+}

@@ -6,6 +6,17 @@ import { onBridgeMessage } from '../bridge/bus';
 import type { AdapterNotice } from '../ui/reportBroken';
 import type { ProjectStore } from '../workspace/model';
 
+/** Native window and attached provider WebView client geometry, in physical pixels. */
+export interface ProviderWindowGeometry {
+  windowWidth: number;
+  windowHeight: number;
+  webviewWidth: number;
+  webviewHeight: number;
+  webviewX: number;
+  webviewY: number;
+}
+
+
 export interface StoredSnapshotInfo {
   id: string;
   graphId?: string;
@@ -55,6 +66,8 @@ export const host = {
   provider: {
     open: (provider: AIProvider, bounds: DOMRectReadOnly): Promise<ProviderState> =>
       invoke('provider_open', { provider, bounds: toBounds(bounds) }),
+    openWindow: (provider: AIProvider, login = false): Promise<ProviderWindowGeometry> =>
+      invoke('provider_open_window', { provider, login }),
     close: (provider: AIProvider): Promise<void> => invoke('provider_close', { provider }),
     show: (provider: AIProvider, focus = false): Promise<void> => invoke('provider_show', { provider, focus }),
     hide: (provider: AIProvider): Promise<void> => invoke('provider_hide', { provider }),
