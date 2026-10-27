@@ -394,6 +394,8 @@ export default function App() {
   const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
   const [activityPanelOpen, setActivityPanelOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [headerMoreOpen, setHeaderMoreOpen] = useState(false);
+  const [moreWorkflowsOpen, setMoreWorkflowsOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [modelSettingsProvider, setModelSettingsProvider] = useState<AIProvider>();
   const [providerWindowError, setProviderWindowError] = useState<string>();
@@ -2312,56 +2314,66 @@ export default function App() {
           <header className="ai-sister-conversation-toolbar workbench-conversation-header border-b border-zinc-200 pb-3 dark:border-zinc-800">
             <div className="workbench-conversation-header-main flex flex-wrap items-center justify-between gap-3">
               <div className="workbench-conversation-identity min-w-0 flex-1">
-                <div className="workbench-header-eyebrow">{translate('workbench.eyebrow')}</div>
-                <div className="flex flex-wrap items-center gap-2.5">
+                                <div className="flex flex-wrap items-center gap-2.5">
                   <h1 className="workbench-conversation-title truncate text-xl font-semibold" title={sessions.find((session) => session.id === activeSessionId)?.title ?? translate('workbench.conversation')}>
                     {sessions.find((session) => session.id === activeSessionId)?.title ?? translate('workbench.conversation')}
                   </h1>
                   {isProcessing ? <span className="workbench-header-live flex items-center gap-1.5"><span className="workbench-live-indicator" aria-hidden="true" /> {translate('workbench.live')}</span> : null}
                 </div>
               </div>
-              <div className="workbench-header-actions flex flex-wrap items-center gap-1.5">
+              <div className="workbench-header-actions flex items-center gap-1.5">
                 <button type="button"
-                  className={`workbench-icon-button ${replayDrawerOpen ? 'workbench-icon-button-selected' : ''}`}
-                  aria-label={translate('replay.historyToggle')} title={translate('replay.historyToggle')}
-                  aria-expanded={replayDrawerOpen} aria-controls="replay-history-panel"
-                  onClick={() => setReplayDrawerOpen((open) => !open)}>
-                  <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" /><path d="M12 7v5l3 2" />
+                  className={`workbench-icon-button workbench-primary-activity ${activityPanelOpen ? 'workbench-icon-button-selected' : ''}`}
+                  title={translate('sidebar.activity')} aria-label={translate('sidebar.activity')}
+                  aria-expanded={activityPanelOpen} aria-controls="workbench-activity-drawer"
+                  onClick={() => setActivityPanelOpen((open) => !open)}>
+                  <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
-                  <span className="workbench-action-label">{translate('replay.historyToggle')}</span>
+                  {isProcessing ? <span className="workbench-header-activity-dot" aria-hidden="true" /> : null}
                 </button>
-                <button type="button" className="workbench-icon-button"
-                  onClick={() => void exportConversation()} disabled={messages.length === 0 || sharing}
-                  aria-label={translate('header.exportMarkdown')} title={translate('header.exportMarkdown')}>
-                  <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 3v12m0 0 4-4m-4 4-4-4" /><path d="M5 16v4h14v-4" />
-                  </svg>
-                  <span className="workbench-action-label">{translate('header.exportMarkdown')}</span>
-                </button>
-                <button type="button"
-                  className={`workbench-icon-button ${messagesMaximized ? 'workbench-icon-button-selected' : ''}`}
-                  aria-label={translate(messagesMaximized ? 'header.restoreMessages' : 'header.maximizeMessages')}
-                  title={translate(messagesMaximized ? 'header.restoreMessages' : 'header.maximizeMessages')}
-                  aria-pressed={messagesMaximized}
-                  onClick={() => setMessagesMaximized((current) => !current)}>
-                  <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                    {messagesMaximized ? <><path d="M9 3v6H3"/><path d="M15 21v-6h6"/><path d="M3 15h6v6"/><path d="M21 9h-6V3"/></>
-                      : <><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></>}
-                  </svg>
-                </button>
-                {import.meta.env.DEV ? (
-                  <button type="button"
-                    className={`workbench-icon-button ${showDevDiagnostics ? 'workbench-icon-button-selected' : ''}`}
-                    onClick={() => setShowDevDiagnostics((current) => !current)}
-                    aria-pressed={showDevDiagnostics} aria-controls="workbench-dev-diagnostics">Diagnostics</button>
-                ) : null}
-                <button type="button" className="workbench-icon-button" onClick={() => setSettingsOpen(true)}
-                  title={translate('header.settings')} aria-label={translate('header.settings')}>
-                  <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .35 1.88l-1.9 1.9a1.7 1.7 0 0 0-1.88-.35l-1.15.48a1.7 1.7 0 0 0-1.06 1.57H10.3a1.7 1.7 0 0 0-1.06-1.57l-1.15-.48a1.7 1.7 0 0 0-1.88.35l-1.9-1.9A1.7 1.7 0 0 0 4.66 15l-.48-1.15a1.7 1.7 0 0 0-1.57-1.06V10.2a1.7 1.7 0 0 0 1.57-1.06L4.66 8a1.7 1.7 0 0 0-.35-1.88l1.9-1.9a1.7 1.7 0 0 0 1.88.35l1.15-.48A1.7 1.7 0 0 0 10.3 2.5h3.46a1.7 1.7 0 0 0 1.06 1.57l1.15.48a1.7 1.7 0 0 0 1.88-.35l1.9 1.9A1.7 1.7 0 0 0 19.4 8l.48 1.15a1.7 1.7 0 0 0 1.57 1.06v2.58a1.7 1.7 0 0 0-1.57 1.06z"/>
-                  </svg>
-                </button>
+                <div className="relative">
+                  <button type="button" className={`workbench-icon-button ${headerMoreOpen ? 'workbench-icon-button-selected' : ''}`}
+                    aria-haspopup="menu" aria-expanded={headerMoreOpen}
+                    aria-label={translate('workbench.moreActions')} title={translate('workbench.moreActions')}
+                    onClick={() => { setHeaderMoreOpen((open) => !open); setAgentMenuOpen(false); }}>
+                    <svg viewBox="0 0 24 24" className="h-[19px] w-[19px]" aria-hidden="true" fill="currentColor">
+                      <circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/>
+                    </svg>
+                  </button>
+                  {headerMoreOpen ? (
+                    <div className="workbench-header-more-menu absolute right-0 top-full z-40 mt-2 min-w-52 space-y-0.5 rounded-xl p-1.5 shadow-xl"
+                      role="menu" aria-label={translate('workbench.moreActions')}
+                      onKeyDown={(event) => { if (event.key === 'Escape') setHeaderMoreOpen(false); }}>
+                      <button type="button" role="menuitem" className="workbench-menu-item"
+                        onClick={() => { setHeaderMoreOpen(false); setReplayDrawerOpen((open) => !open); }}
+                        aria-expanded={replayDrawerOpen} aria-controls="replay-history-panel">
+                        {translate('replay.historyToggle')}
+                      </button>
+                      <button type="button" role="menuitem" className="workbench-menu-item"
+                        onClick={() => { setHeaderMoreOpen(false); void exportConversation(); }}
+                        disabled={messages.length === 0 || sharing}>{translate('header.exportMarkdown')}</button>
+                      <button type="button" role="menuitem" className="workbench-menu-item"
+                        onClick={() => { setHeaderMoreOpen(false); setMessagesMaximized((open) => !open); }}>
+                        {translate(messagesMaximized ? 'header.restoreMessages' : 'header.maximizeMessages')}
+                      </button>
+                      <button type="button" role="menuitem" className="workbench-menu-item"
+                        onClick={() => { setHeaderMoreOpen(false); setProviderInspectorOpen((open) => !open); }}>
+                        {translate('workbench.providerView')}
+                      </button>
+                      <button type="button" role="menuitem" className="workbench-menu-item"
+                        onClick={() => { setHeaderMoreOpen(false); setSettingsOpen(true); }}>
+                        {translate('header.settings')}
+                      </button>
+                      {import.meta.env.DEV ? (
+                        <button type="button" role="menuitem" className="workbench-menu-item"
+                          onClick={() => { setHeaderMoreOpen(false); setShowDevDiagnostics((open) => !open); }}>
+                          Diagnostics
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
             <div className="workbench-conversation-header-sub flex flex-wrap items-center gap-2">
@@ -2375,10 +2387,11 @@ export default function App() {
                 <span className="text-zinc-400" aria-hidden="true">⌄</span>
               </button>
               {!newChatWelcome ? simpleAgentChooser : null}
-              <span className="workbench-header-separator" aria-hidden="true"/>
-              <span className="workbench-conversation-status truncate text-xs text-zinc-500 dark:text-zinc-400">
-                {workflowStatus || (isProcessing ? translate('processTrace.awaiting') : translate('processTrace.settled'))}
-              </span>
+              {isProcessing || workflowStatus ? (
+                <span className="workbench-conversation-status truncate text-xs text-zinc-500 dark:text-zinc-400">
+                  {workflowStatus || translate('processTrace.awaiting')}
+                </span>
+              ) : null}
             </div>
             <div className="workbench-connected-agent-strip mt-3 flex flex-wrap items-center gap-1.5" aria-label={translate('sidebar.agents')}>
               {activeProviders.filter((provider) => states[provider].login === 'logged_in').map((provider) => (
@@ -2407,16 +2420,6 @@ export default function App() {
                   </div>
                 ) : null}
               </div>
-              <button type="button" className={`workbench-agent-tools ml-auto rounded-full border px-3 py-1.5 text-xs ${providerInspectorOpen ? 'workbench-icon-button-selected' : ''}`}
-                onClick={() => setProviderInspectorOpen((open) => !open)} aria-expanded={providerInspectorOpen}>
-                {translate('workbench.providerView')}
-              </button>
-              <button type="button" className="workbench-activity-button rounded-full border px-3 py-1.5 text-xs"
-                aria-expanded={activityPanelOpen} aria-controls="workbench-activity-drawer"
-                onClick={() => setActivityPanelOpen((open) => !open)}>
-                {translate('sidebar.activity')}
-                {processTrace?.steps.some((step) => step.status === 'active') ? <span className="ml-1 h-1.5 w-1.5 rounded-full bg-sky-500 inline-block" aria-hidden="true"/> : null}
-              </button>
             </div>
             {modelSettingsProvider && activeProviders.includes(modelSettingsProvider) ? (
               <div className="workbench-model-controls-popover mt-2">
@@ -2526,16 +2529,35 @@ export default function App() {
                     {translate('sidebar.emptyTitle')}
                   </h2>
                   <p className="mt-2 text-center text-sm text-zinc-500 dark:text-zinc-400">{translate('sidebar.emptySubtitle')}</p>
-                  <div className="workbench-new-chat-workflows mt-8 flex flex-wrap justify-center gap-2" aria-label={translate('sidebar.workflowChoice')}>
-                    {PRESET_CATALOG.map((preset) => (
-                      <button key={preset.id} type="button" disabled={isProcessing}
-                        className={`workbench-new-chat-workflow rounded-full border px-3.5 py-2 text-xs font-semibold transition-colors ${presetId === preset.id ? 'workbench-new-chat-workflow-selected' : ''}`}
-                        aria-pressed={presetId === preset.id} title={translate(preset.descriptionKey)}
-                        onClick={() => selectPreset(preset.id)}>
-                        {preset.graphId === 'free' && preset.id !== 'brainstorm' ? '✦ ' : ''}
-                        {translate(preset.displayNameKey)}
-                      </button>
-                    ))}
+                  <div className="workbench-new-chat-workflows mt-8 flex flex-wrap items-center justify-center gap-2" aria-label={translate('sidebar.workflowChoice')}>
+                    {(['simple', 'consult'] as const).map((id) => {
+                      const preset = presetForId(id);
+                      return (
+                        <button key={id} type="button" disabled={isProcessing}
+                          className={`workbench-new-chat-workflow rounded-full px-4 py-2 text-xs font-semibold ${presetId === id ? 'workbench-new-chat-workflow-selected' : ''}`}
+                          aria-pressed={presetId === id} onClick={() => { selectPreset(id); setMoreWorkflowsOpen(false); }}>
+                          {translate(preset.displayNameKey)}
+                        </button>
+                      );
+                    })}
+                    <div className="relative">
+                      <button type="button" className={`workbench-new-chat-workflow rounded-full px-4 py-2 text-xs font-semibold ${moreWorkflowsOpen ? 'workbench-new-chat-workflow-selected' : ''}`}
+                        aria-haspopup="menu" aria-expanded={moreWorkflowsOpen}
+                        onClick={() => setMoreWorkflowsOpen((open) => !open)}
+                        disabled={isProcessing}>{translate('workbench.moreWorkflows')} <span aria-hidden="true">⌄</span></button>
+                      {moreWorkflowsOpen ? (
+                        <div className="workbench-workflow-menu absolute left-0 top-full z-30 mt-2 min-w-48 rounded-xl p-1.5 shadow-xl"
+                          role="menu" aria-label={translate('workbench.moreWorkflows')}
+                          onKeyDown={(event) => { if (event.key === 'Escape') setMoreWorkflowsOpen(false); }}>
+                          {PRESET_CATALOG.filter((preset) => preset.id !== 'simple' && preset.id !== 'consult').map((preset) => (
+                            <button key={preset.id} type="button" role="menuitemradio" aria-checked={presetId === preset.id}
+                              className="workbench-menu-item" onClick={() => { selectPreset(preset.id); setMoreWorkflowsOpen(false); }}>
+                              {translate(preset.displayNameKey)}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                   {simpleAgentChooser ? <div className="mt-5">{simpleAgentChooser}</div> : null}
                   <div className="workbench-new-chat-project mx-auto mt-5 flex max-w-xl items-center justify-center gap-2">
