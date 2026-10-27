@@ -1,4 +1,4 @@
-import type { ChatMode, WorkflowPresetId } from '../../shared/types';
+import type { AIProvider, ChatMode, WorkflowPresetId } from '../../shared/types';
 import { createUniqueSuffix } from './uniqueId';
 
 export const CONVERSATION_SESSIONS_STORAGE_KEY = 'multi-ai-chat:conversation-sessions:v1';
@@ -28,6 +28,8 @@ export interface ConversationSession {
   presetId?: WorkflowPresetId;
   /** Optional project association. Older sessions remain unassigned. */
   projectId?: string;
+  /** Chosen provider for Simple Chat, never inferred from Free-mode targets. */
+  singleProvider?: AIProvider;
   messages: ConversationSessionMessage[];
 }
 
@@ -46,6 +48,7 @@ export interface ConversationSessionSaveResult {
 export interface CreateConversationSessionInput {
   id?: string;
   projectId?: string;
+  singleProvider?: AIProvider;
   title?: string;
   mode?: ChatMode;
   presetId?: WorkflowPresetId;
@@ -74,6 +77,7 @@ export function createConversationSession({
   mode = 'free',
   presetId,
   projectId,
+  singleProvider,
   messages = [],
   now = Date.now(),
 }: CreateConversationSessionInput = {}): ConversationSession {
@@ -91,6 +95,7 @@ export function createConversationSession({
     mode: normalizedMode,
     ...(normalizedPresetId ? { presetId: normalizedPresetId } : {}),
     ...(nonEmptyString(projectId) ? { projectId: nonEmptyString(projectId) } : {}),
+    ...(normalizedPresetId === 'simple' && validProvider(singleProvider) ? { singleProvider } : {}),
     messages: normalizedMessages,
   };
 }
@@ -190,6 +195,7 @@ export function normalizeConversationSession(value: unknown): ConversationSessio
   const mode = isChatMode(value.mode) ? value.mode : 'free';
   const presetId = normalizePresetId(value.presetId, mode);
   const projectId = nonEmptyString(value.projectId);
+  const singleProvider = validProvider(value.singleProvider) ? value.singleProvider : undefined;
 
   return {
     id,
@@ -199,6 +205,7 @@ export function normalizeConversationSession(value: unknown): ConversationSessio
     mode,
     ...(presetId ? { presetId } : {}),
     ...(projectId ? { projectId } : {}),
+    ...(presetId === 'simple' && singleProvider ? { singleProvider } : {}),
     messages,
   };
 }
@@ -384,7 +391,12 @@ function isChatMode(value: unknown): value is ChatMode {
 }
 
 function normalizePresetId(value: unknown, mode: ChatMode): WorkflowPresetId | undefined {
-  return value === 'brainstorm' && mode === 'free' ? value : undefined;
+  return mode === 'free' && (value === 'brainstorm' || value === 'simple') ? value : undefined;
+}
+
+function validProvider(value: unknown): value is AIProvider {
+  return value === 'chatgpt' || value === 'claude' || value === 'gemini'
+    || value === 'grok' || value === 'meta';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

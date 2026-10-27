@@ -51,3 +51,13 @@ export async function waitForProvidersSendable(
 export function hasEffectiveFreeModeTargets(selected: AIProvider[], states: Record<AIProvider, ProviderState>): boolean {
   return freeModeTargets(selected, states).length > 0;
 }
+
+// Simple Chat is deliberately a separate choice from Free fan-out: never
+// implicitly substitute another signed-in model when the selected model is
+// unavailable, and never return more than one target.
+export function simpleChatTargets(
+  provider: AIProvider | undefined,
+  states: Record<AIProvider, ProviderState>,
+): AIProvider[] {
+  return provider && isSendable(states[provider]) ? [provider] : [];
+}
