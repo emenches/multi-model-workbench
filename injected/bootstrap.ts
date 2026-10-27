@@ -104,7 +104,11 @@ export function shouldDeferBridgeStart(
 }
 
 export function shouldPatchHistory(provider: string): boolean {
-  return provider !== 'grok';
+  // ChatGPT's navigation and response loading run through its own SPA router.
+  // We do not consume the bridge's route-only STATUS_REPORT anywhere in the
+  // workflow, so avoid replacing native history methods on its app page.
+  // This keeps the rest of the bridge and response capture untouched.
+  return provider !== 'grok' && provider !== 'chatgpt';
 }
 
 // The bridge belongs on the provider's exact app hosts only. SSO/auth pages (auth.openai.com,
