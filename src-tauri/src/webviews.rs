@@ -1706,16 +1706,24 @@ pub async fn provider_open_login(
     ensure_control_webview(&webview)?;
     let adapter = adapters::get_adapter(&provider)?;
     settings::ensure_provider_active(&app, &provider)?;
-    // Never create a fallback at (24, 24). Callers must have a positioned
-    // provider WebView and supply measured content-stage bounds.
-    let (position, size) = physical_bounds(&bounds)?;
+    let _ = physical_bounds(&bounds)?;
     let provider_webview = get_provider_webview(&app, &provider)
-        .map_err(|_| format!("Open {provider} in the content pane before logging in"))?;
-    set_webview_bounds(&provider_webview, position, size)?;
+        .map_err(|_| format!("Open {provider} before logging in"))?;
     let login_url = tauri::Url::parse(&adapter.urls.login)
         .map_err(|error| format!("invalid provider login URL: {error}"))?;
-    provider_webview.navigate(login_url).map_err(|error| error.to_string())?;
-    provider_show(app, webview, provider, Some(true)).await
+    // Legacy callers may still use this command. Never apply main-pane
+    // bounds to a WebView created in its native host window.
+    if is_provider_detached(&provider_webview, &provider) {
+        let window = app.get_window(&provider_page_window_label(&provider))
+            .ok_or_else(|| format!("provider host window missing: {provider}"))?;
+        provider_webview.navigate(login_url).map_err(|error| error.to_string())?;
+        window.show().map_err(|error| error.to_string())?;
+        provider_webview.show().map_err(|error| error.to_string())?;
+        fit_detached_provider_to_window(&provider_webview, &window)?;
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+    Err(format!("provider WebView is not in its native host window: {provider}"))
 }
 
 #[tauri::command]
