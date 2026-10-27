@@ -158,6 +158,7 @@ export const en: Record<I18nKey, string> = {
   'processTrace.waitingEvents': 'Waiting for workflow events.',
   'processTrace.pending': 'Pending',
   'processTrace.active': 'Active',
+  'processTrace.failed': 'Failed',
   'processTrace.done': 'Done',
   'processTrace.fanout': 'Fan-out',
   'processTrace.sendingTo': 'Sending to',
