@@ -2213,21 +2213,19 @@ export default function App() {
           ) : null}
         </div>
 
-        <div
-          aria-hidden={messagesMaximized || undefined}
-          className={`min-h-0 min-w-0 ${messagesMaximized ? 'invisible overflow-hidden pointer-events-none' : ''}`}
-        >
-          <Resizer
-            label={translate('layout.resizeFocusPane')}
-            disabled={!providerInspectorOpen || messagesMaximized}
-            onDrag={dragFocusPane}
-            value={focusPaneWidth}
-            min={DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.minFocusPaneWidth}
-            max={focusPaneMaxWidth}
-          />
+        <div className={`min-h-0 min-w-0 ${providerInspectorOpen && !messagesMaximized ? '' : 'invisible pointer-events-none'}`}>
+          {providerInspectorOpen && !messagesMaximized ? (
+            <Resizer
+              label={translate('layout.resizeFocusPane')}
+              onDrag={dragFocusPane}
+              value={focusPaneWidth}
+              min={DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.minFocusPaneWidth}
+              max={focusPaneMaxWidth}
+            />
+          ) : null}
         </div>
 
-        <section className="ai-sister-conversation-workspace workbench-conversation-workspace flex min-h-0 min-w-0 flex-col border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
+        <section className="ai-sister-conversation-workspace workbench-conversation-workspace relative flex min-h-0 min-w-0 flex-col border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
           <header className="ai-sister-conversation-toolbar workbench-conversation-header border-b border-zinc-200 pb-3 dark:border-zinc-800">
             <div className="workbench-conversation-header-main flex flex-wrap items-center justify-between gap-3">
               <div className="workbench-conversation-identity min-w-0 flex-1">
@@ -2298,7 +2296,60 @@ export default function App() {
                 {workflowStatus || (isProcessing ? translate('processTrace.awaiting') : translate('processTrace.settled'))}
               </span>
             </div>
+            <div className="workbench-connected-agent-strip mt-3 flex flex-wrap items-center gap-1.5" aria-label={translate('sidebar.agents')}>
+              {activeProviders.filter((provider) => states[provider].login === 'logged_in').map((provider) => (
+                <button key={provider} type="button" className="workbench-agent-pill inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs"
+                  onClick={() => viewWorkflowProvider(provider)} title={AI_PROVIDERS[provider].name}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true"/>
+                  {AI_PROVIDERS[provider].name}
+                </button>
+              ))}
+              <div className="relative">
+                <button type="button" className="workbench-agent-add rounded-full border px-3 py-1.5 text-xs"
+                  aria-haspopup="menu" aria-expanded={agentMenuOpen}
+                  onClick={() => setAgentMenuOpen((open) => !open)}>+ {translate('sidebar.addAgent')}</button>
+                {agentMenuOpen ? (
+                  <div className="workbench-agent-menu absolute left-0 top-full z-30 mt-1 min-w-48 space-y-1 rounded-xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900" role="menu">
+                    {activeProviders.filter((provider) => states[provider].login !== 'logged_in').map((provider) => (
+                      <button key={provider} type="button" role="menuitem"
+                        className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        onClick={() => { setAgentMenuOpen(false); void openProviderLogin(provider).catch((error: unknown) => setProviderWindowError(error instanceof Error ? error.message : String(error))); }}>
+                        <span>{AI_PROVIDERS[provider].name}</span>
+                        <span className="text-zinc-500">{translate('sidebar.agentLogin')}</span>
+                      </button>
+                    ))}
+                    <button type="button" role="menuitem" className="w-full rounded-lg border-t border-zinc-200 px-2 py-2 text-left text-xs dark:border-zinc-700"
+                      onClick={() => { setAgentMenuOpen(false); setSettingsOpen(true); }}>{translate('header.settings')}</button>
+                  </div>
+                ) : null}
+              </div>
+              <button type="button" className={`workbench-agent-tools ml-auto rounded-full border px-3 py-1.5 text-xs ${providerInspectorOpen ? 'workbench-icon-button-selected' : ''}`}
+                onClick={() => setProviderInspectorOpen((open) => !open)} aria-expanded={providerInspectorOpen}>
+                {translate('workbench.providerView')}
+              </button>
+              <button type="button" className="workbench-activity-button rounded-full border px-3 py-1.5 text-xs"
+                aria-expanded={activityPanelOpen} aria-controls="workbench-activity-drawer"
+                onClick={() => setActivityPanelOpen((open) => !open)}>
+                {translate('sidebar.activity')}
+                {processTrace?.steps.some((step) => step.status === 'active') ? <span className="ml-1 h-1.5 w-1.5 rounded-full bg-sky-500 inline-block" aria-hidden="true"/> : null}
+              </button>
+            </div>
           </header>
+          {activityPanelOpen ? (
+            <aside id="workbench-activity-drawer" aria-label={translate('sidebar.activity')} className="workbench-activity-drawer">
+              <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+                <h2 className="text-sm font-semibold">{translate('sidebar.activity')}</h2>
+                <button type="button" className="rounded-lg px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  onClick={() => setActivityPanelOpen(false)} aria-label={translate('workbench.hideDetails')}>×</button>
+              </div>
+              <div className="workbench-activity-drawer-content min-h-0 flex-1 overflow-y-auto p-3">
+                {processTrace && (processTrace.steps.length > 0 || processTrace.currentStatus)
+                  ? <ProcessTrace trace={processTrace} locale={locale} expanded compact={false} states={states}
+                      onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen}/>
+                  : <p className="p-3 text-xs text-zinc-500 dark:text-zinc-400">{translate('workbench.noActiveRun')}</p>}
+              </div>
+            </aside>
+          ) : null}
           {providerWindowGeometry && import.meta.env.DEV && showDevDiagnostics ? (
             <div role="status" className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
               <span className="font-semibold">Native page geometry</span>
@@ -2315,33 +2366,6 @@ export default function App() {
               <span>Could not open the separate provider window: {providerWindowError}</span>
               <button type="button" onClick={() => setProviderWindowError(undefined)} className="rounded border border-current px-2 py-1">Dismiss</button>
             </div>
-          ) : null}
-          {processTrace && (processTrace.currentStatus || processTrace.steps.length > 0) ? (
-            <section aria-label="Workflow progress" className="workbench-run-details mt-3 flex min-h-0 shrink-0 flex-col rounded-2xl border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
-              <div className="workbench-run-header flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  {processTrace.steps.some((step) => step.status === 'active') ? <span className="workbench-live-indicator" aria-hidden="true" /> : null}
-                  <h2 className="text-xs font-semibold">{translate('workbench.workflowProgress')}</h2>
-                  <span className="workbench-run-count text-xs text-zinc-500 dark:text-zinc-400">
-                    {formatI18n(translate('processTrace.stepsConfirmed'), {
-                      done: processTrace.steps.filter((step) => step.kind !== 'fanout' && step.status === 'done').length,
-                      total: processTrace.steps.filter((step) => step.kind !== 'fanout').length,
-                    })}
-                  </span>
-                </div>
-                <button type="button" className="workbench-progress-toggle inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
-                  aria-expanded={workflowDetailsExpanded} aria-controls="workbench-workflow-timeline"
-                  onClick={() => setWorkflowDetailsExpanded((expanded) => !expanded)}>
-                  {translate(workflowDetailsExpanded ? 'workbench.hideDetails' : 'workbench.showDetails')}
-                  <svg viewBox="0 0 24 24" className={`h-3.5 w-3.5 transition-transform ${workflowDetailsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="m6 9 6 6 6-6" />
-                  </svg>
-                </button>
-              </div>
-              <div id="workbench-workflow-timeline">
-                <ProcessTrace trace={processTrace} locale={locale} compact expanded={workflowDetailsExpanded} states={states} onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen} />
-              </div>
-            </section>
           ) : null}
           <div
             id="replay-history-panel"
@@ -2388,7 +2412,7 @@ export default function App() {
           ) : null}
           <div
             ref={transcriptRef}
-            className="ai-sister-conversation-transcript workbench-reading-area mt-3 min-h-0 flex-1 overflow-auto border-y border-zinc-200 dark:border-zinc-800 py-4"
+            className={`ai-sister-conversation-transcript workbench-reading-area mt-3 min-h-0 flex-1 overflow-auto ${activityPanelOpen ? 'workbench-reading-with-activity' : ''}` + `  border-y border-zinc-200 dark:border-zinc-800 py-4"
             onScroll={(event) => {
               transcriptStickToEndRef.current = isTranscriptNearEnd(event.currentTarget);
               handleTranscriptScroll();
