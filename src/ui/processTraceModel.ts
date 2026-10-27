@@ -58,8 +58,16 @@ export function reduceProcessTraceEvent(trace: ProcessTraceState, message: Bridg
     return addRoleStep(trace, message.provider, payload.role, payload.label, payload.turn, locale);
   }
 
+  if (message.action === 'WORKFLOW_STEP_CONFIRMED' && isKnownProvider(message.provider) && message.transport === 'local') {
+    const payload = message.payload as { turn?: unknown; text?: unknown } | undefined;
+    if (typeof payload?.turn !== 'number') return trace;
+    return confirmWorkflowStep(trace, message.provider, payload.turn, typeof payload.text === 'string' ? payload.text : '', locale);
+  }
+
   if (isTraceResponse(message) && isKnownProvider(message.provider)) {
-    return applyProviderResponse(trace, message.provider, message.action === 'RESPONSE_DONE', responsePayloadText(message.payload), locale);
+    // Receiving text (even a provider RESPONSE_DONE message) is not the same
+    // as the workflow waiter accepting it for the current step.
+    return applyProviderResponse(trace, message.provider, responsePayloadText(message.payload), locale);
   }
 
   return trace;
@@ -122,11 +130,10 @@ function addRoleStep(
 function applyProviderResponse(
   trace: ProcessTraceState,
   provider: AIProvider,
-  final: boolean,
   content: string,
   locale: Locale,
 ): ProcessTraceState {
-  const nextStatus: ProcessTraceStepStatus = final ? 'done' : 'active';
+  const nextStatus: ProcessTraceStepStatus = 'active';
   let matchIndex = -1;
   for (let index = trace.steps.length - 1; index >= 0; index -= 1) {
     const step = trace.steps[index];
@@ -142,9 +149,7 @@ function applyProviderResponse(
           status: nextStatus,
           content: content || step.content,
           detail: content
-            ? final
-              ? oneLinePreview(content)
-              : `${oneLinePreview(content)} · ${t('processTrace.completionUnconfirmed', locale)}`
+            ? `${oneLinePreview(content)} · ${t('processTrace.completionUnconfirmed', locale)}`
             : step.detail,
         }
       : step,
@@ -152,6 +157,38 @@ function applyProviderResponse(
 
   const nextSteps = matchIndex >= 0 || trace.mode !== 'free' ? steps : [...steps, responseStep(provider, nextStatus, locale, content)];
   return { ...trace, steps: refreshFreeAggregate(nextSteps) };
+}
+
+/** Only the waiter that actually resolved a reserved turn can confirm it.
+ * This prevents an old/stale response from falsely marking a Consult role
+ * completed while the workflow is still waiting for that provider.
+ */
+function confirmWorkflowStep(
+  trace: ProcessTraceState,
+  provider: AIProvider,
+  turn: number,
+  content: string,
+  locale: Locale,
+): ProcessTraceState {
+  const matchIndex = trace.steps.findIndex(
+    (step) => step.kind === 'role' && step.provider === provider && step.turn === turn && step.status !== 'done',
+  );
+  const freeIndex = trace.mode === 'free'
+    ? trace.steps.findIndex((step) => step.kind === 'response' && step.provider === provider && step.status !== 'done')
+    : -1;
+  const index = matchIndex >= 0 ? matchIndex : freeIndex;
+  if (index < 0) return trace;
+  const steps = trace.steps.map((step, i) => i === index
+    ? {
+        ...step,
+        status: 'done' as const,
+        content: content || step.content,
+        detail: content ? oneLinePreview(content) : step.detail?.replace(
+          ` · ${t('processTrace.completionUnconfirmed', locale)}`, ''
+        ),
+      }
+    : step);
+  return { ...trace, steps: refreshFreeAggregate(steps) };
 }
 
 function refreshFreeAggregate(steps: ProcessTraceStep[]): ProcessTraceStep[] {
