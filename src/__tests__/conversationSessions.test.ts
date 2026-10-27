@@ -70,6 +70,33 @@ describe('conversation sessions', () => {
     expect(created.messages[1]).toMatchObject({ authorLabel: 'You' });
   });
 
+  it('roundtrips a simple chat agent without changing legacy Free chats', () => {
+    const simple = createConversationSession({
+      id: 'simple-chat', mode: 'free', presetId: 'simple',
+      singleProvider: 'gemini', now: 42,
+    });
+    const old = session('legacy-free', 13);
+    const store = memoryStorage();
+    expect(saveConversationSessions([simple, old], store)).toBe(true);
+    const loaded = loadConversationSessions(store);
+    expect(loaded.find((item) => item.id === 'simple-chat')).toMatchObject({
+      presetId: 'simple', singleProvider: 'gemini', mode: 'free',
+    });
+    expect(loaded.find((item) => item.id === 'legacy-free')?.singleProvider).toBeUndefined();
+  });
+
+  it('ignores invalid single-provider values and preserves explicit Simple Chat choice', () => {
+    expect(normalizeConversationSession({
+      ...session('invalid', 10), presetId: 'simple', singleProvider: 'not-a-provider',
+    })?.singleProvider).toBeUndefined();
+    expect(normalizeConversationSession({
+      ...session('valid', 10), presetId: 'simple', singleProvider: 'chatgpt',
+    })?.singleProvider).toBe('chatgpt');
+    expect(normalizeConversationSession({
+      ...session('multi', 10), presetId: 'free', singleProvider: 'claude',
+    })?.singleProvider).toBeUndefined();
+  });
+
   it('preserves project assignment while keeping older chats unassigned', () => {
     const assigned = createConversationSession({ id: 'assigned', projectId: 'project-one', now: 100 });
     const old = session('legacy', 90);
