@@ -331,6 +331,7 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
         captureRejectedAsUser: numberProp(payload, 'captureRejectedAsUser') ?? null,
         captureRejectedBaseline: numberProp(payload, 'captureRejectedBaseline') ?? null,
         captureRejectedEmpty: numberProp(payload, 'captureRejectedEmpty') ?? null,
+        captureRejectedScaffold: numberProp(payload, 'captureRejectedScaffold') ?? null,
         captureRejectedEcho: numberProp(payload, 'captureRejectedEcho') ?? null,
         captureEligibleNodes: numberProp(payload, 'captureEligibleNodes') ?? null,
         captureAnchor: booleanProp(payload, 'captureAnchor') ?? null,

@@ -595,14 +595,16 @@ class InactiveSendOperationError extends Error {
     const strictResponses = Array.from(document.querySelectorAll(adapter.responseSelectors.join(', ')));
     const assistantUnits = Array.from(document.querySelectorAll(CHATGPT_ASSISTANT_UNIT_SELECTOR));
     const responseNodes = strictResponses.length;
-    const rejected = { beforeAnchor: 0, asUser: 0, baseline: 0, empty: 0, echo: 0, eligible: 0 };
+    const rejected = { beforeAnchor: 0, asUser: 0, baseline: 0, empty: 0, scaffold: 0, echo: 0, eligible: 0 };
     for (const response of [...new Set([...strictResponses, ...assistantUnits])]) {
       if (anchor && !elementFollows(anchor, response)) rejected.beforeAnchor += 1;
       else if (!anchor && responseBaselineEls.has(response)) rejected.baseline += 1;
       else if (isUserMessageElement(response)) rejected.asUser += 1;
       else {
-        const text = extractResponseText(response);
-        if (!text) rejected.empty += 1;
+        const raw = extractResponseText(response);
+        const text = meaningfulChatGptAnswerText(response, raw);
+        if (!raw) rejected.empty += 1;
+        else if (!text) rejected.scaffold += 1;
         else if (isLikelyPromptEcho(text, pendingPromptText)) rejected.echo += 1;
         else rejected.eligible += 1;
       }
@@ -630,6 +632,7 @@ class InactiveSendOperationError extends Error {
       captureRejectedAsUser: rejected.asUser,
       captureRejectedBaseline: rejected.baseline,
       captureRejectedEmpty: rejected.empty,
+      captureRejectedScaffold: rejected.scaffold,
       captureRejectedEcho: rejected.echo,
       captureEligibleNodes: rejected.eligible,
       captureAnchor: Boolean(anchor),
@@ -1365,7 +1368,10 @@ class InactiveSendOperationError extends Error {
       if (chatGptAnchor && !elementFollows(chatGptAnchor, response)) continue;
       if (!chatGptAnchor && waitingForResponse && responseBaselineEls.has(response)) continue;
       if (isUserMessageElement(response)) continue;
-      const text = extractResponseText(response);
+      const rawText = extractResponseText(response);
+      const text = adapter.provider === 'chatgpt'
+        ? meaningfulChatGptAnswerText(response, rawText)
+        : rawText;
       if (!chatGptAnchor && waitingForResponse && text && !responseTextIsBeyondBaseline(text, responseEls)) continue;
       if (text && !isLikelyPromptEcho(text, pendingPromptText)) return { element: response, text };
     }
@@ -1380,14 +1386,62 @@ class InactiveSendOperationError extends Error {
         const response = units[index];
         if (chatGptAnchor && !elementFollows(chatGptAnchor, response)) continue;
         if (responseBaselineEls.has(response) || isUserMessageElement(response)) continue;
-        const text = extractResponseText(response);
+        const text = meaningfulChatGptAnswerText(response, extractResponseText(response));
         if (!text || !responseTextIsBeyondBaseline(text, units)) continue;
         if (isLikelyPromptEcho(text, pendingPromptText)) continue;
-        if (/^(?:pro thinking|thinking|reasoning|searching|working on it|finalizing answer)$/i.test(text.trim())) continue;
         return { element: response, text };
       }
     }
     return null;
+  }
+
+  // The Chat/Work heading is not answer content, even when a terminal
+  // copy control is present. It must not become RESPONSE_CHUNK or DONE.
+  // Only strip it from an assistant unit if the DOM identifies it as its
+  // own chrome heading; do not remove quoted words from a real answer.
+  function chatGptIsChromeHeading(text: string): boolean {
+    const withoutMarkup = text.trim()
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^\*{1,2}/, '')
+      .replace(/\*{1,2}$/, '')
+      .trim();
+    return /^chatgpt\s+said\s*[:：]?$/i.test(withoutMarkup);
+  }
+
+  function meaningfulChatGptAnswerText(response: Element, rawText: string | null): string | null {
+    if (!rawText) return null;
+    let text = rawText.trim();
+    if (chatGptIsChromeHeading(text)) return null;
+
+    // New-style assistant units sometimes contain a visible heading
+    // preceding the actual answer. Copy only the answer, not that heading
+    // or any tertiary tool-status footer.
+    const isAssistantUnit = CHATGPT_ASSISTANT_UNIT_SELECTOR.split(', ').some((selector) =>
+      response.getAttribute(selector.startsWith('[data-content-')
+        ? 'data-content-search-unit-key'
+        : 'data-chatgpt-search-unit-key')?.endsWith(':assistant'),
+    );
+    if (isAssistantUnit) {
+      const heading = response.querySelector('[data-conversation-role="assistant"]');
+      const headingText = heading?.textContent?.trim() ?? '';
+      if (headingText && chatGptIsChromeHeading(headingText)) {
+        const serializedHeading = serializeResponseText(heading!).trim();
+        for (const prefix of [serializedHeading, headingText]) {
+          if (prefix && text.startsWith(prefix)) {
+            text = text.slice(prefix.length).trim();
+            break;
+          }
+        }
+      }
+      const tertiary = response.querySelector('[data-markdown-text-tone="tertiary"]');
+      const tertiaryText = tertiary ? serializeResponseText(tertiary).trim() : '';
+      if (tertiaryText && text.endsWith(tertiaryText)) {
+        text = text.slice(0, -tertiaryText.length).trim();
+      }
+    }
+    if (!text || chatGptIsChromeHeading(text)) return null;
+    if (/^(?:pro thinking|thinking|reasoning|searching|working on it|finalizing answer)$/i.test(text)) return null;
+    return text;
   }
 
   function isUserMessageElement(response: Element): boolean {
