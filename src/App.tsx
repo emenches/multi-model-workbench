@@ -343,10 +343,31 @@ export default function App() {
     });
     return () => { mounted = false; };
   }, []);
+  const activeConversationProjectId = sessions.find((session) => session.id === activeSessionId)?.projectId;
+  // Conversation association is authoritative: switching between chats also
+  // switches the project instructions applied to the next workflow.
+  const effectiveProjectStore = useMemo<ProjectStore>(() => ({
+    ...projectStore,
+    activeProjectId: projectStore.projects.some((project) => project.id === activeConversationProjectId)
+      ? activeConversationProjectId ?? null
+      : null,
+  }), [projectStore, activeConversationProjectId]);
+
   const saveProjectStore = useCallback(async (store: ProjectStore): Promise<void> => {
     await host.projects.save(store);
     setProjectStore(store);
-  }, []);
+    const currentSession = sessions.find((session) => session.id === activeSessionId);
+    if (currentSession && (currentSession.projectId ?? null) !== store.activeProjectId) {
+      setSessions((current) => {
+        const original = current.find((session) => session.id === activeSessionId);
+        if (!original) return current;
+        const next = { ...original, updatedAt: Date.now() };
+        if (store.activeProjectId) next.projectId = store.activeProjectId;
+        else delete next.projectId;
+        return persistConversationSessions(upsertConversationSession(current, next));
+      });
+    }
+  }, [activeSessionId, sessions]);
   const [shareNotice, setShareNotice] = useState<{ kind: 'ok' | 'error'; text: string } | undefined>();
   const [sessionCheckpointNotice, setSessionCheckpointNotice] = useState<StartupSessionCheckpointNotice | undefined>();
   const [sessionCheckpointReplayBusy, setSessionCheckpointReplayBusy] = useState(false);
@@ -1556,7 +1577,7 @@ export default function App() {
       recordEventLog(eventFromWorkflowStart(mode, trimmed.length, workflowTargets?.length));
       const result = await runWorkflow({
         text: trimmed,
-        context: mergeProjectContext(projectStore, replayContext),
+        context: mergeProjectContext(effectiveProjectStore, replayContext),
         mode,
         presetId,
         roles: workflowRoles,
@@ -1733,7 +1754,7 @@ export default function App() {
     setProcessTrace((current) => (current ? settleProcessTrace(current) : current));
   };
 
-  const startNewConversation = useCallback(() => {
+  const startNewConversation = useCallback((projectId?: string) => {
     if (isProcessing) return;
     const now = Date.now();
     const transition = beginNewConversationSession({
@@ -1742,6 +1763,7 @@ export default function App() {
       messages: conversationMessages(messages),
       mode,
       presetId: conversationPresetId(presetId, mode),
+      projectId,
       now,
     });
     setSessions(persistConversationSessions(transition.sessions));
@@ -1759,6 +1781,36 @@ export default function App() {
       activeProviders.filter((provider) => statesRef.current[provider].webview === 'loaded'),
     );
   }, [activeProviders, activeSessionId, isProcessing, messages, mode, presetId, sessions]);
+
+  const assignConversationProject = useCallback((session: ConversationSession, projectId?: string) => {
+    if (isProcessing) return;
+    const assignedId = projectId && projectStore.projects.some((project) => project.id === projectId)
+      ? projectId : undefined;
+    setSessions((current) => {
+      const existing = current.find((candidate) => candidate.id === session.id);
+      if (!existing || existing.projectId === assignedId) return current;
+      const next: ConversationSession = { ...existing, updatedAt: Date.now() };
+      if (assignedId) next.projectId = assignedId;
+      else delete next.projectId;
+      return persistConversationSessions(upsertConversationSession(current, next));
+    });
+  }, [isProcessing, projectStore.projects]);
+
+  const createSidebarProject = useCallback(async (name: string) => {
+    if (isProcessing || !projectsReady) throw new Error('Projects are unavailable while a workflow is active.');
+    if (projectStore.projects.length >= 100) throw new Error('Project limit reached.');
+    const now = Date.now();
+    const projectId = `project-${crypto.randomUUID()}`;
+    const nextStore: ProjectStore = {
+      ...projectStore,
+      activeProjectId: projectId,
+      projects: [...projectStore.projects, { id: projectId, name, instructions: '', createdAt: now, updatedAt: now }],
+    };
+    await host.projects.save(nextStore);
+    setProjectStore(nextStore);
+    // Start a fresh chat within the new project; the previous conversation is archived.
+    startNewConversation(projectId);
+  }, [isProcessing, projectsReady, projectStore, startNewConversation]);
 
   const selectConversationSession = useCallback(
     (session: ConversationSession) => {
@@ -2082,8 +2134,9 @@ export default function App() {
           <ConversationSidebar
             collapsed={sessionSidebarCollapsed}
             sessions={sessions}
+            projects={projectStore.projects}
             activeSessionId={activeSessionId}
-            disabled={isProcessing}
+            disabled={isProcessing || !projectsReady}
             locale={locale}
             labels={{
               toggle: translate('conversation.toggle'),
@@ -2092,11 +2145,23 @@ export default function App() {
               empty: translate('conversation.empty'),
               deleteConversation: translate('conversation.delete'),
               confirmDeleteConversation: translate('conversation.deleteConfirm'),
+              projects: translate('sidebar.projects'),
+              newProject: translate('sidebar.newProject'),
+              projectName: translate('sidebar.projectName'),
+              create: translate('sidebar.create'),
+              cancel: translate('sidebar.cancel'),
+              unassigned: translate('sidebar.unassigned'),
+              moveTo: translate('sidebar.moveTo'),
+              newInProject: translate('sidebar.newInProject'),
+              expand: translate('sidebar.expand'),
+              collapse: translate('sidebar.collapse'),
             }}
             onToggle={() => setSessionSidebarCollapsed((current) => !current)}
             onNewConversation={startNewConversation}
             onSelectSession={selectConversationSession}
             onDeleteSession={deleteConversationSession}
+            onAssignProject={assignConversationProject}
+            onCreateProject={createSidebarProject}
           />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
             {/* 放大檢視時暫時收起選單區讓 webview 吃滿高度；checkpoint / 逾時對話框
@@ -2112,7 +2177,7 @@ export default function App() {
                 <div className="min-w-0">
                   <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Workspace</div>
                   <div className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                    {activeProject(projectStore)?.name ?? 'General'}
+                    {activeProject(effectiveProjectStore)?.name ?? 'General'}
                   </div>
                 </div>
                 <button type="button"
@@ -2122,12 +2187,19 @@ export default function App() {
                   Tools & modes
                 </button>
               </div>
-              <ProjectPicker
-                store={projectStore}
-                disabled={isProcessing || !projectsReady}
-                onSave={saveProjectStore}
-                loadError={projectLoadError}
-              />
+              <details className="workbench-project-settings mt-2">
+                <summary className="cursor-pointer rounded-lg px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800">
+                  {translate('sidebar.projectSettings')}
+                </summary>
+                <div className="mt-2">
+                  <ProjectPicker
+                    store={effectiveProjectStore}
+                    disabled={isProcessing || !projectsReady}
+                    onSave={saveProjectStore}
+                    loadError={projectLoadError}
+                  />
+                </div>
+              </details>
               {checkpoint ? (
                 <details className="mt-2 border border-amber-300 bg-white dark:border-amber-900 dark:bg-zinc-950" open>
                   <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:text-amber-100 dark:hover:bg-amber-950">
