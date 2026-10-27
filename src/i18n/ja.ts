@@ -193,6 +193,7 @@ export const ja: Record<I18nKey, string> = {
   'sidebar.addAgent': 'モデルを追加',
   'sidebar.agents': 'モデル',
   'sidebar.activityToggle': 'アクティビティパネル',
+  'sidebar.emptyChatTitle': '何について話しましょうか？',
   'sidebar.emptyTitle': '何を始めますか？',
   'sidebar.emptySubtitle': 'ワークフローを選んで会話を始めましょう。',
   'sidebar.chooseProject': 'チャットのプロジェクト',
