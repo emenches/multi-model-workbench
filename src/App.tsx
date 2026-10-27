@@ -31,7 +31,6 @@ import {
   type ManualFocusPointerDown,
 } from './ui/autoFocus';
 import { CheckpointCard } from './ui/CheckpointCard';
-import { AiSisterAvatar } from './ui/AiSisterTheme';
 import { ConversationSidebar } from './ui/ConversationSidebar';
 import {
   beginNewConversationSession,
@@ -603,9 +602,10 @@ export default function App() {
   }, [appSettings]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', appSettings.theme !== 'light');
-    document.documentElement.classList.toggle('ai-sister', appSettings.theme === 'ai-sister');
-  }, [appSettings.theme]);
+    // Dark is the only supported UI theme; the HTML root already starts dark.
+    document.documentElement.classList.add('dark');
+    document.documentElement.classList.remove('ai-sister');
+  }, []);
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${appSettings.fontSize}px`;
@@ -2787,7 +2787,6 @@ export function ChatArea({
             data-provider={isProvider ? p : undefined}
           >
             <div className="workbench-message-header mb-1 flex items-center gap-2">
-              {isProvider ? <AiSisterAvatar provider={p as AIProvider} active={thinking} size="md" /> : null}
               <div className="text-xs uppercase text-zinc-500 dark:text-zinc-500">
                 {bubbleAuthorLabel(message)}
                 {message.modeRole ? ` · ${message.modeRole}` : ''}

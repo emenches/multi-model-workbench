@@ -1,8 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#1b2028" />
+    <!-- Match the Tauri webview background before the JS bundle or CSS loads. -->
+    <style>
+      :root { color-scheme: dark; background: #1b2028; }
+      html, body, #root { margin: 0; min-height: 100%; background: #1b2028; color: #f0f2f6; }
+    </style>
     <title>Multi-AI Chat Desktop</title>
   </head>
   <body>
