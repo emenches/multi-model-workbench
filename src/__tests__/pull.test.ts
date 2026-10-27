@@ -17,6 +17,7 @@ import {
 import { onBridgeMessage } from '../bridge/bus';
 import {
   AWAITING_ABSOLUTE_MAX_MS,
+  CHATGPT_BRIDGE_HEALTH_JS,
   handleTitleMessage,
   onProviderBootRotation,
   parsePullResult,
@@ -189,6 +190,40 @@ describe('pull transport', () => {
     probes = messages.filter((m) => (m.payload as { pullDiagnostic?: string })?.pullDiagnostic === 'eval-ok-empty');
     expect(probes).toHaveLength(2);
     expect(messages.some((m) => m.action === 'RESPONSE_DONE')).toBe(false);
+    cleanup();
+  });
+
+  it('distinguishes bridge absence from a live engine when empty pulls continue', async () => {
+    vi.useFakeTimers();
+    const { messages, cleanup } = collectMessages();
+    handleTitleMessage({ v: 1, action: 'STATUS_REPORT', provider, bootId: 'b1', seq: 1, transport: 'title' });
+    setProviderAwaiting(provider, true);
+    vi.mocked(host.provider.evalWithCallback).mockImplementation(async (_provider, js) =>
+      js === CHATGPT_BRIDGE_HEALTH_JS
+        ? JSON.stringify({ bridgePresent: true, enginePresent: true, bootMatches: true,
+          adapterInstalled: true, statusTicks: 2, responsePollTicks: 5, engineAwaiting: true })
+        : JSON.stringify([]));
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(messages).toContainEqual(expect.objectContaining({
+      action: 'STATUS_REPORT', provider, transport: 'local',
+      payload: { pullDiagnostic: 'bridge-probe', statusSilentMs: 15_000,
+        bridgePresent: true, enginePresent: true, bootMatches: true,
+        adapterInstalled: true, statusTicks: 2, responsePollTicks: 5,
+        engineAwaiting: true },
+    }));
+
+    vi.mocked(host.provider.evalWithCallback).mockImplementation(async (_provider, js) =>
+      js === CHATGPT_BRIDGE_HEALTH_JS
+        ? JSON.stringify({ bridgePresent: false, enginePresent: false, bootMatches: false,
+          adapterInstalled: false, statusTicks: null, responsePollTicks: null, engineAwaiting: false })
+        : JSON.stringify([]));
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(messages).toContainEqual(expect.objectContaining({
+      action: 'STATUS_REPORT', provider, transport: 'local',
+      payload: expect.objectContaining({ pullDiagnostic: 'bridge-probe', bridgePresent: false, enginePresent: false }),
+    }));
+    expect(messages.some((m) => m.action === 'RESPONSE_DONE')).toBe(false);
+    setProviderAwaiting(provider, false);
     cleanup();
   });
 

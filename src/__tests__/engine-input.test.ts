@@ -217,6 +217,37 @@ describe('injected engine input hardening', () => {
     expect(JSON.stringify(env.emitted.at(-1))).not.toContain('PRIVATE CURRENT PROMPT');
   });
 
+  it('exposes only ChatGPT timer liveness counters to native diagnostics', async () => {
+    vi.useFakeTimers();
+    const env = createEnv({ inputKind: 'textarea' });
+    const handler = await installEngine(env);
+    const state = (window as unknown as { __MAC_ENGINE__: {
+      statusTicks: number;
+      responsePollTicks: number;
+      waitingForResponse: boolean;
+      adapterVersion: number;
+    } }).__MAC_ENGINE__;
+    expect(state.statusTicks).toBe(0);
+    expect(state.responsePollTicks).toBe(0);
+    expect(state.waitingForResponse).toBe(false);
+    dispatchAdapter(handler, {
+      provider: 'chatgpt',
+      timing: { statusIntervalMs: 1_000, backupPollMs: 1_000,
+        doneDelayMs: 1_000_000, chunkDebounceMs: 1_000_000 },
+    });
+    expect(state.adapterVersion).toBe(1);
+    expect(state.statusTicks).toBe(1);
+    send(handler, 'A short question', 'chatgpt');
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(2_200);
+    expect(state.statusTicks).toBeGreaterThanOrEqual(3);
+    expect(state.responsePollTicks).toBeGreaterThanOrEqual(2);
+    expect(state.waitingForResponse).toBe(true);
+    expect(Object.keys(state).sort()).toEqual([
+      'adapterVersion', 'bootId', 'responsePollTicks', 'statusTicks', 'stop', 'waitingForResponse',
+    ]);
+  });
+
   it('keeps ChatGPT status heartbeats alive if pending-answer diagnostics throw', async () => {
     vi.useFakeTimers();
     const env = createEnv({ inputKind: 'contenteditable' });

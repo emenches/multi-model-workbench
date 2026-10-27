@@ -7,6 +7,9 @@ export const DONE_WATCHDOG_MS = 5000;
 export const PULL_RECOVERY_DELAY_MS = 5_000;
 export const PULL_RECOVERY_MAX_ATTEMPTS = 3;
 export const SILENT_PULL_PROBE_INTERVAL_MS = 15_000;
+// Exact read-only diagnostic expression also whitelisted by the native host.
+// It examines our injected objects only, never the site's DOM or user text.
+export const CHATGPT_BRIDGE_HEALTH_JS = '(function(){var b=window.__MAC_BRIDGE__;var e=window.__MAC_ENGINE__;return {bridgePresent:!!b,enginePresent:!!e,bootMatches:!!b&&!!e&&b.bootId===e.bootId,adapterInstalled:!!e&&typeof e.adapterVersion==="number"&&e.adapterVersion>0,statusTicks:!!e&&Number.isSafeInteger(e.statusTicks)?e.statusTicks:null,responsePollTicks:!!e&&Number.isSafeInteger(e.responsePollTicks)?e.responsePollTicks:null,engineAwaiting:!!e&&e.waitingForResponse===true};})()';
 export const AWAITING_MAX_MS = 10 * 60 * 1000;
 export const AWAITING_ABSOLUTE_MAX_MS = 60 * 60 * 1000;
 
@@ -249,6 +252,7 @@ function maybeReportSilentEmptyPull(provider: AIProvider, batch: BridgeMessage[]
   if (silentMs < SILENT_PULL_PROBE_INTERVAL_MS ||
       now - (lastEmptyPullProbeAt.get(provider) ?? titleAt) < SILENT_PULL_PROBE_INTERVAL_MS) return;
   lastEmptyPullProbeAt.set(provider, now);
+  void probeChatGptBridge(provider, Math.floor(silentMs / 1_000) * 1_000);
   publish({
     v: 1,
     action: 'STATUS_REPORT',
@@ -259,6 +263,61 @@ function maybeReportSilentEmptyPull(provider: AIProvider, batch: BridgeMessage[]
       statusSilentMs: Math.floor(silentMs / 1_000) * 1_000,
     },
   });
+}
+
+
+interface ChatGptBridgeHealth {
+  bridgePresent: boolean;
+  enginePresent: boolean;
+  bootMatches: boolean;
+  adapterInstalled: boolean;
+  statusTicks: number | null;
+  responsePollTicks: number | null;
+  engineAwaiting: boolean;
+}
+
+function isChatGptBridgeHealth(value: unknown): value is ChatGptBridgeHealth {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const health = value as Record<string, unknown>;
+  const validTick = (v: unknown) => v === null || (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0);
+  return typeof health.bridgePresent === 'boolean' &&
+    typeof health.enginePresent === 'boolean' &&
+    typeof health.bootMatches === 'boolean' &&
+    typeof health.adapterInstalled === 'boolean' &&
+    validTick(health.statusTicks) &&
+    validTick(health.responsePollTicks) &&
+    typeof health.engineAwaiting === 'boolean';
+}
+
+async function probeChatGptBridge(provider: AIProvider, statusSilentMs: number): Promise<void> {
+  try {
+    const raw = await host.provider.evalWithCallback(provider, CHATGPT_BRIDGE_HEALTH_JS);
+    const health = parsePullResult(raw);
+    if (!pending.has(provider)) return;
+    if (!isChatGptBridgeHealth(health)) {
+      publish({ v: 1, action: 'STATUS_REPORT', provider, transport: 'local',
+        payload: { pullDiagnostic: 'bridge-probe-invalid', statusSilentMs },
+      });
+      return;
+    }
+    publish({ v: 1, action: 'STATUS_REPORT', provider, transport: 'local',
+      payload: { pullDiagnostic: 'bridge-probe', statusSilentMs,
+        bridgePresent: health.bridgePresent,
+        enginePresent: health.enginePresent,
+        bootMatches: health.bootMatches,
+        adapterInstalled: health.adapterInstalled,
+        statusTicks: health.statusTicks,
+        responsePollTicks: health.responsePollTicks,
+        engineAwaiting: health.engineAwaiting,
+      },
+    });
+  } catch (error) {
+    if (!pending.has(provider)) return;
+    publish({ v: 1, action: 'STATUS_REPORT', provider, transport: 'local',
+      payload: { pullDiagnostic: 'bridge-probe-failed', statusSilentMs,
+        pullFailureKind: classifyPullFailure(error) },
+    });
+  }
 }
 
 function markDegraded(provider: AIProvider, reason: string): void {

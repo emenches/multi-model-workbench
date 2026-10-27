@@ -305,12 +305,28 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
   const pullFailureKind = stringProp(payload, 'pullFailureKind');
   const recoveryAttempt = numberProp(payload, 'recoveryAttempt');
   const statusSilentMs = numberProp(payload, 'statusSilentMs');
+  const bridgePresent = booleanProp(payload, 'bridgePresent');
+  const enginePresent = booleanProp(payload, 'enginePresent');
+  const bootMatches = booleanProp(payload, 'bootMatches');
+  const adapterInstalled = booleanProp(payload, 'adapterInstalled');
+  const statusTicks = numberProp(payload, 'statusTicks');
+  const responsePollTicks = numberProp(payload, 'responsePollTicks');
+  const engineAwaiting = booleanProp(payload, 'engineAwaiting');
   if (capturePhase) parts.push(`capture ${capturePhase}`);
   if (statusErrorStage) parts.push(`status probe error ${statusErrorStage}`);
   if (pullDiagnostic) parts.push(`pull ${pullDiagnostic}`);
   if (pullFailureKind) parts.push(`failure ${pullFailureKind}`);
   if (pullDiagnostic && typeof recoveryAttempt === 'number') parts.push(`attempt ${recoveryAttempt}`);
   if (pullDiagnostic && typeof statusSilentMs === 'number') parts.push(`title silent ${Math.floor(statusSilentMs / 1_000)}s`);
+  if (pullDiagnostic === 'bridge-probe') {
+    parts.push(`bridge present ${bridgePresent === true ? 'yes' : 'no'}`);
+    parts.push(`engine present ${enginePresent === true ? 'yes' : 'no'}`);
+    parts.push(`boot matched ${bootMatches === true ? 'yes' : 'no'}`);
+    parts.push(`adapter installed ${adapterInstalled === true ? 'yes' : 'no'}`);
+    parts.push(`status ticks ${statusTicks ?? 'unknown'}`);
+    parts.push(`response poll ticks ${responsePollTicks ?? 'unknown'}`);
+    parts.push(`engine awaiting ${engineAwaiting === true ? 'yes' : 'no'}`);
+  }
   if (dom) parts.push(`dom ${dom}`);
   if (login) parts.push(`login ${login}`);
   if (typeof thinking === 'boolean') parts.push(`thinking ${thinking ? 'yes' : 'no'}`);
@@ -338,6 +354,15 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
         pullFailureKind: pullFailureKind ?? null,
         recoveryAttempt: recoveryAttempt ?? null,
         statusSilentMs: statusSilentMs ?? null,
+        ...(pullDiagnostic === 'bridge-probe' ? {
+          bridgePresent: bridgePresent ?? null,
+          enginePresent: enginePresent ?? null,
+          bootMatches: bootMatches ?? null,
+          adapterInstalled: adapterInstalled ?? null,
+          statusTicks: statusTicks ?? null,
+          responsePollTicks: responsePollTicks ?? null,
+          engineAwaiting: engineAwaiting ?? null,
+        } : {}),
       } : {}),
       ...(capturePhase ? {
         capturePhase,

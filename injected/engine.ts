@@ -38,6 +38,10 @@ interface AdapterConfig {
 interface MacEngineState {
   bootId: string;
   adapterVersion: number;
+  // Read-only liveness counters for the sanctioned native health probe.
+  statusTicks: number;
+  responsePollTicks: number;
+  waitingForResponse: boolean;
   stop?: () => void;
 }
 
@@ -322,6 +326,9 @@ class InactiveSendOperationError extends Error {
   window.__MAC_ENGINE__ = {
     bootId: bridge.bootId,
     adapterVersion: 0,
+    statusTicks: 0,
+    responsePollTicks: 0,
+    waitingForResponse: false,
     stop,
   };
 
@@ -547,6 +554,9 @@ class InactiveSendOperationError extends Error {
   }
 
   function reportStatus() {
+    // Count invocations before touching ChatGPT DOM; a stalled title channel
+    // must remain distinguishable from a timer that never ran.
+    (window.__MAC_ENGINE__ as MacEngineState).statusTicks += 1;
     if (!adapter) {
       bridge.emit({ v: 1, action: 'STATUS_REPORT', payload: { dom: 'unknown', bootId: bridge.bootId } });
       return;
@@ -812,6 +822,7 @@ class InactiveSendOperationError extends Error {
     responseGeneration += 1;
     activeResponseGeneration = responseGeneration;
     waitingForResponse = true;
+    (window.__MAC_ENGINE__ as MacEngineState).waitingForResponse = true;
     lastResponseText = '';
     lastCompletionActivityAt = Date.now();
     pendingPromptText = text;
@@ -2032,6 +2043,7 @@ class InactiveSendOperationError extends Error {
 
   function cancelResponseWait() {
     waitingForResponse = false;
+    (window.__MAC_ENGINE__ as MacEngineState).waitingForResponse = false;
     clearTimersForResponse();
     responseBaselineEls.clear();
     responseBaselineTextCounts.clear();
@@ -2116,6 +2128,7 @@ class InactiveSendOperationError extends Error {
   function startResponsePolling() {
     if (pollInterval !== undefined) return;
     pollInterval = window.setInterval(() => {
+      (window.__MAC_ENGINE__ as MacEngineState).responsePollTicks += 1;
       if (!waitingForResponse) {
         if (pollInterval !== undefined) window.clearInterval(pollInterval);
         pollInterval = undefined;
