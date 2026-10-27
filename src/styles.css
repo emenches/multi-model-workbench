@@ -504,3 +504,24 @@ html.dark .app-shell .ai-sister-workflow-shelf {
     padding: 10px;
   }
 }
+
+
+/* Provider dock remains visible; heavy native preview is opt-in. */
+.app-shell .workbench-provider-inspector[hidden] {
+  display: none !important;
+}
+.app-shell .workbench-provider-dock {
+  box-shadow: 0 2px 12px rgba(0,0,0,.035);
+}
+html.dark .app-shell .workbench-provider-dock {
+  box-shadow: none;
+}
+.app-shell .workbench-provider-tile {
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+.app-shell .workbench-provider-tile:hover {
+  border-color: rgba(75,85,99,.4);
+}
+.app-shell .ai-sister-conversation-workspace .workbench-mode-select {
+  min-height: 36px;
+}
