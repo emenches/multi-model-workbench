@@ -174,6 +174,8 @@ export const I18N_KEYS = [
   'sidebar.workflowChoice',
   'sidebar.agentLogin',
   'sidebar.noAgents',
+  'workbench.moreActions',
+  'workbench.moreWorkflows',
   'workbench.workflowProgress',
   'workbench.showDetails',
   'workbench.hideDetails',

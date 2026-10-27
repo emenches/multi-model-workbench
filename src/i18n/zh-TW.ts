@@ -180,6 +180,8 @@ export const zhTW: Record<I18nKey, string> = {
   'sidebar.workflowChoice': '選擇工作流程',
   'sidebar.agentLogin': '登入',
   'sidebar.noAgents': '尚未連結模型',
+  'workbench.moreActions': '更多操作',
+  'workbench.moreWorkflows': '更多工作流程',
   'workbench.workflowProgress': '工作流程進度',
   'workbench.showDetails': '顯示詳細資訊',
   'workbench.hideDetails': '隱藏詳細資訊',

@@ -192,6 +192,8 @@ export const ja: Record<I18nKey, string> = {
   'sidebar.workflowChoice': 'ワークフローを選択',
   'sidebar.agentLogin': 'ログイン',
   'sidebar.noAgents': '接続中のモデルはありません',
+  'workbench.moreActions': 'その他の操作',
+  'workbench.moreWorkflows': 'その他のワークフロー',
   'workbench.workflowProgress': 'ワークフロー進行状況',
   'workbench.showDetails': '詳細を表示',
   'workbench.hideDetails': '詳細を隠す',

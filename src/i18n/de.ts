@@ -192,6 +192,8 @@ export const de: Record<I18nKey, string> = {
   'sidebar.workflowChoice': 'Workflow auswählen',
   'sidebar.agentLogin': 'Anmelden',
   'sidebar.noAgents': 'Keine Agenten verbunden',
+  'workbench.moreActions': 'Weitere Aktionen',
+  'workbench.moreWorkflows': 'Weitere Workflows',
   'workbench.workflowProgress': 'Workflow-Fortschritt',
   'workbench.showDetails': 'Details anzeigen',
   'workbench.hideDetails': 'Details ausblenden',
