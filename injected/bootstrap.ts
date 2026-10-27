@@ -1,6 +1,6 @@
 import { OUTBOX_MAX_BYTES, PULL_MAX_DECODED_BYTES } from '../shared/constants';
 import { hasCloudflareChallengeSignals, isGoogleSorryChallenge, isProviderChallengeActive } from './challenge';
-import { encodeTitleFrame } from './codec';
+import { encodeBoundedStatusTitleFrame } from './codec';
 import type { BridgeMessage, MessageAction } from '../shared/types';
 
 export { hasCloudflareChallengeSignals, isGoogleSorryChallenge };
@@ -130,7 +130,7 @@ interface MacBridge {
   version: 1;
   bootId: string;
   // Text-free title writer liveness (frame queue can be blocked independently of engine timers).
-  diagnostics: { queued: number; started: number; finished: number };
+  diagnostics: { queued: number; started: number; finished: number; compacted: number };
   emit(message: unknown): void;
   dispatch(message: BridgeMessage): void;
   onDispatch(handler: (message: BridgeMessage) => void): void;
@@ -177,7 +177,7 @@ interface MacBridge {
   let latestTitle: { action: MessageAction; payload?: unknown } | undefined;
   let titleEmitChain = Promise.resolve();
   let inFlightTitleFrame: string | undefined;
-  const titleHealth = { queued: 0, started: 0, finished: 0 };
+  const titleHealth = { queued: 0, started: 0, finished: 0, compacted: 0 };
 
   function logError(error: unknown) {
     console.error('[MAC bridge]', error);
@@ -199,7 +199,8 @@ interface MacBridge {
         ? { ...((payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>), bulkReady: outbox.length }
         : payload;
     const message = { v: 1 as const, action, provider, bootId, seq: ++seq, payload: titlePayload };
-    const frame = encodeTitleFrame(bootId, seq, message);
+    const { frame, compacted } = encodeBoundedStatusTitleFrame(bootId, seq, message);
+    if (compacted) titleHealth.compacted += 1;
     if (!document.head) {
       try {
         document.title = frame;
