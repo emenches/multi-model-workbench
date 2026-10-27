@@ -199,9 +199,12 @@ interface MacBridge {
         ? { ...((payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>), bulkReady: outbox.length }
         : payload;
     const message = { v: 1 as const, action, provider, bootId, seq: ++seq, payload: titlePayload };
-    const { frame, compacted } = encodeBoundedStatusTitleFrame(bootId, seq, message);
-    if (compacted) titleHealth.compacted += 1;
-    if (!document.head) {
+    let frame: string | undefined;
+    try {
+      const bounded = encodeBoundedStatusTitleFrame(bootId, seq, message);
+      frame = bounded.frame;
+      if (bounded.compacted) titleHealth.compacted += 1;
+      if (!document.head) {
       try {
         document.title = frame;
       } catch (error) {
@@ -210,9 +213,8 @@ interface MacBridge {
       await waitForHead();
     }
 
-    const previous = document.title.startsWith('\u200BMAC1|') ? '' : document.title;
-    inFlightTitleFrame = frame;
-    try {
+      const previous = document.title.startsWith('\u200BMAC1|') ? '' : document.title;
+      inFlightTitleFrame = frame;
       document.title = frame;
       await delay(10);
       if (document.title === inFlightTitleFrame) {

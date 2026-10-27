@@ -87,10 +87,28 @@ export function encodeBoundedStatusTitleFrame<T extends { action: string; payloa
         payload[field] = null;
       }
     }
-    return {
-      frame: encodeTitleFrame(bootId, seq, { ...message, payload }),
-      compacted: true,
-    };
+    try {
+      return {
+        frame: encodeTitleFrame(bootId, seq, { ...message, payload }),
+        compacted: true,
+      };
+    } catch (compactError) {
+      if (!(compactError instanceof Error) ||
+          !/^title frame exceeds 900 chars$/.test(compactError.message)) throw compactError;
+      // The optional bounded fields together can still exceed the cap if
+      // several strings are long. Keep a tiny, fixed safety/transport hint.
+      // Never drop positive bulk/done signals or terminal status.
+      const core: Record<string, string | number | boolean | null> = {};
+      for (const field of ['dom', 'login', 'thinking', 'bridge', 'bulkReady', 'doneReady'] as const) {
+        const value = payload[field];
+        if (typeof value === 'string') core[field] = value.slice(0, 24);
+        else if (typeof value === 'number' || typeof value === 'boolean' || value === null) core[field] = value;
+      }
+      return {
+        frame: encodeTitleFrame(bootId, seq, { ...message, payload: core }),
+        compacted: true,
+      };
+    }
   }
 }
 

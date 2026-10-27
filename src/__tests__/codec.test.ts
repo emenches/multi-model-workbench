@@ -39,6 +39,24 @@ describe('bridge codec', () => {
     expect(JSON.stringify(decoded?.json)).not.toContain('captureFullDiagnostics');
   });
 
+  it('retains essential transport hints even when every optional field is oversized', () => {
+    const inflated = {
+      action: 'STATUS_REPORT', provider: 'chatgpt', v: 1,
+      payload: Object.fromEntries([
+        'dom', 'login', 'bridge', 'reason', 'adapter', 'fill',
+        'statusErrorStage', 'capturePhase',
+      ].map((key) => [key, 'x'.repeat(200)])),
+    };
+    Object.assign(inflated.payload, { bulkReady: 1, doneReady: true, thinking: false });
+    const result = encodeBoundedStatusTitleFrame('boot1234', 9, inflated);
+    expect(result.compacted).toBe(true);
+    expect(result.frame.length).toBeLessThanOrEqual(900);
+    expect(decodeTitleFrame(result.frame)?.json).toMatchObject({
+      action: 'STATUS_REPORT',
+      payload: { bulkReady: 1, doneReady: true, thinking: false },
+    });
+  });
+
   it('does not alter small status hints and does not compact other actions', () => {
     const message = { v: 1, action: 'STATUS_REPORT', payload: { dom: 'ready', login: 'logged_in' } };
     const normal = encodeBoundedStatusTitleFrame('boot1234', 2, message);
