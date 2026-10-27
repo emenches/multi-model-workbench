@@ -1565,13 +1565,59 @@ async fn eval_provider_with_callback(
 }
 
 
+/// Apply the native page window's current client size to its attached
+/// provider view. Reparenting preserves the old child size. Use Tauri's
+/// independent size/position setters rather than the combined bounds route
+/// that has left WKWebView at its old pane dimensions on macOS.
+fn fit_detached_provider_to_window(
+    provider_view: &tauri::Webview,
+    parent_window: &tauri::Window,
+) -> Result<(), String> {
+    let size = parent_window.inner_size().map_err(|error| error.to_string())?;
+    provider_view
+        .set_position(tauri::Position::Physical(PhysicalPosition::new(0, 0)))
+        .map_err(|error| error.to_string())?;
+    provider_view
+        .set_size(tauri::Size::Physical(size))
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderWindowGeometry {
+    window_width: u32,
+    window_height: u32,
+    webview_width: u32,
+    webview_height: u32,
+    webview_x: i32,
+    webview_y: i32,
+}
+
+fn detached_provider_geometry(
+    provider_view: &tauri::Webview,
+    parent_window: &tauri::Window,
+) -> Result<ProviderWindowGeometry, String> {
+    let window = parent_window.inner_size().map_err(|error| error.to_string())?;
+    let webview = provider_view.size().map_err(|error| error.to_string())?;
+    let origin = provider_view.position().map_err(|error| error.to_string())?;
+    Ok(ProviderWindowGeometry {
+        window_width: window.width,
+        window_height: window.height,
+        webview_width: webview.width,
+        webview_height: webview.height,
+        webview_x: origin.x,
+        webview_y: origin.y,
+    })
+}
+
 #[tauri::command]
 pub async fn provider_open_window(
     app: AppHandle,
     webview: tauri::Webview,
     provider: String,
     login: Option<bool>,
-) -> Result<(), String> {
+) -> Result<ProviderWindowGeometry, String> {
     ensure_control_webview(&webview)?;
     settings::ensure_provider_active(&app, &provider)?;
     let provider_webview = get_provider_webview(&app, &provider)?;
@@ -1624,10 +1670,9 @@ pub async fn provider_open_window(
                 tauri::WindowEvent::Resized(size) => {
                     if let Some(view) = active_view() {
                         if is_provider_detached(&view, &event_provider) {
-                            let _ = set_webview_bounds(
+                            let _ = fit_detached_provider_to_window(
                                 &view,
-                                PhysicalPosition::new(0, 0),
-                                *size,
+                                &event_window,
                             );
                         }
                     }
@@ -1662,22 +1707,12 @@ pub async fn provider_open_window(
     // can otherwise retain the small native frame of the old React pane even
     // if set_bounds returned Ok while the new NSWindow was hidden.
     window.show().map_err(|error| error.to_string())?;
-    let client_size = window.inner_size().map_err(|error| error.to_string())?;
-    set_webview_bounds(
-        &provider_webview,
-        PhysicalPosition::new(0, 0),
-        client_size,
-    )?;
+    fit_detached_provider_to_window(&provider_webview, &window)?;
     provider_webview.show().map_err(|error| error.to_string())?;
     // Some WKWebView versions defer native frame layout while hidden.
     // After both parent and child are visible, apply the final client
     // rectangle once more. Further user resizes are handled by Resized.
-    let visible_size = window.inner_size().map_err(|error| error.to_string())?;
-    set_webview_bounds(
-        &provider_webview,
-        PhysicalPosition::new(0, 0),
-        visible_size,
-    )?;
+    fit_detached_provider_to_window(&provider_webview, &window)?;
     // The first macOS NSWindow layout may settle on a later run-loop turn.
     // One bounded follow-up corrects a stale old-pane frame after reparent.
     // Guard against a close/reparent between scheduling and applying it.
@@ -1689,13 +1724,18 @@ pub async fn provider_open_window(
         if let Some(view) = app_for_layout.get_webview(&provider_label(&provider_for_layout)) {
             if is_provider_detached(&view, &provider_for_layout) {
                 if let Ok(size) = window_for_layout.inner_size() {
-                    let _ = set_webview_bounds(&view, PhysicalPosition::new(0, 0), size);
+                    let _ = fit_detached_provider_to_window(&view, &window_for_layout);
+                    if let Ok(geometry) = detached_provider_geometry(&view, &window_for_layout) {
+                        eprintln!("Workbench provider window geometry {}: {:?}", provider_for_layout, geometry);
+                    }
                 }
             }
         }
     });
     window.set_focus().map_err(|error| error.to_string())?;
-    Ok(())
+    let geometry = detached_provider_geometry(&provider_webview, &window)?;
+    eprintln!("Workbench provider window opened {}: {:?}", provider, geometry);
+    Ok(geometry)
 }
 
 #[tauri::command]
