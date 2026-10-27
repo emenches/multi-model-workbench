@@ -65,11 +65,16 @@ describe('App workflow controls', () => {
     expect(html).not.toContain('每步先問我再送出');
   });
 
-  it('places workflow controls in the left shelf before provider connections', () => {
+  it('uses a clean conversation-first landing without the old left dashboard', () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, { language: 'en', children: createElement(App) }));
 
-    expect(html).toContain('id="workflow-control-shelf"');
-    expect(html.indexOf('id="workflow-control-shelf"')).toBeLessThan(html.indexOf('id="provider-connections-title"'));
+    expect(html).toContain('workbench-connected-agent-strip');
+    expect(html).toContain('workbench-new-chat-screen');
+    expect(html).toContain('workbench-new-chat-workflow');
+    expect(html).toContain('workbench-new-chat-composer');
+    expect(html).toContain('workbench-session-sidebar');
+    expect(html).not.toContain('id="workflow-control-shelf"');
+    expect(html).not.toContain('workbench-provider-dock');
   });
 
   it('preserves optional AI-Sister branding while keeping the workbench layout uncluttered', () => {
@@ -104,9 +109,40 @@ describe('Workbench reading surfaces', () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, { language: 'en', children: createElement(App) }));
     expect(html).toContain('workbench-conversation-header');
     expect(html).toContain('workbench-conversation-workspace');
-    expect(html).toContain('workbench-context-panel');
-    expect(html).toContain('Provider view');
-    expect(html).toContain('workbench-project-picker');
+    expect(html).toContain('workbench-connected-agent-strip');
+    expect(html).toContain('workbench-activity-button');
+    expect(html).toContain('workbench-new-chat-project');
+    expect(html).toContain('workbench-new-chat-workflows');
+  });
+});
+
+describe('Ambient workflow visualization', () => {
+  it('replaces duplicate unfinished provider bubbles while retaining complete answers', () => {
+    const trace = {
+      mode: 'consult' as const,
+      currentStatus: 'Review',
+      steps: [{
+        id: 'review-chatgpt',
+        kind: 'role' as const,
+        label: 'Review · ChatGPT',
+        provider: 'chatgpt' as const,
+        status: 'active' as const,
+        startedAt: Date.now() - 20_000,
+      }],
+    };
+    const html = renderToStaticMarkup(createElement(ChatArea, {
+      locale: 'en', states: states({ chatgpt: state('chatgpt', true) }),
+      trace,
+      messages: [
+        { id: 'done-gemini', role: 'ai', provider: 'gemini', content: 'Verified result.', final: true },
+        { id: 'thinking-chatgpt', role: 'ai', provider: 'chatgpt', content: 'unstable partial', final: false },
+      ],
+    }));
+    expect(html).toContain('workbench-thinking-visual');
+    expect(html).toContain('Working across models');
+    expect(html).toContain('Verified result.');
+    expect(html).not.toContain('unstable partial');
+    expect(html).not.toContain('Response in progress');
   });
 });
 

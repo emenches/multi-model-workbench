@@ -70,6 +70,32 @@ describe('conversation sessions', () => {
     expect(created.messages[1]).toMatchObject({ authorLabel: 'You' });
   });
 
+  it('preserves project assignment while keeping older chats unassigned', () => {
+    const assigned = createConversationSession({ id: 'assigned', projectId: 'project-one', now: 100 });
+    const old = session('legacy', 90);
+    const store = memoryStorage();
+    expect(saveConversationSessions([old, assigned], store)).toBe(true);
+    const loaded = loadConversationSessions(store);
+    expect(loaded.find((value) => value.id === 'assigned')?.projectId).toBe('project-one');
+    expect(loaded.find((value) => value.id === 'legacy')?.projectId).toBeUndefined();
+  });
+
+  it('switches project assignments on an empty draft without creating a duplicate', () => {
+    const current = session('blank', 10, { projectId: 'prior', messages: [] });
+    const assigned = beginNewConversationSession({
+      sessions: [current], activeSessionId: current.id, messages: [],
+      mode: 'free', projectId: 'new-project', now: 20,
+    });
+    expect(assigned.active.projectId).toBe('new-project');
+    expect(assigned.sessions).toHaveLength(1);
+    const general = beginNewConversationSession({
+      sessions: assigned.sessions, activeSessionId: current.id, messages: [],
+      mode: 'free', now: 30,
+    });
+    expect(general.active.projectId).toBeUndefined();
+    expect(general.sessions).toHaveLength(1);
+  });
+
   it('uses a normalized first user message title and falls back for missing content', () => {
     expect(titleFromFirstUserMessage([{ role: 'user', content: '  Explain\n  this\tcode  ' }])).toBe(
       'Explain this code',
