@@ -165,6 +165,7 @@ export const ja: Record<I18nKey, string> = {
   'processTrace.sendingTo': '送信先',
   'processTrace.noSelectedAI': 'AIが選択されていません',
   'processTrace.response': '応答',
+  'processTrace.completionUnconfirmed': '完了を確認できません',
   'processTrace.waitingForResponse': '応答を待っています',
   'processTrace.step': 'ステップ',
   'workflowStatus.freeTargets': '⚡ {providers} が並列で回答中…',

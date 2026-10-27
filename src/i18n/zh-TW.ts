@@ -153,6 +153,7 @@ export const zhTW: Record<I18nKey, string> = {
   'processTrace.sendingTo': '送到',
   'processTrace.noSelectedAI': '未選擇 AI',
   'processTrace.response': '回應',
+  'processTrace.completionUnconfirmed': '尚未確認完成',
   'processTrace.waitingForResponse': '等待回應',
   'processTrace.step': '步驟',
   'workflowStatus.freeTargets': '⚡ {providers} 同時作答中…',

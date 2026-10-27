@@ -50,7 +50,7 @@ export function createProcessTrace(
 export function reduceProcessTraceEvent(trace: ProcessTraceState, message: BridgeMessage, locale: Locale = 'en'): ProcessTraceState {
   if (message.action === 'WORKFLOW_STATUS') {
     const status = typeof message.payload === 'string' ? message.payload : '';
-    return applyWorkflowStatus(trace, status);
+    return applyWorkflowStatus(trace, status, locale);
   }
 
   if (message.action === 'ROLE_ASSIGNMENT' && isKnownProvider(message.provider)) {
@@ -65,23 +65,35 @@ export function reduceProcessTraceEvent(trace: ProcessTraceState, message: Bridg
   return trace;
 }
 
-export function settleProcessTrace(trace: ProcessTraceState): ProcessTraceState {
+export function settleProcessTrace(trace: ProcessTraceState, locale: Locale = 'en'): ProcessTraceState {
   return {
     ...trace,
     currentStatus: '',
+    // Clearing the workflow banner does NOT prove an individual provider
+    // completed its answer. A workflow can stop, fail or be cancelled.
+    // Preserve confirmed completions and mark everything else unconfirmed.
     steps: refreshFreeAggregate(
-      trace.steps.map((step) => (step.status === 'done' ? step : { ...step, status: 'done' })),
+      trace.steps.map((step) =>
+        step.status === 'done'
+          ? step
+          : {
+              ...step,
+              status: 'pending' as const,
+              detail: step.detail?.includes(t('processTrace.completionUnconfirmed', locale))
+                ? step.detail
+                : [step.detail, t('processTrace.completionUnconfirmed', locale)].filter(Boolean).join(' · '),
+            },
+      ),
     ),
   };
 }
 
-function applyWorkflowStatus(trace: ProcessTraceState, status: string): ProcessTraceState {
-  if (!status) return settleProcessTrace(trace);
-  const steps =
-    trace.currentStatus && trace.currentStatus !== status
-      ? trace.steps.map((step) => (step.kind === 'role' && step.status === 'active' ? { ...step, status: 'done' as const } : step))
-      : trace.steps;
-  return { ...trace, currentStatus: status, steps };
+function applyWorkflowStatus(trace: ProcessTraceState, status: string, locale: Locale): ProcessTraceState {
+  if (!status) return settleProcessTrace(trace, locale);
+  // Workflow status text is informational, not evidence of RESPONSE_DONE.
+  // This matters when one provider is Ready or has visible text but its
+  // completion signal is delayed or missing.
+  return { ...trace, currentStatus: status };
 }
 
 function addRoleStep(
@@ -129,7 +141,11 @@ function applyProviderResponse(
           ...step,
           status: nextStatus,
           content: content || step.content,
-          detail: content ? oneLinePreview(content) : step.detail,
+          detail: content
+            ? final
+              ? oneLinePreview(content)
+              : `${oneLinePreview(content)} · ${t('processTrace.completionUnconfirmed', locale)}`
+            : step.detail,
         }
       : step,
   );
@@ -141,7 +157,11 @@ function applyProviderResponse(
 function refreshFreeAggregate(steps: ProcessTraceStep[]): ProcessTraceStep[] {
   const responseRows = steps.filter((step) => step.kind === 'response');
   if (responseRows.length === 0) return steps;
-  const aggregateStatus: ProcessTraceStepStatus = responseRows.every((step) => step.status === 'done') ? 'done' : 'active';
+  const aggregateStatus: ProcessTraceStepStatus = responseRows.every((step) => step.status === 'done')
+    ? 'done'
+    : responseRows.some((step) => step.status === 'active')
+      ? 'active'
+      : 'pending';
   return steps.map((step) => (step.kind === 'fanout' ? { ...step, status: aggregateStatus } : step));
 }
 
