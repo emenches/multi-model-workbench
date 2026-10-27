@@ -79,7 +79,9 @@ export function settleProcessTrace(trace: ProcessTraceState, locale: Locale = 'e
           : {
               ...step,
               status: 'pending' as const,
-              detail: [step.detail, t('processTrace.completionUnconfirmed', locale)].filter(Boolean).join(' · '),
+              detail: step.detail?.includes(t('processTrace.completionUnconfirmed', locale))
+                ? step.detail
+                : [step.detail, t('processTrace.completionUnconfirmed', locale)].filter(Boolean).join(' · '),
             },
       ),
     ),
