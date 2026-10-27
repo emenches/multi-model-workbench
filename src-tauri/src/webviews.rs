@@ -2312,7 +2312,7 @@ const CHATGPT_BRIDGE_ACK_PREFIX: &str =
 // Exact, read-only probe used only to distinguish a present bridge/engine
 // from a successful native eval into a document with no injected bridge.
 const CHATGPT_BRIDGE_HEALTH_JS: &str =
-    "(function(){var b=window.__MAC_BRIDGE__;var e=window.__MAC_ENGINE__;return {bridgePresent:!!b,enginePresent:!!e,bootMatches:!!b&&!!e&&b.bootId===e.bootId,adapterInstalled:!!e&&typeof e.adapterVersion==="number"&&e.adapterVersion>0,statusTicks:!!e&&Number.isSafeInteger(e.statusTicks)?e.statusTicks:null,responsePollTicks:!!e&&Number.isSafeInteger(e.responsePollTicks)?e.responsePollTicks:null,engineAwaiting:!!e&&e.waitingForResponse===true};})()";
+    r#"(function(){var b=window.__MAC_BRIDGE__;var e=window.__MAC_ENGINE__;return {bridgePresent:!!b,enginePresent:!!e,bootMatches:!!b&&!!e&&b.bootId===e.bootId,adapterInstalled:!!e&&typeof e.adapterVersion==="number"&&e.adapterVersion>0,statusTicks:!!e&&Number.isSafeInteger(e.statusTicks)?e.statusTicks:null,responsePollTicks:!!e&&Number.isSafeInteger(e.responsePollTicks)?e.responsePollTicks:null,engineAwaiting:!!e&&e.waitingForResponse===true};})()"#;
 
 fn stale_chatgpt_bridge_eval_allowed(
     provider: &str,
