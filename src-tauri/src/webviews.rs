@@ -1243,10 +1243,11 @@ pub async fn provider_open(
             }
         })
         .on_navigation(move |url| {
-            // Reject top-level renderer navigation, but do not interfere
-            // with ordinary iframe/subresource loading in ChatGPT itself.
+            // A DIL renderer is a legitimate ChatGPT page resource, often in
+            // a frame. Keep it inside the provider WebView, rather than
+            // handing it to the system browser. Do not grant it bridge access.
             if chatgpt_renderer_auxiliary_url(&nav_provider, url) {
-                return false;
+                return true;
             }
             if url.host_str() == Some("mac-bridge.invalid") {
                 return false;
