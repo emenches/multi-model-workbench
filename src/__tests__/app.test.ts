@@ -85,6 +85,22 @@ describe('App workflow controls', () => {
   });
 });
 
+describe('ChatArea checking connection copy', () => {
+  it('does not tell an authenticated user to sign in during temporary hydration', () => {
+    const reconnecting = Object.fromEntries(
+      (Object.keys(AI_PROVIDERS) as AIProvider[]).map((provider) => [
+        provider,
+        { ...state(provider), dom: 'unknown' as const, login: 'unknown' as const },
+      ]),
+    ) as Record<AIProvider, ProviderState>;
+    const html = renderToStaticMarkup(createElement(ChatArea, {
+      locale: 'en', states: reconnecting, messages: [],
+    }));
+    expect(html).toContain('Checking provider connections');
+    expect(html).not.toContain('sign in to start chatting');
+  });
+});
+
 describe('ChatArea thinking indicator', () => {
   it('hides streamed partial content while a non-final provider bubble is thinking', () => {
     const html = renderToStaticMarkup(
