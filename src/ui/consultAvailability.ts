@@ -10,7 +10,10 @@ export function availableConsultProviders(
   states: Partial<Record<AIProvider, ProviderState>>,
   activeProviders: readonly AIProvider[],
 ): AIProvider[] {
-  return [...new Set(activeProviders)].filter((provider) => isSendable(states[provider]));
+  return [...new Set(activeProviders)].filter((provider) => {
+    const state = states[provider];
+    return state !== undefined && isSendable(state);
+  });
 }
 
 /**
