@@ -2176,6 +2176,7 @@ export default function App() {
               newInProject: translate('sidebar.newInProject'),
               expand: translate('sidebar.expand'),
               collapse: translate('sidebar.collapse'),
+              projectSettings: translate('sidebar.projectSettings'),
             }}
             onToggle={() => setSessionSidebarCollapsed((current) => !current)}
             onNewConversation={startNewConversation}
@@ -2183,6 +2184,7 @@ export default function App() {
             onDeleteSession={deleteConversationSession}
             onAssignProject={assignConversationProject}
             onCreateProject={createSidebarProject}
+            onOpenProjectSettings={() => setProjectSettingsOpen(true)}
           />
           {providerInspectorOpen && !messagesMaximized ? (
             <div className="workbench-inspector-workspace flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-3">

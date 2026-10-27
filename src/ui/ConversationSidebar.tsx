@@ -21,6 +21,7 @@ export interface ConversationSidebarLabels {
   newInProject: string;
   expand: string;
   collapse: string;
+  projectSettings: string;
 }
 
 export function ConversationSidebar({
@@ -37,6 +38,7 @@ export function ConversationSidebar({
   onDeleteSession,
   onAssignProject,
   onCreateProject,
+  onOpenProjectSettings,
 }: {
   collapsed: boolean;
   sessions: readonly ConversationSession[];
@@ -51,6 +53,7 @@ export function ConversationSidebar({
   onDeleteSession: (session: ConversationSession) => void;
   onAssignProject: (session: ConversationSession, projectId?: string) => void;
   onCreateProject: (name: string) => Promise<void>;
+  onOpenProjectSettings: () => void;
 }) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string>();
   const [newChatMenuOpen, setNewChatMenuOpen] = useState(false);
@@ -182,10 +185,15 @@ export function ConversationSidebar({
           <section aria-label={labels.projects}>
             <div className="workbench-sidebar-section-title flex items-center justify-between px-2 pb-1.5">
               <h2 className="text-[0.65rem] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{labels.projects}</h2>
-              <button type="button" className="workbench-sidebar-add grid h-6 w-6 place-items-center rounded-md text-base text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800"
-                onClick={() => setCreating((value) => !value)}
-                disabled={disabled || projectBusy || projects.length >= 100}
-                aria-label={labels.newProject} title={labels.newProject}>＋</button>
+              <div className="flex items-center gap-1">
+                <button type="button" className="workbench-sidebar-add grid h-6 w-6 place-items-center rounded-md text-base text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+                  onClick={onOpenProjectSettings} disabled={disabled}
+                  aria-label={labels.projectSettings} title={labels.projectSettings}>⚙</button>
+                <button type="button" className="workbench-sidebar-add grid h-6 w-6 place-items-center rounded-md text-base text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+                  onClick={() => setCreating((value) => !value)}
+                  disabled={disabled || projectBusy || projects.length >= 100}
+                  aria-label={labels.newProject} title={labels.newProject}>＋</button>
+              </div>
             </div>
             {creating ? (
               <form className="workbench-project-create mx-1 mb-2 space-y-2 rounded-lg border border-zinc-200 p-2 dark:border-zinc-700"
