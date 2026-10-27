@@ -85,6 +85,31 @@ describe('App workflow controls', () => {
   });
 });
 
+describe('Workbench reading surfaces', () => {
+  it('keeps user prompts distinct from provider replies without changing answer text', () => {
+    const html = renderToStaticMarkup(createElement(ChatArea, {
+      locale: 'en', states: states(),
+      messages: [
+        { id: 'user-1', role: 'user', content: 'Can you compare these?', final: true },
+        { id: 'chatgpt-1', role: 'ai', provider: 'chatgpt', content: 'Comparison complete.', final: true },
+      ],
+    }));
+    expect(html).toContain('workbench-message-user');
+    expect(html).toContain('workbench-message-other');
+    expect(html).toContain('Comparison complete.');
+    expect(html).toContain('Can you compare these?');
+  });
+
+  it('renders the native-style conversation hierarchy and activity overview', () => {
+    const html = renderToStaticMarkup(createElement(I18nProvider, { language: 'en', children: createElement(App) }));
+    expect(html).toContain('workbench-conversation-header');
+    expect(html).toContain('workbench-conversation-workspace');
+    expect(html).toContain('workbench-context-panel');
+    expect(html).toContain('Provider view');
+    expect(html).toContain('workbench-project-picker');
+  });
+});
+
 describe('ChatArea checking connection copy', () => {
   it('does not tell an authenticated user to sign in during temporary hydration', () => {
     const reconnecting = Object.fromEntries(

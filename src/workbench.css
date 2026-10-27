@@ -609,3 +609,58 @@ html:not(.ai-sister) .workbench-shell .workbench-context-empty-icon {
   color: var(--wb-secondary);
   border: 1px solid var(--wb-border);
 }
+
+/* Projects use the same restrained grouping as the connection dock. */
+html:not(.ai-sister) .workbench-shell .workbench-project-picker {
+  background: var(--wb-surface);
+  border-color: var(--wb-border);
+  border-radius: 12px;
+  padding: 11px;
+  margin-bottom: 0;
+}
+html:not(.ai-sister) .workbench-shell .workbench-project-picker h2 {
+  color: var(--wb-secondary);
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-project-picker select,
+html:not(.ai-sister) .workbench-shell .workbench-project-picker input,
+html:not(.ai-sister) .workbench-shell .workbench-project-picker textarea {
+  background: var(--wb-surface-soft);
+  color: var(--wb-ink);
+  border-color: var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-project-picker button {
+  border-color: var(--wb-border);
+  border-radius: 8px;
+  color: var(--wb-secondary);
+}
+html:not(.ai-sister) .workbench-shell .workbench-project-picker button:hover:not(:disabled) {
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer.border-emerald-400 {
+  border-color: #10b981;
+  background: var(--wb-accent-soft);
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content {
+  font-size: .875rem;
+}
+html.ai-sister .workbench-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid rgba(167,139,250,.3);
+  border-radius: 9px;
+  color: #c4bdd9;
+}
+html.ai-sister .workbench-icon-button:hover {
+  background: rgba(167,139,250,.12);
+}
+html.ai-sister .workbench-new-conversation {
+  border-color: rgba(167,139,250,.45);
+  background: rgba(30,20,58,.7);
+  color: #f8f7ff;
+}

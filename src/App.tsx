@@ -2203,12 +2203,12 @@ export default function App() {
             {!providerInspectorOpen ? (
               <section aria-label="Workflow activity overview" className="workbench-context-panel mx-3 mb-3 flex min-h-0 flex-1 flex-col rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
                 <div className="workbench-context-heading flex items-center justify-between gap-2 pb-3">
-                  <h2 className="text-[0.6875rem] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">Activity</h2>
+                  <h2 className="text-[0.6875rem] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">{translate('workbench.activity')}</h2>
                   <button type="button"
                     className="workbench-context-inspect rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[0.6875rem] font-medium text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
                     aria-expanded={providerInspectorOpen} aria-controls="workbench-provider-inspector"
                     onClick={() => setProviderInspectorOpen(true)}>
-                    Provider view
+                    {translate('workbench.providerView')}
                     <span className="ml-1" aria-hidden="true">↗</span>
                   </button>
                 </div>
@@ -2227,7 +2227,7 @@ export default function App() {
                               : step.status === 'failed' ? translate('processTrace.failed')
                               : step.status === 'active' ? translate('processTrace.active')
                               : translate('processTrace.pending')}
-                            {step.status === 'active' && step.content ? ` · ${step.content.length.toLocaleString(locale)} chars` : ''}
+                            {step.status === 'active' && step.content ? ` · ${step.content.length.toLocaleString(locale)} ${translate('workbench.charactersShort')}` : ''}
                           </div>
                         </div>
                       </li>
@@ -2240,9 +2240,9 @@ export default function App() {
                         <path d="M3 17h4l3-9 4 12 3-7h4" />
                       </svg>
                     </div>
-                    <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">No active run</p>
+                    <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">{translate('workbench.noActiveRun')}</p>
                     <p className="mt-1 max-w-48 text-[0.6875rem] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                      Workflow activity will appear here as models respond.
+                      {translate('workbench.activityHint')}
                     </p>
                   </div>
                 )}
@@ -2303,12 +2303,12 @@ export default function App() {
           <header className="ai-sister-conversation-toolbar workbench-conversation-header border-b border-zinc-200 pb-3 dark:border-zinc-800">
             <div className="workbench-conversation-header-main flex flex-wrap items-center justify-between gap-3">
               <div className="workbench-conversation-identity min-w-0 flex-1">
-                <div className="workbench-header-eyebrow">MULTI-MODEL WORKSPACE</div>
+                <div className="workbench-header-eyebrow">{translate('workbench.eyebrow')}</div>
                 <div className="flex flex-wrap items-center gap-2.5">
-                  <h1 className="workbench-conversation-title truncate text-xl font-semibold" title={sessions.find((session) => session.id === activeSessionId)?.title ?? 'Conversation'}>
-                    {sessions.find((session) => session.id === activeSessionId)?.title ?? 'Conversation'}
+                  <h1 className="workbench-conversation-title truncate text-xl font-semibold" title={sessions.find((session) => session.id === activeSessionId)?.title ?? translate('workbench.conversation')}>
+                    {sessions.find((session) => session.id === activeSessionId)?.title ?? translate('workbench.conversation')}
                   </h1>
-                  {isProcessing ? <span className="workbench-header-live flex items-center gap-1.5"><span className="workbench-live-indicator" aria-hidden="true" /> Live</span> : null}
+                  {isProcessing ? <span className="workbench-header-live flex items-center gap-1.5"><span className="workbench-live-indicator" aria-hidden="true" /> {translate('workbench.live')}</span> : null}
                 </div>
               </div>
               <div className="workbench-header-actions flex flex-wrap items-center gap-1.5">

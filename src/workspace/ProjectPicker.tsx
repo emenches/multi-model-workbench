@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { activeProject, type ProjectStore, type WorkbenchProject } from './model';
 
-const inputClass = 'w-full min-w-0 rounded border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100';
-const buttonClass = 'rounded border border-zinc-300 px-2 py-1.5 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800';
+const inputClass = 'w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100';
+const buttonClass = 'rounded-lg border border-zinc-300 px-2 py-1.5 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800';
 
 export function ProjectPicker({
   store, disabled, onSave, loadError,
@@ -75,7 +75,7 @@ export function ProjectPicker({
   };
 
   return (
-    <section className="mb-3 rounded-md border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950" aria-label="Workbench project">
+    <section className="workbench-project-picker mb-3 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950" aria-label="Workbench project">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">Project workspace</h2>
         <button type="button" className={buttonClass} onClick={() => {
