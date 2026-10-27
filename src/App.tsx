@@ -8,6 +8,7 @@ import { EchoPanel } from './dev/EchoPanel';
 import { getRuntimeAppVersion } from './appVersion';
 import { host } from './host';
 import { ProjectPicker } from './workspace/ProjectPicker';
+import { usableLoginStageBounds } from './ui/loginStageBounds';
 import { MIN_CONSULT_PROVIDERS, availableConsultProviders, chooseConsultRoles } from './ui/consultAvailability';
 import { EMPTY_PROJECT_STORE, mergeProjectContext, type ProjectStore } from './workspace/model';
 import { useI18n } from './i18n/context';
@@ -1877,7 +1878,17 @@ export default function App() {
       if (overlayGuardOpenRef.current) throw new Error('Cannot open provider login while an overlay is active');
       await nextAnimationFrame();
       await forceProviderNativeCenter(provider);
-      await host.provider.openLogin(provider);
+      // Native WebViews paint over React, so never open login at unmeasured
+      // fallback coordinates that could cover the provider controls.
+      let stageBounds: DOMRectReadOnly | undefined;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        stageBounds = usableLoginStageBounds(centerStageRef.current?.getBoundingClientRect());
+        if (stageBounds) break;
+        await nextAnimationFrame();
+      }
+      if (!stageBounds) throw new Error('Login content panel is not positioned yet; retry.');
+      await host.provider.open(provider, stageBounds);
+      await host.provider.openLogin(provider, stageBounds);
     },
     [forceProviderNativeCenter],
   );
