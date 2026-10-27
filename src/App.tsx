@@ -120,6 +120,7 @@ import { nextStepTimeoutState } from './ui/stepTimeoutState';
 import {
   defaultTargets,
   freeModeTargets,
+  simpleChatTargets,
   hasEffectiveFreeModeTargets,
   markFreeTargetsTouched,
   waitForProvidersSendable,
@@ -442,6 +443,13 @@ export default function App() {
     () => activeProvidersForStandby(appSettings.standbyProvider),
     [appSettings.standbyProvider],
   );
+  const savedSimpleAgent = sessions.find((session) => session.id === activeSessionId)?.singleProvider;
+  // If a chat explicitly selected an agent, preserve that choice even if it
+  // signs out. Never silently redirect a conversation to another model.
+  const simpleAgent = savedSimpleAgent ?? activeProviders.find((provider) => isSendable(states[provider]));
+  const simpleTargets = simpleChatTargets(
+    simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, states,
+  );
   const centeredProvider = useMemo(() => centerPresentationProvider(presentation), [presentation]);
   const presentationHidden = useMemo(() => {
     const next = new Set(centerHidden);
@@ -477,8 +485,10 @@ export default function App() {
   const missingModeProviderCount = mode === 'consult'
     ? Math.max(0, MIN_CONSULT_PROVIDERS - readyModeProviders.length)
     : Math.max(0, requiredModeProviders.length - readyModeProviders.length);
-  const noSendableProviders = !settingsLoaded || (presetId === 'brainstorm'
-    ? readyModeProviders.length === 0
+  const noSendableProviders = !settingsLoaded || (presetId === 'simple'
+    ? simpleTargets.length !== 1
+    : presetId === 'brainstorm'
+      ? readyModeProviders.length === 0
     : mode === 'free'
       ? !hasFreeModeTargets
       : anySendableTargets.length === 0);
@@ -1552,7 +1562,9 @@ export default function App() {
     if (!trimmed) return;
     const brainstorm = presetId === 'brainstorm';
     const workflowTargets = mode === 'free' && !brainstorm
-      ? preparedWorkflowTargets ?? freeModeTargets(targets, statesRef.current)
+      ? presetId === 'simple'
+        ? simpleChatTargets(simpleAgent, statesRef.current)
+        : preparedWorkflowTargets ?? freeModeTargets(targets, statesRef.current)
       : undefined;
     if (workflowTargets?.length === 0) return;
     const previousWorkflowExecution = workflowExecutionTailRef.current;
@@ -1643,7 +1655,9 @@ export default function App() {
           : undefined;
     const participants = workflowRoles
       ? [...new Set(Object.values(workflowRoles))]
-      : freeModeTargets(targets, statesRef.current);
+      : presetId === 'simple'
+        ? simpleChatTargets(simpleAgent, statesRef.current)
+        : freeModeTargets(targets, statesRef.current);
 
     const providersToFreshen = pendingProviderSessionResets(
       pendingProviderResetRef.current,
@@ -1713,7 +1727,11 @@ export default function App() {
       }
     }
 
-    const workflowTargets = serialGraph ? undefined : freeModeTargets(targets, statesRef.current);
+    const workflowTargets = serialGraph
+      ? undefined
+      : presetId === 'simple'
+        ? simpleChatTargets(simpleAgent, statesRef.current)
+        : freeModeTargets(targets, statesRef.current);
     if (workflowTargets?.length === 0) {
       setWorkflowStatus(translate('input.sendFailed'));
       setIsProcessing(false);
@@ -1776,7 +1794,7 @@ export default function App() {
     replayContextSessionRef.current = undefined;
     setMessages([]);
     setMode('free');
-    setPresetId('free');
+    setPresetId('simple');
     setWorkflowStatus('');
     setProcessTrace(undefined);
     setReplayDrawerOpen(false);
@@ -2077,6 +2095,17 @@ export default function App() {
     setPresentation(settings.presentation);
   };
 
+  const selectSimpleAgent = useCallback((provider: AIProvider) => {
+    if (isProcessing || !activeProviders.includes(provider)) return;
+    setSessions((current) => {
+      const existing = current.find((session) => session.id === activeSessionId);
+      if (!existing || existing.singleProvider === provider) return current;
+      return persistConversationSessions(upsertConversationSession(current, {
+        ...existing, mode: 'free', presetId: 'simple', singleProvider: provider, updatedAt: Date.now(),
+      }));
+    });
+  }, [activeProviders, activeSessionId, isProcessing]);
+
   const selectPreset = useCallback(
     (nextPresetId: WorkflowPresetId) => {
       if (isProcessing) return;
@@ -2123,6 +2152,27 @@ export default function App() {
     ? formatI18n(translate('input.modeNotReady'), { remaining: missingModeProviderCount })
     : undefined;
 
+  const simpleAgentChooser = presetId === 'simple' ? (
+    <div className="workbench-simple-agent flex flex-wrap items-center justify-center gap-2.5">
+      <label htmlFor="workbench-simple-agent-select" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+        {translate('preset.simple.agentLabel')}
+      </label>
+      <select id="workbench-simple-agent-select" className="workbench-simple-agent-select rounded-xl border px-3 py-2 text-xs font-semibold"
+        value={simpleAgent ?? ''} disabled={isProcessing} aria-label={translate('preset.simple.agentLabel')}
+        onChange={(event) => selectSimpleAgent(event.target.value as AIProvider)}>
+        {!simpleAgent ? <option value="">{translate('preset.simple.noAgent')}</option> : null}
+        {simpleAgent && !simpleTargets.length
+          ? <option value={simpleAgent}>{AI_PROVIDERS[simpleAgent].name} · {translate('connection.notReady')}</option>
+          : null}
+        {activeProviders.filter((provider) => isSendable(states[provider])).map((provider) => (
+          <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>
+        ))}
+      </select>
+      <span className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400">
+        {translate('preset.simple.oneAgentNote')}
+      </span>
+    </div>
+  ) : null;
   const composer = (
     <InputBar
       onSend={send}
@@ -2306,6 +2356,7 @@ export default function App() {
                 {translate(presetForId(presetId).displayNameKey)}
                 <span className="text-zinc-400" aria-hidden="true">⌄</span>
               </button>
+              {!newChatWelcome ? simpleAgentChooser : null}
               <span className="workbench-header-separator" aria-hidden="true"/>
               <span className="workbench-conversation-status truncate text-xs text-zinc-500 dark:text-zinc-400">
                 {workflowStatus || (isProcessing ? translate('processTrace.awaiting') : translate('processTrace.settled'))}
@@ -2468,6 +2519,7 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                  {simpleAgentChooser ? <div className="mt-5">{simpleAgentChooser}</div> : null}
                   <div className="workbench-new-chat-project mx-auto mt-5 flex max-w-xl items-center justify-center gap-2">
                     <label className="sr-only" htmlFor="workbench-new-chat-project">{translate('sidebar.chooseProject')}</label>
                     <span className="text-xs text-zinc-500 dark:text-zinc-400">{translate('sidebar.chooseProject')}</span>
@@ -2698,5 +2750,5 @@ function modeFromReplayPlan(plan: ReplayPlan): ChatMode | undefined {
 }
 
 function conversationPresetId(presetId: WorkflowPresetId, mode: ChatMode): WorkflowPresetId | undefined {
-  return presetId === 'brainstorm' && mode === 'free' ? presetId : undefined;
+  return mode === 'free' && (presetId === 'brainstorm' || presetId === 'simple') ? presetId : undefined;
 }
