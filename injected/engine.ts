@@ -551,36 +551,66 @@ class InactiveSendOperationError extends Error {
       bridge.emit({ v: 1, action: 'STATUS_REPORT', payload: { dom: 'unknown', bootId: bridge.bootId } });
       return;
     }
-    // A page can temporarily have neither its composer nor login controls
-    // during navigation/hydration. Absence of a composer is NOT proof that
-    // the session has signed out. Report unknown until there is evidence.
+
+    // Status reports are the provider's liveness heartbeat. Never let an
+    // optional capture diagnostic, a transient DOM traversal, or a provider
+    // hydration change suppress them. Do not expose exception text: it may
+    // contain native page or conversation content.
+    const provider = adapter.provider;
+    let stage: 'login' | 'generation' | 'capture' = 'login';
     let login: 'unknown' | 'logged_in' | 'logged_out' | 'blocked' = 'unknown';
-    if (isProviderChallengeActive(adapter.provider)) {
-      login = 'blocked';
-    } else if (adapter.provider === 'meta' && queryInput(adapter) !== null) {
-      // A usable composer wins. After Facebook/Instagram login the page can still
-      // expose a login control or an inert prehydration field beside the real editor.
-      login = 'logged_in';
-    } else if (hasDetector(adapter.loggedOutDetectors) || adapter.provider === 'meta') {
-      // Meta does not treat a visible but gated composer, or Send alone, as logged in.
-      login = 'logged_out';
-    } else if (
-      hasDetector(adapter.loginDetectors) ||
-      (adapter.provider === 'grok' &&
-        (queryInput(adapter) !== null || queryFirstVisible([GROK_LIVE_STOP_BUTTON_SELECTOR]) !== null))
-    ) {
-      login = 'logged_in';
+    let thinking = false;
+    let capture: Record<string, string | number | boolean> = {};
+    try {
+      // A page can temporarily have neither its composer nor login controls
+      // during navigation/hydration. Absence is not proof of signed-out state.
+      if (isProviderChallengeActive(provider)) {
+        login = 'blocked';
+      } else if (provider === 'meta' && queryInput(adapter) !== null) {
+        login = 'logged_in';
+      } else if (hasDetector(adapter.loggedOutDetectors) || provider === 'meta') {
+        login = 'logged_out';
+      } else if (
+        hasDetector(adapter.loginDetectors) ||
+        (provider === 'grok' &&
+          (queryInput(adapter) !== null || queryFirstVisible([GROK_LIVE_STOP_BUTTON_SELECTOR]) !== null))
+      ) {
+        login = 'logged_in';
+      }
+      stage = 'generation';
+      thinking = isGenerating();
+      stage = 'capture';
+      capture = chatGptCaptureSnapshot();
+    } catch {
+      // The engine remains installed and its timer continues reporting even
+      // when a ChatGPT DOM selector/serializer throws. Never send a claimed
+      // 'thinking no' result from a failed probe.
+      bridge.emit({
+        v: 1,
+        action: 'STATUS_REPORT',
+        provider,
+        payload: {
+          dom: 'ready',
+          login: stage === 'login' ? 'unknown' : login,
+          thinking: null,
+          bootId: bridge.bootId,
+          statusErrorStage: stage,
+          ...(provider === 'chatgpt' && waitingForResponse ? { capturePhase: 'diagnostics-error' } : {}),
+        },
+      });
+      return;
     }
+
     bridge.emit({
       v: 1,
       action: 'STATUS_REPORT',
-      provider: adapter.provider,
+      provider,
       payload: {
         dom: 'ready',
         login,
-        thinking: isGenerating(),
+        thinking,
         bootId: bridge.bootId,
-        ...chatGptCaptureSnapshot(),
+        ...capture,
       },
     });
   }
