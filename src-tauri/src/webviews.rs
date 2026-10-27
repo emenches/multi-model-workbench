@@ -2639,6 +2639,7 @@ fn now_ms() -> u64 {
 mod tests {
     use std::sync::Mutex;
 
+    use crate::adapters;
     use tauri::{PhysicalPosition, PhysicalSize};
 
     use super::{
