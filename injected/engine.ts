@@ -691,6 +691,11 @@ class InactiveSendOperationError extends Error {
         ).length
       : 0;
     const latestUnitFrames = latestUnit ? latestUnit.querySelectorAll('iframe').length : 0;
+    // Presence only. Cross-origin renderer contents are not read and URLs
+    // (which may contain conversation data) are never logged.
+    const dilRendererFrames = document.querySelectorAll(
+      'iframe[src*="cdn.platform.openai.com/deployments/dil/"]',
+    ).length;
     const rejected = { beforeAnchor: 0, asUser: 0, baseline: 0, empty: 0, scaffold: 0, echo: 0, eligible: 0 };
     for (const response of [...new Set([...strictResponses, ...assistantUnits])]) {
       if (anchor && !elementFollows(anchor, response)) rejected.beforeAnchor += 1;
@@ -729,6 +734,7 @@ class InactiveSendOperationError extends Error {
       captureLatestUnitSerializedChars: latestUnitSerializedText.length,
       captureLatestUnitMarkdownNodes: latestUnitMarkdownNodes,
       captureLatestUnitFrames: latestUnitFrames,
+      captureDilRendererFrames: dilRendererFrames,
       captureRejectedBeforeAnchor: rejected.beforeAnchor,
       captureRejectedAsUser: rejected.asUser,
       captureRejectedBaseline: rejected.baseline,
