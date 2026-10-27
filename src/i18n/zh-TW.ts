@@ -148,6 +148,7 @@ export const zhTW: Record<I18nKey, string> = {
   'processTrace.waitingEvents': '等待 workflow 事件。',
   'processTrace.pending': '等待中',
   'processTrace.active': '進行中',
+  'processTrace.failed': '失敗',
   'processTrace.done': '完成',
   'processTrace.fanout': '分送',
   'processTrace.sendingTo': '送到',
