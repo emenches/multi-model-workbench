@@ -1,4 +1,4 @@
-import type { AIProvider, ProviderState } from '../../shared/types';
+import type { AIProvider, ProviderState, WorkflowPresetId } from '../../shared/types';
 import { isSendable } from '../workflow';
 
 export interface FreeTargetSelection {
@@ -26,6 +26,18 @@ export function toggleTarget(selected: AIProvider[], provider: AIProvider): AIPr
 
 export function freeModeTargets(selected: AIProvider[], states: Record<AIProvider, ProviderState>): AIProvider[] {
   return selected.filter((provider) => isSendable(states[provider]));
+}
+
+/** Single-agent chat never falls back to the multi-model selection, including
+ * when the chosen provider is logged out or temporarily unavailable. */
+export function freeTargetsForPreset(
+  presetId: WorkflowPresetId,
+  selected: readonly AIProvider[],
+  singleAgent: AIProvider,
+  states: Record<AIProvider, ProviderState>,
+): AIProvider[] {
+  return (presetId === 'single' ? [singleAgent] : selected)
+    .filter((provider) => isSendable(states[provider]));
 }
 
 // Session reset 會讓 provider 頁面重新導航，導航後第一輪 STATUS_REPORT 常誤報

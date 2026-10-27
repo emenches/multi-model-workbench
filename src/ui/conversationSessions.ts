@@ -1,4 +1,4 @@
-import type { ChatMode, WorkflowPresetId } from '../../shared/types';
+import type { AIProvider, ChatMode, WorkflowPresetId } from '../../shared/types';
 import { createUniqueSuffix } from './uniqueId';
 
 export const CONVERSATION_SESSIONS_STORAGE_KEY = 'multi-ai-chat:conversation-sessions:v1';
@@ -26,6 +26,10 @@ export interface ConversationSession {
   updatedAt: number;
   mode: ChatMode;
   presetId?: WorkflowPresetId;
+  /** Optional project association. Older sessions remain unassigned. */
+  projectId?: string;
+  /** Locked model for the 'single' workflow preset. */
+  singleAgent?: AIProvider;
   messages: ConversationSessionMessage[];
 }
 
@@ -43,6 +47,8 @@ export interface ConversationSessionSaveResult {
 
 export interface CreateConversationSessionInput {
   id?: string;
+  projectId?: string;
+  singleAgent?: AIProvider;
   title?: string;
   mode?: ChatMode;
   presetId?: WorkflowPresetId;
@@ -52,6 +58,7 @@ export interface CreateConversationSessionInput {
 
 export interface BeginNewConversationSessionInput {
   sessions: readonly ConversationSession[];
+  projectId?: string;
   activeSessionId: string;
   messages: readonly ConversationSessionMessage[];
   mode: ChatMode;
@@ -69,6 +76,8 @@ export function createConversationSession({
   title,
   mode = 'free',
   presetId,
+  projectId,
+  singleAgent,
   messages = [],
   now = Date.now(),
 }: CreateConversationSessionInput = {}): ConversationSession {
@@ -85,6 +94,8 @@ export function createConversationSession({
     updatedAt: timestamp,
     mode: normalizedMode,
     ...(normalizedPresetId ? { presetId: normalizedPresetId } : {}),
+    ...(nonEmptyString(projectId) ? { projectId: nonEmptyString(projectId) } : {}),
+    ...(normalizedPresetId === 'single' && isAIProvider(singleAgent) ? { singleAgent } : {}),
     messages: normalizedMessages,
   };
 }
@@ -95,6 +106,7 @@ export function beginNewConversationSession({
   messages,
   mode,
   presetId,
+  projectId,
   now = Date.now(),
 }: BeginNewConversationSessionInput): BeginNewConversationSessionResult {
   const timestamp = normalizeTimestamp(now) ?? Date.now();
@@ -110,9 +122,10 @@ export function beginNewConversationSession({
           createdAt: existing.createdAt,
           updatedAt: Math.max(existing.createdAt, timestamp),
           mode: 'free' as const,
+          projectId: projectId || undefined,
           messages: [],
         }
-      : createConversationSession({ now: timestamp });
+      : createConversationSession({ now: timestamp, projectId });
     return { sessions: upsertConversationSession(normalizedSessions, active), active };
   }
 
@@ -131,7 +144,7 @@ export function beginNewConversationSession({
     else delete archivedSession.presetId;
     archived = upsertConversationSession(normalizedSessions, archivedSession);
   }
-  const active = createConversationSession({ now: timestamp });
+  const active = createConversationSession({ now: timestamp, projectId });
   return { sessions: upsertConversationSession(archived, active), active };
 }
 
@@ -181,6 +194,8 @@ export function normalizeConversationSession(value: unknown): ConversationSessio
 
   const mode = isChatMode(value.mode) ? value.mode : 'free';
   const presetId = normalizePresetId(value.presetId, mode);
+  const projectId = nonEmptyString(value.projectId);
+  const singleAgent = isAIProvider(value.singleAgent) ? value.singleAgent : undefined;
 
   return {
     id,
@@ -189,6 +204,8 @@ export function normalizeConversationSession(value: unknown): ConversationSessio
     updatedAt,
     mode,
     ...(presetId ? { presetId } : {}),
+    ...(projectId ? { projectId } : {}),
+    ...(presetId === 'single' && singleAgent ? { singleAgent } : {}),
     messages,
   };
 }
@@ -374,7 +391,11 @@ function isChatMode(value: unknown): value is ChatMode {
 }
 
 function normalizePresetId(value: unknown, mode: ChatMode): WorkflowPresetId | undefined {
-  return value === 'brainstorm' && mode === 'free' ? value : undefined;
+  return mode === 'free' && (value === 'brainstorm' || value === 'single') ? value : undefined;
+}
+
+function isAIProvider(value: unknown): value is AIProvider {
+  return value === 'chatgpt' || value === 'claude' || value === 'gemini' || value === 'grok' || value === 'meta';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

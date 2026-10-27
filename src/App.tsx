@@ -57,9 +57,11 @@ import {
 import { FocusPane, type CenterSurface } from './ui/FocusPane';
 import { InputBar } from './ui/InputBar';
 import { MarkdownText } from './ui/MarkdownText';
+import { ThinkingVisualization } from './ui/ThinkingVisualization';
 import { makeFileDragGuard } from './ui/fileDrop';
 import { PreflightDialog } from './ui/PreflightDialog';
 import { PresetCatalog } from './ui/PresetCatalog';
+import { PRESET_CATALOG } from './ui/presetCatalogData';
 import { ModalDialog } from './ui/ModalDialog';
 import { createProcessTrace, reduceProcessTraceEvent, settleProcessTrace, type ProcessTraceState } from './ui/processTraceModel';
 import { ProcessTrace } from './ui/ProcessTrace';
@@ -117,8 +119,7 @@ import {
 import { nextStepTimeoutState } from './ui/stepTimeoutState';
 import {
   defaultTargets,
-  freeModeTargets,
-  hasEffectiveFreeModeTargets,
+  freeTargetsForPreset,
   markFreeTargetsTouched,
   waitForProvidersSendable,
   type FreeTargetSelection,
@@ -306,12 +307,18 @@ export default function App() {
   const [messages, setMessages] = useState<Bubble[]>(() => bubblesFromSession(initialConversation.active));
   const [workflowStatus, setWorkflowStatus] = useState('');
   const [mode, setMode] = useState<ChatMode>(initialConversation.active.mode);
-  const [presetId, setPresetId] = useState<WorkflowPresetId>(initialConversation.active.presetId ?? initialConversation.active.mode);
+  const [presetId, setPresetId] = useState<WorkflowPresetId>(
+    initialConversation.active.presetId
+    ?? (initialConversation.active.mode === 'free' && initialConversation.active.messages.length === 0 ? 'single' : initialConversation.active.mode),
+  );
+  const [singleAgent, setSingleAgent] = useState<AIProvider>(
+    initialConversation.active.singleAgent ?? DEFAULT_FREE_TARGET_PROVIDERS[0],
+  );
   const [replayDrawerOpen, setReplayDrawerOpen] = useState(false);
   const [processTrace, setProcessTrace] = useState<ProcessTraceState | undefined>();
   const [processTraceDetailOpen, setProcessTraceDetailOpen] = useState(false);
   // Keep the reading area usable while retaining a full, opt-in timeline.
-  const [workflowDetailsExpanded, setWorkflowDetailsExpanded] = useState(false);
+  // Full timeline now lives in the optional right-side Activity panel.
   const [targetSelection, setTargetSelection] = useState<FreeTargetSelection>(() => ({
     targets: [...DEFAULT_FREE_TARGET_PROVIDERS],
     defaultsInitialized: true,
@@ -343,10 +350,31 @@ export default function App() {
     });
     return () => { mounted = false; };
   }, []);
+  const activeConversationProjectId = sessions.find((session) => session.id === activeSessionId)?.projectId;
+  // Conversation association is authoritative: switching between chats also
+  // switches the project instructions applied to the next workflow.
+  const effectiveProjectStore = useMemo<ProjectStore>(() => ({
+    ...projectStore,
+    activeProjectId: projectStore.projects.some((project) => project.id === activeConversationProjectId)
+      ? activeConversationProjectId ?? null
+      : null,
+  }), [projectStore, activeConversationProjectId]);
+
   const saveProjectStore = useCallback(async (store: ProjectStore): Promise<void> => {
     await host.projects.save(store);
     setProjectStore(store);
-  }, []);
+    const currentSession = sessions.find((session) => session.id === activeSessionId);
+    if (currentSession && (currentSession.projectId ?? null) !== store.activeProjectId) {
+      setSessions((current) => {
+        const original = current.find((session) => session.id === activeSessionId);
+        if (!original) return current;
+        const next = { ...original, updatedAt: Date.now() };
+        if (store.activeProjectId) next.projectId = store.activeProjectId;
+        else delete next.projectId;
+        return persistConversationSessions(upsertConversationSession(current, next));
+      });
+    }
+  }, [activeSessionId, sessions]);
   const [shareNotice, setShareNotice] = useState<{ kind: 'ok' | 'error'; text: string } | undefined>();
   const [sessionCheckpointNotice, setSessionCheckpointNotice] = useState<StartupSessionCheckpointNotice | undefined>();
   const [sessionCheckpointReplayBusy, setSessionCheckpointReplayBusy] = useState(false);
@@ -363,6 +391,9 @@ export default function App() {
   const [messagesMaximized, setMessagesMaximized] = useState(false);
   const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
   const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
+  const [activityPanelOpen, setActivityPanelOpen] = useState(false);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [modelSettingsProvider, setModelSettingsProvider] = useState<AIProvider>();
   const [providerWindowError, setProviderWindowError] = useState<string>();
   const [providerWindowGeometry, setProviderWindowGeometry] = useState<ProviderWindowGeometry>();
@@ -416,6 +447,10 @@ export default function App() {
     () => activeProvidersForStandby(appSettings.standbyProvider),
     [appSettings.standbyProvider],
   );
+  // Include a saved selection in the chooser even if standby settings have
+  // changed. A model outside the active set cannot be sent to silently.
+  const selectableSingleAgents = activeProviders.includes(singleAgent)
+    ? activeProviders : [...activeProviders, singleAgent];
   const centeredProvider = useMemo(() => centerPresentationProvider(presentation), [presentation]);
   const presentationHidden = useMemo(() => {
     const next = new Set(centerHidden);
@@ -433,7 +468,10 @@ export default function App() {
     if (modalHiddenProviders.has(centered)) return [];
     return [centered];
   }, [centerSurface, modalHiddenProviders, presentation, states]);
-  const hasFreeModeTargets = useMemo(() => hasEffectiveFreeModeTargets(targets, states), [states, targets]);
+  const hasFreeModeTargets = useMemo(
+    () => freeTargetsForPreset(presetId, targets, singleAgent, states).length > 0,
+    [presetId, targets, singleAgent, states],
+  );
   const anySendableTargets = useMemo(() => defaultTargets(states, activeProviders), [activeProviders, states]);
   const requiredModeProviders = useMemo(() => {
     // Consult can reuse two distinct, signed-in providers for its later,
@@ -451,7 +489,7 @@ export default function App() {
   const missingModeProviderCount = mode === 'consult'
     ? Math.max(0, MIN_CONSULT_PROVIDERS - readyModeProviders.length)
     : Math.max(0, requiredModeProviders.length - readyModeProviders.length);
-  const noSendableProviders = !settingsLoaded || (presetId === 'brainstorm'
+  const noSendableProviders = !settingsLoaded || (presetId === 'single' && !activeProviders.includes(singleAgent)) || (presetId === 'brainstorm'
     ? readyModeProviders.length === 0
     : mode === 'free'
       ? !hasFreeModeTargets
@@ -557,13 +595,15 @@ export default function App() {
         const existing = current.find((session) => session.id === activeSessionId);
         const storedMessages = conversationMessages(messages);
         const storedPresetId = conversationPresetId(presetId, mode);
-        if (existing && !sessionContentChanged(existing, storedMessages, mode, storedPresetId)) return current;
-        const base = existing ?? createConversationSession({ id: activeSessionId, mode, presetId: storedPresetId });
+        if (existing && !sessionContentChanged(existing, storedMessages, mode, storedPresetId)
+          && (storedPresetId !== 'single' || existing.singleAgent === singleAgent)) return current;
+        const base = existing ?? createConversationSession({ id: activeSessionId, mode, presetId: storedPresetId, singleAgent });
         const next = upsertConversationSession(current, {
           ...base,
           title: titleFromFirstUserMessage(storedMessages),
           updatedAt: Date.now(),
           mode,
+          ...(storedPresetId === 'single' ? { singleAgent } : { singleAgent: undefined }),
           presetId: storedPresetId,
           messages: storedMessages,
         });
@@ -571,7 +611,7 @@ export default function App() {
       });
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [activeSessionId, messages, mode, presetId]);
+  }, [activeSessionId, messages, mode, presetId, singleAgent]);
 
   const setManualFocusLock = useCallback((lock: ManualFocusLock | undefined) => {
     manualFocusLockRef.current = lock;
@@ -1526,7 +1566,7 @@ export default function App() {
     if (!trimmed) return;
     const brainstorm = presetId === 'brainstorm';
     const workflowTargets = mode === 'free' && !brainstorm
-      ? preparedWorkflowTargets ?? freeModeTargets(targets, statesRef.current)
+      ? preparedWorkflowTargets ?? freeTargetsForPreset(presetId, targets, singleAgent, statesRef.current)
       : undefined;
     if (workflowTargets?.length === 0) return;
     const previousWorkflowExecution = workflowExecutionTailRef.current;
@@ -1556,7 +1596,7 @@ export default function App() {
       recordEventLog(eventFromWorkflowStart(mode, trimmed.length, workflowTargets?.length));
       const result = await runWorkflow({
         text: trimmed,
-        context: mergeProjectContext(projectStore, replayContext),
+        context: mergeProjectContext(effectiveProjectStore, replayContext),
         mode,
         presetId,
         roles: workflowRoles,
@@ -1617,7 +1657,7 @@ export default function App() {
           : undefined;
     const participants = workflowRoles
       ? [...new Set(Object.values(workflowRoles))]
-      : freeModeTargets(targets, statesRef.current);
+      : freeTargetsForPreset(presetId, targets, singleAgent, statesRef.current);
 
     const providersToFreshen = pendingProviderSessionResets(
       pendingProviderResetRef.current,
@@ -1687,7 +1727,7 @@ export default function App() {
       }
     }
 
-    const workflowTargets = serialGraph ? undefined : freeModeTargets(targets, statesRef.current);
+    const workflowTargets = serialGraph ? undefined : freeTargetsForPreset(presetId, targets, singleAgent, statesRef.current);
     if (workflowTargets?.length === 0) {
       setWorkflowStatus(translate('input.sendFailed'));
       setIsProcessing(false);
@@ -1733,7 +1773,7 @@ export default function App() {
     setProcessTrace((current) => (current ? settleProcessTrace(current) : current));
   };
 
-  const startNewConversation = useCallback(() => {
+  const startNewConversation = useCallback((projectId?: string) => {
     if (isProcessing) return;
     const now = Date.now();
     const transition = beginNewConversationSession({
@@ -1742,6 +1782,7 @@ export default function App() {
       messages: conversationMessages(messages),
       mode,
       presetId: conversationPresetId(presetId, mode),
+      projectId,
       now,
     });
     setSessions(persistConversationSessions(transition.sessions));
@@ -1749,7 +1790,7 @@ export default function App() {
     replayContextSessionRef.current = undefined;
     setMessages([]);
     setMode('free');
-    setPresetId('free');
+    setPresetId('single');
     setWorkflowStatus('');
     setProcessTrace(undefined);
     setReplayDrawerOpen(false);
@@ -1760,6 +1801,36 @@ export default function App() {
     );
   }, [activeProviders, activeSessionId, isProcessing, messages, mode, presetId, sessions]);
 
+  const assignConversationProject = useCallback((session: ConversationSession, projectId?: string) => {
+    if (isProcessing) return;
+    const assignedId = projectId && projectStore.projects.some((project) => project.id === projectId)
+      ? projectId : undefined;
+    setSessions((current) => {
+      const existing = current.find((candidate) => candidate.id === session.id);
+      if (!existing || existing.projectId === assignedId) return current;
+      const next: ConversationSession = { ...existing, updatedAt: Date.now() };
+      if (assignedId) next.projectId = assignedId;
+      else delete next.projectId;
+      return persistConversationSessions(upsertConversationSession(current, next));
+    });
+  }, [isProcessing, projectStore.projects]);
+
+  const createSidebarProject = useCallback(async (name: string) => {
+    if (isProcessing || !projectsReady) throw new Error('Projects are unavailable while a workflow is active.');
+    if (projectStore.projects.length >= 100) throw new Error('Project limit reached.');
+    const now = Date.now();
+    const projectId = `project-${crypto.randomUUID()}`;
+    const nextStore: ProjectStore = {
+      ...projectStore,
+      activeProjectId: projectId,
+      projects: [...projectStore.projects, { id: projectId, name, instructions: '', createdAt: now, updatedAt: now }],
+    };
+    await host.projects.save(nextStore);
+    setProjectStore(nextStore);
+    // Start a fresh chat within the new project; the previous conversation is archived.
+    startNewConversation(projectId);
+  }, [isProcessing, projectsReady, projectStore, startNewConversation]);
+
   const selectConversationSession = useCallback(
     (session: ConversationSession) => {
       if (isProcessing || session.id === activeSessionId) return;
@@ -1767,7 +1838,8 @@ export default function App() {
       replayContextSessionRef.current = session.messages.length > 0 ? session.id : undefined;
       setMessages(bubblesFromSession(session));
       setMode(session.mode);
-      setPresetId(session.presetId ?? session.mode);
+      setPresetId(session.presetId ?? (session.mode === 'free' && session.messages.length === 0 ? 'single' : session.mode));
+      setSingleAgent(session.singleAgent ?? DEFAULT_FREE_TARGET_PROVIDERS[0]);
       setWorkflowStatus('');
       setProcessTrace(undefined);
       setReplayDrawerOpen(false);
@@ -2066,12 +2138,28 @@ export default function App() {
     ? formatI18n(translate('input.modeNotReady'), { remaining: missingModeProviderCount })
     : undefined;
 
+  const composer = (
+    <InputBar
+      onSend={send}
+      onCancel={cancelWorkflow}
+      disabled={noSendableProviders}
+      sendBlocked={modeSendBlocked}
+      blockedMessage={modeBlockedMessage}
+      isProcessing={isProcessing}
+      locale={locale}
+    />
+  );
+  const newChatWelcome = messages.length === 0 && !isProcessing;
   return (
     <main className="app-shell workbench-shell h-screen overflow-hidden bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div
         ref={gridRef}
         className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)]"
-        style={{ gridTemplateColumns: messagesMaximized ? '0px 0px minmax(0,1fr)' : focusGridTemplateColumns(focusPaneWidth) }}
+        style={{ gridTemplateColumns: messagesMaximized
+          ? '0px 0px minmax(0,1fr)'
+          : providerInspectorOpen
+            ? focusGridTemplateColumns(focusPaneWidth)
+            : `${sessionSidebarCollapsed ? '60px' : '208px'} 0px minmax(0,1fr)` }}
       >
         <div
           aria-hidden={messagesMaximized || undefined}
@@ -2082,8 +2170,9 @@ export default function App() {
           <ConversationSidebar
             collapsed={sessionSidebarCollapsed}
             sessions={sessions}
+            projects={projectStore.projects}
             activeSessionId={activeSessionId}
-            disabled={isProcessing}
+            disabled={isProcessing || !projectsReady}
             locale={locale}
             labels={{
               toggle: translate('conversation.toggle'),
@@ -2092,168 +2181,34 @@ export default function App() {
               empty: translate('conversation.empty'),
               deleteConversation: translate('conversation.delete'),
               confirmDeleteConversation: translate('conversation.deleteConfirm'),
+              projects: translate('sidebar.projects'),
+              newProject: translate('sidebar.newProject'),
+              projectName: translate('sidebar.projectName'),
+              create: translate('sidebar.create'),
+              cancel: translate('sidebar.cancel'),
+              unassigned: translate('sidebar.unassigned'),
+              moveTo: translate('sidebar.moveTo'),
+              newInProject: translate('sidebar.newInProject'),
+              expand: translate('sidebar.expand'),
+              collapse: translate('sidebar.collapse'),
+              projectSettings: translate('sidebar.projectSettings'),
             }}
             onToggle={() => setSessionSidebarCollapsed((current) => !current)}
             onNewConversation={startNewConversation}
             onSelectSession={selectConversationSession}
             onDeleteSession={deleteConversationSession}
+            onAssignProject={assignConversationProject}
+            onCreateProject={createSidebarProject}
+            onOpenProjectSettings={() => setProjectSettingsOpen(true)}
           />
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-            {/* 放大檢視時暫時收起選單區讓 webview 吃滿高度；checkpoint / 逾時對話框
-                是 inline 渲染在這個區塊內，出現時必須讓區塊重新顯示，否則使用者按不到。 */}
-            <section
-              id="workflow-control-shelf"
-              aria-label={translate('preset.catalog.aria')}
-              className={`ai-sister-workflow-shelf workbench-workspace-shelf shrink-0 border-b border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/70 ${
-                stageExpanded && !checkpoint && !(stepTimeout && !stepTimeout.timedOut) ? 'hidden' : ''
-              }`}
-            >
-              <div className="workbench-workspace-heading mb-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Workspace</div>
-                  <div className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                    {activeProject(projectStore)?.name ?? 'General'}
-                  </div>
-                </div>
-                <button type="button"
-                  className="workbench-options-button shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium dark:border-zinc-700"
-                  onClick={() => setWorkflowOptionsOpen((open) => !open)}
-                  aria-expanded={workflowOptionsOpen} aria-controls="workbench-workflow-options">
-                  Tools & modes
-                </button>
-              </div>
-              <ProjectPicker
-                store={projectStore}
-                disabled={isProcessing || !projectsReady}
-                onSave={saveProjectStore}
-                loadError={projectLoadError}
-              />
-              {checkpoint ? (
-                <details className="mt-2 border border-amber-300 bg-white dark:border-amber-900 dark:bg-zinc-950" open>
-                  <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:text-amber-100 dark:hover:bg-amber-950">
-                    {translate('checkpoint.confirmEachStep')}
-                  </summary>
-                  <div className="border-t border-amber-300 px-3 pb-3 dark:border-amber-900">
-                    <CheckpointCard
-                      checkpoint={checkpoint}
-                      draft={checkpointDraft}
-                      onDraftChange={setCheckpointDraft}
-                      onNativeEdit={(provider) => {
-                        void forceProviderNativeCenter(provider);
-                      }}
-                      locale={locale}
-                    />
-                  </div>
-                </details>
-              ) : null}
-              {/* Parallel Consult steps start independent countdowns. A single
-                  last-started countdown can point at a provider that already
-                  finished while another provider is still generating. The
-                  always-on trace shows actual confirmation; retain the real
-                  timed-out retry dialog below instead. */}
-            </section>
-            <section aria-label="AI connections" className="workbench-provider-dock mx-3 my-3 shrink-0 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+          {providerInspectorOpen && !messagesMaximized ? (
+            <div className="workbench-inspector-workspace flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
-                  Providers · {activeProviders.filter((provider) => isSendable(states[provider])).length} connected
-                </h2>
-                <button type="button"
-                  aria-expanded={providerInspectorOpen}
-                  aria-controls="workbench-provider-inspector"
-                  onClick={() => setProviderInspectorOpen((open) => !open)}
-                  className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700">
-                  {providerInspectorOpen ? 'Hide details' : 'Details'}
-                </button>
+                <h2 className="text-xs font-semibold">{translate('sidebar.agents')}</h2>
+                <button type="button" className="rounded-lg border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700"
+                  onClick={() => setProviderInspectorOpen(false)} aria-label={translate('workbench.hideDetails')}>{translate('workbench.hideDetails')}</button>
               </div>
-              <div className="workbench-provider-grid grid grid-cols-2 gap-2">
-                {activeProviders.map((provider) => (
-                  <div key={provider} className="workbench-provider-tile flex min-w-0 flex-col gap-1 rounded-lg border border-zinc-200 px-2 py-2 dark:border-zinc-800">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`h-2 w-2 shrink-0 rounded-full ${isSendable(states[provider]) ? 'bg-emerald-500' : 'bg-amber-500'}`} aria-hidden="true" />
-                      <span className="truncate text-xs font-semibold">{AI_PROVIDERS[provider].name}</span>
-                    </div>
-                    <span className="text-[0.65rem] text-zinc-500 dark:text-zinc-400">
-                      {isSendable(states[provider]) ? 'Connected' : states[provider].login === 'logged_out' ? 'Sign in' : 'Checking'}
-                    </span>
-                    <div className="flex flex-wrap gap-1">
-                      <button type="button"
-                        className="rounded-md px-1 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-zinc-800"
-                        onClick={() => openProviderModelSettings(provider)}>
-                        Model & effort ↗
-                      </button>
-                      <button type="button"
-                        className="rounded-md px-1 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                        onClick={() => {
-                          setProviderInspectorOpen(true);
-                          void changeProviderPresentationManually(provider, 'center');
-                        }}>
-                        Inspect
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {modelSettingsProvider && activeProviders.includes(modelSettingsProvider) ? (
-                <ProviderModelControls
-                  provider={modelSettingsProvider}
-                  onOpenProvider={openProviderModelSettings}
-                  onClose={() => setModelSettingsProvider(undefined)}
-                />
-              ) : null}
-              <p className="mt-2 text-[0.65rem] text-zinc-500 dark:text-zinc-400">Connected means the page is available. Workflow steps finish only after their answer is received.</p>
-            </section>
-            {!providerInspectorOpen ? (
-              <section aria-label="Workflow activity overview" className="workbench-context-panel mx-3 mb-3 flex min-h-0 flex-1 flex-col rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-                <div className="workbench-context-heading flex items-center justify-between gap-2 pb-3">
-                  <h2 className="text-[0.6875rem] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">{translate('workbench.activity')}</h2>
-                  <button type="button"
-                    className="workbench-context-inspect rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[0.6875rem] font-medium text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
-                    aria-expanded={providerInspectorOpen} aria-controls="workbench-provider-inspector"
-                    onClick={() => setProviderInspectorOpen(true)}>
-                    {translate('workbench.providerView')}
-                    <span className="ml-1" aria-hidden="true">↗</span>
-                  </button>
-                </div>
-                {processTrace?.steps.some((step) => step.kind !== 'fanout') ? (
-                  <ol className="workbench-context-list min-h-0 flex-1 space-y-1.5 overflow-y-auto">
-                    {processTrace.steps.filter((step) => step.kind !== 'fanout').map((step) => (
-                      <li key={step.id} className="workbench-context-item flex items-start gap-2.5 rounded-lg px-2.5 py-2">
-                        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                          step.status === 'done' ? 'bg-emerald-500' : step.status === 'failed' ? 'bg-red-500' : step.status === 'active' ? 'bg-sky-500' : 'bg-zinc-400'
-                        }`} aria-hidden="true" />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs font-medium">{step.label}</div>
-                          <div className="mt-1 flex items-center gap-1.5 text-[0.6875rem] text-zinc-500 dark:text-zinc-400">
-                            {step.status === 'active' ? <span className="workbench-live-indicator" aria-hidden="true" /> : null}
-                            {step.status === 'done' ? translate('processTrace.done')
-                              : step.status === 'failed' ? translate('processTrace.failed')
-                              : step.status === 'active' ? translate('processTrace.active')
-                              : translate('processTrace.pending')}
-                            {step.status === 'active' && step.content ? ` · ${step.content.length.toLocaleString(locale)} ${translate('workbench.charactersShort')}` : ''}
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <div className="workbench-context-empty flex min-h-[145px] flex-1 flex-col items-center justify-center p-4 text-center">
-                    <div className="workbench-context-empty-icon mb-3 grid h-10 w-10 place-items-center rounded-xl" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M3 17h4l3-9 4 12 3-7h4" />
-                      </svg>
-                    </div>
-                    <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">{translate('workbench.noActiveRun')}</p>
-                    <p className="mt-1 max-w-48 text-[0.6875rem] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                      {translate('workbench.activityHint')}
-                    </p>
-                  </div>
-                )}
-              </section>
-            ) : null}
-            <div id="workbench-provider-inspector"
-              className="workbench-provider-inspector min-h-0 flex-1"
-              hidden={!providerInspectorOpen}>
-            <FocusPane
+              <FocusPane
               providers={activeProviders}
               centeredProvider={centeredProvider}
               scrollFocusedProvider={scrollFocusedProvider}
@@ -2285,23 +2240,22 @@ export default function App() {
               onToggleStageExpanded={() => setStageExpanded((current) => !current)}
             />
             </div>
-          </div>
+          ) : null}
         </div>
 
-        <div
-          aria-hidden={messagesMaximized || undefined}
-          className={`min-h-0 min-w-0 ${messagesMaximized ? 'invisible overflow-hidden pointer-events-none' : ''}`}
-        >
-          <Resizer
-            label={translate('layout.resizeFocusPane')}
-            onDrag={dragFocusPane}
-            value={focusPaneWidth}
-            min={DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.minFocusPaneWidth}
-            max={focusPaneMaxWidth}
-          />
+        <div className={`min-h-0 min-w-0 ${providerInspectorOpen && !messagesMaximized ? '' : 'invisible pointer-events-none'}`}>
+          {providerInspectorOpen && !messagesMaximized ? (
+            <Resizer
+              label={translate('layout.resizeFocusPane')}
+              onDrag={dragFocusPane}
+              value={focusPaneWidth}
+              min={DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.minFocusPaneWidth}
+              max={focusPaneMaxWidth}
+            />
+          ) : null}
         </div>
 
-        <section className="ai-sister-conversation-workspace workbench-conversation-workspace flex min-h-0 min-w-0 flex-col border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
+        <section className="ai-sister-conversation-workspace workbench-conversation-workspace relative flex min-h-0 min-w-0 flex-col border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
           <header className="ai-sister-conversation-toolbar workbench-conversation-header border-b border-zinc-200 pb-3 dark:border-zinc-800">
             <div className="workbench-conversation-header-main flex flex-wrap items-center justify-between gap-3">
               <div className="workbench-conversation-identity min-w-0 flex-1">
@@ -2367,12 +2321,93 @@ export default function App() {
                 {translate(presetForId(presetId).displayNameKey)}
                 <span className="text-zinc-400" aria-hidden="true">⌄</span>
               </button>
+              {presetId === 'single' ? (
+                <div className="workbench-single-agent-header flex items-center gap-2">
+                  <label htmlFor="workbench-single-agent-header" className="text-xs text-zinc-500 dark:text-zinc-400">{translate('singleAgent.choose')}</label>
+                  <select id="workbench-single-agent-header" className="rounded-lg border border-zinc-200 bg-transparent px-2 py-1.5 text-xs dark:border-zinc-700"
+                    value={singleAgent} disabled={isProcessing || messages.length > 0}
+                    title={messages.length > 0 ? translate('conversation.new') : undefined}
+                    onChange={(event) => setSingleAgent(event.target.value as AIProvider)}>
+                    {selectableSingleAgents.map((provider) => <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>)}
+                  </select>
+                </div>
+              ) : null}
               <span className="workbench-header-separator" aria-hidden="true"/>
               <span className="workbench-conversation-status truncate text-xs text-zinc-500 dark:text-zinc-400">
                 {workflowStatus || (isProcessing ? translate('processTrace.awaiting') : translate('processTrace.settled'))}
               </span>
             </div>
+            <div className="workbench-connected-agent-strip mt-3 flex flex-wrap items-center gap-1.5" aria-label={translate('sidebar.agents')}>
+              {activeProviders.filter((provider) => states[provider].login === 'logged_in').map((provider) => (
+                <button key={provider} type="button" className="workbench-agent-pill inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs"
+                  onClick={() => openProviderModelSettings(provider)} title={AI_PROVIDERS[provider].name}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true"/>
+                  {AI_PROVIDERS[provider].name}
+                </button>
+              ))}
+              <div className="relative">
+                <button type="button" className="workbench-agent-add rounded-full border px-3 py-1.5 text-xs"
+                  aria-haspopup="menu" aria-expanded={agentMenuOpen}
+                  onClick={() => setAgentMenuOpen((open) => !open)}>+ {translate('sidebar.addAgent')}</button>
+                {agentMenuOpen ? (
+                  <div className="workbench-agent-menu absolute left-0 top-full z-30 mt-1 min-w-48 space-y-1 rounded-xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900" role="menu">
+                    {activeProviders.filter((provider) => states[provider].login !== 'logged_in').map((provider) => (
+                      <button key={provider} type="button" role="menuitem"
+                        className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        onClick={() => { setAgentMenuOpen(false); void openProviderLogin(provider).catch((error: unknown) => setProviderWindowError(error instanceof Error ? error.message : String(error))); }}>
+                        <span>{AI_PROVIDERS[provider].name}</span>
+                        <span className="text-zinc-500">{translate('sidebar.agentLogin')}</span>
+                      </button>
+                    ))}
+                    <button type="button" role="menuitem" className="w-full rounded-lg border-t border-zinc-200 px-2 py-2 text-left text-xs dark:border-zinc-700"
+                      onClick={() => { setAgentMenuOpen(false); setSettingsOpen(true); }}>{translate('header.settings')}</button>
+                  </div>
+                ) : null}
+              </div>
+              <button type="button" className={`workbench-agent-tools ml-auto rounded-full border px-3 py-1.5 text-xs ${providerInspectorOpen ? 'workbench-icon-button-selected' : ''}`}
+                onClick={() => setProviderInspectorOpen((open) => !open)} aria-expanded={providerInspectorOpen}>
+                {translate('workbench.providerView')}
+              </button>
+              <button type="button" className="workbench-activity-button rounded-full border px-3 py-1.5 text-xs"
+                aria-expanded={activityPanelOpen} aria-controls="workbench-activity-drawer"
+                onClick={() => setActivityPanelOpen((open) => !open)}>
+                {translate('sidebar.activity')}
+                {processTrace?.steps.some((step) => step.status === 'active') ? <span className="ml-1 h-1.5 w-1.5 rounded-full bg-sky-500 inline-block" aria-hidden="true"/> : null}
+              </button>
+            </div>
+            {modelSettingsProvider && activeProviders.includes(modelSettingsProvider) ? (
+              <div className="workbench-model-controls-popover mt-2">
+                <ProviderModelControls provider={modelSettingsProvider} onOpenProvider={openProviderModelSettings}
+                  onClose={() => setModelSettingsProvider(undefined)}/>
+              </div>
+            ) : null}
           </header>
+          {checkpoint ? (
+            <details className="workbench-checkpoint-inline mt-3 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950" open>
+              <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-amber-900 dark:text-amber-100">{translate('checkpoint.confirmEachStep')}</summary>
+              <div className="border-t border-amber-300 p-3 dark:border-amber-900">
+                <CheckpointCard checkpoint={checkpoint} draft={checkpointDraft}
+                  onDraftChange={setCheckpointDraft}
+                  onNativeEdit={(provider) => { void forceProviderNativeCenter(provider); }}
+                  locale={locale}/>
+              </div>
+            </details>
+          ) : null}
+          {activityPanelOpen ? (
+            <aside id="workbench-activity-drawer" aria-label={translate('sidebar.activity')} className="workbench-activity-drawer">
+              <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+                <h2 className="text-sm font-semibold">{translate('sidebar.activity')}</h2>
+                <button type="button" className="rounded-lg px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  onClick={() => setActivityPanelOpen(false)} aria-label={translate('workbench.hideDetails')}>×</button>
+              </div>
+              <div className="workbench-activity-drawer-content min-h-0 flex-1 overflow-y-auto p-3">
+                {processTrace && (processTrace.steps.length > 0 || processTrace.currentStatus)
+                  ? <ProcessTrace trace={processTrace} locale={locale} expanded compact={false} states={states}
+                      onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen}/>
+                  : <p className="p-3 text-xs text-zinc-500 dark:text-zinc-400">{translate('workbench.noActiveRun')}</p>}
+              </div>
+            </aside>
+          ) : null}
           {providerWindowGeometry && import.meta.env.DEV && showDevDiagnostics ? (
             <div role="status" className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
               <span className="font-semibold">Native page geometry</span>
@@ -2389,33 +2424,6 @@ export default function App() {
               <span>Could not open the separate provider window: {providerWindowError}</span>
               <button type="button" onClick={() => setProviderWindowError(undefined)} className="rounded border border-current px-2 py-1">Dismiss</button>
             </div>
-          ) : null}
-          {processTrace && (processTrace.currentStatus || processTrace.steps.length > 0) ? (
-            <section aria-label="Workflow progress" className="workbench-run-details mt-3 flex min-h-0 shrink-0 flex-col rounded-2xl border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
-              <div className="workbench-run-header flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  {processTrace.steps.some((step) => step.status === 'active') ? <span className="workbench-live-indicator" aria-hidden="true" /> : null}
-                  <h2 className="text-xs font-semibold">{translate('workbench.workflowProgress')}</h2>
-                  <span className="workbench-run-count text-xs text-zinc-500 dark:text-zinc-400">
-                    {formatI18n(translate('processTrace.stepsConfirmed'), {
-                      done: processTrace.steps.filter((step) => step.kind !== 'fanout' && step.status === 'done').length,
-                      total: processTrace.steps.filter((step) => step.kind !== 'fanout').length,
-                    })}
-                  </span>
-                </div>
-                <button type="button" className="workbench-progress-toggle inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
-                  aria-expanded={workflowDetailsExpanded} aria-controls="workbench-workflow-timeline"
-                  onClick={() => setWorkflowDetailsExpanded((expanded) => !expanded)}>
-                  {translate(workflowDetailsExpanded ? 'workbench.hideDetails' : 'workbench.showDetails')}
-                  <svg viewBox="0 0 24 24" className={`h-3.5 w-3.5 transition-transform ${workflowDetailsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="m6 9 6 6 6-6" />
-                  </svg>
-                </button>
-              </div>
-              <div id="workbench-workflow-timeline">
-                <ProcessTrace trace={processTrace} locale={locale} compact expanded={workflowDetailsExpanded} states={states} onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen} />
-              </div>
-            </section>
           ) : null}
           <div
             id="replay-history-panel"
@@ -2462,13 +2470,72 @@ export default function App() {
           ) : null}
           <div
             ref={transcriptRef}
-            className="ai-sister-conversation-transcript workbench-reading-area mt-3 min-h-0 flex-1 overflow-auto border-y border-zinc-200 dark:border-zinc-800 py-4"
+            className={`ai-sister-conversation-transcript workbench-reading-area mt-3 min-h-0 flex-1 overflow-auto border-y border-zinc-200 dark:border-zinc-800 py-4 ${activityPanelOpen ? 'workbench-reading-with-activity' : ''}`}
             onScroll={(event) => {
               transcriptStickToEndRef.current = isTranscriptNearEnd(event.currentTarget);
               handleTranscriptScroll();
             }}
           >
-            <ChatArea messages={messages} locale={locale} states={states} trace={isProcessing ? processTrace : undefined} />
+            {newChatWelcome ? (
+              <div className="workbench-new-chat-screen flex min-h-full flex-col items-center justify-center px-3 py-6">
+                <div className="workbench-new-chat-body mx-auto w-full max-w-2xl">
+                  <h2 className="workbench-new-chat-title text-center text-2xl font-semibold tracking-tight">
+                    {translate('sidebar.emptyTitle')}
+                  </h2>
+                  <p className="mt-2 text-center text-sm text-zinc-500 dark:text-zinc-400">{translate('sidebar.emptySubtitle')}</p>
+                  <div className="workbench-new-chat-workflows mt-8 flex flex-wrap justify-center gap-2" aria-label={translate('sidebar.workflowChoice')}>
+                    {PRESET_CATALOG.map((preset) => (
+                      <button key={preset.id} type="button" disabled={isProcessing}
+                        className={`workbench-new-chat-workflow rounded-full border px-3.5 py-2 text-xs font-semibold transition-colors ${presetId === preset.id ? 'workbench-new-chat-workflow-selected' : ''}`}
+                        aria-pressed={presetId === preset.id} title={translate(preset.descriptionKey)}
+                        onClick={() => selectPreset(preset.id)}>
+                        {preset.graphId === 'free' && preset.id !== 'brainstorm' ? '✦ ' : ''}
+                        {translate(preset.displayNameKey)}
+                      </button>
+                    ))}
+                  </div>
+                  {presetId === 'single' ? (
+                    <div className="workbench-single-agent-picker mx-auto mt-5 flex flex-wrap items-center justify-center gap-2.5">
+                      <label htmlFor="workbench-single-agent" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{translate('singleAgent.choose')}</label>
+                      <select id="workbench-single-agent" className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                        value={singleAgent} disabled={isProcessing}
+                        onChange={(event) => setSingleAgent(event.target.value as AIProvider)}>
+                        {selectableSingleAgents.map((provider) => (
+                          <option value={provider} key={provider}>{AI_PROVIDERS[provider].name}</option>
+                        ))}
+                      </select>
+                      <span className={`text-xs ${isSendable(states[singleAgent]) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                        {translate(isSendable(states[singleAgent]) && activeProviders.includes(singleAgent) ? 'singleAgent.ready' : 'singleAgent.signIn')}
+                      </span>
+                      {!isSendable(states[singleAgent]) ? (
+                        <button type="button" className="rounded-lg border border-zinc-300 px-3 py-2 text-xs dark:border-zinc-700"
+                          onClick={() => void openProviderLogin(singleAgent).catch((error: unknown) => setProviderWindowError(error instanceof Error ? error.message : String(error)))}>
+                          {translate('sidebar.agentLogin')}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="workbench-new-chat-project mx-auto mt-5 flex max-w-xl items-center justify-center gap-2">
+                    <label className="sr-only" htmlFor="workbench-new-chat-project">{translate('sidebar.chooseProject')}</label>
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">{translate('sidebar.chooseProject')}</span>
+                    <select id="workbench-new-chat-project" className="max-w-52 rounded-lg border border-zinc-200 bg-transparent px-2 py-1.5 text-xs dark:border-zinc-700"
+                      value={effectiveProjectStore.activeProjectId ?? ''}
+                      onChange={(event) => {
+                        const session = sessions.find((item) => item.id === activeSessionId);
+                        if (session) assignConversationProject(session, event.target.value || undefined);
+                      }}>
+                      <option value="">{translate('sidebar.general')}</option>
+                      {projectStore.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                    </select>
+                    <button type="button" className="rounded-lg px-2 py-1.5 text-xs text-sky-700 hover:bg-zinc-100 dark:text-sky-300 dark:hover:bg-zinc-800"
+                      onClick={() => setProjectSettingsOpen(true)}>+ {translate('sidebar.newProject')}</button>
+                  </div>
+                  <div className="workbench-new-chat-composer mt-4">{composer}</div>
+                </div>
+              </div>
+            ) : (
+              <ChatArea messages={messages} locale={locale} states={states} trace={isProcessing ? processTrace : undefined} />
+            )}
           </div>
           {import.meta.env.DEV && showDevDiagnostics ? (
             <section
@@ -2485,19 +2552,24 @@ export default function App() {
               <EchoPanel />
             </section>
           ) : null}
-          <div className="ai-sister-conversation-composer workbench-composer-region shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800">
-            <InputBar
-              onSend={send}
-              onCancel={cancelWorkflow}
-              disabled={noSendableProviders}
-              sendBlocked={modeSendBlocked}
-              blockedMessage={modeBlockedMessage}
-              isProcessing={isProcessing}
-              locale={locale}
-            />
+          <div className={`ai-sister-conversation-composer workbench-composer-region shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800 ${newChatWelcome ? 'hidden' : ''}`}>
+            {!newChatWelcome ? composer : null}
           </div>
         </section>
       </div>
+      {projectSettingsOpen ? (
+        <ModalDialog titleId="workbench-project-editor-title" onEscape={() => setProjectSettingsOpen(false)}
+          onBackdrop={() => setProjectSettingsOpen(false)}
+          panelClassName="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-zinc-300 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 id="workbench-project-editor-title" className="text-lg font-semibold">{translate('sidebar.projectSettings')}</h2>
+            <button type="button" className="rounded-lg border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700"
+              onClick={() => setProjectSettingsOpen(false)}>{translate('sidebar.cancel')}</button>
+          </div>
+          <ProjectPicker store={effectiveProjectStore} onSave={saveProjectStore}
+            disabled={isProcessing || !projectsReady} loadError={projectLoadError}/>
+        </ModalDialog>
+      ) : null}
       {workflowOptionsOpen ? (
         <ModalDialog titleId="workbench-mode-title" descriptionId="workbench-mode-description"
           onEscape={() => setWorkflowOptionsOpen(false)}
@@ -2523,7 +2595,17 @@ export default function App() {
               activeProviders={activeProviders} disabled={isProcessing} layout="dialog"
             />
           </div>
-          {mode === 'free' && presetId !== 'brainstorm' ? (
+          {presetId === 'single' ? (
+            <div className="mt-4 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+              <label htmlFor="workbench-single-agent-dialog" className="mb-2 block text-xs font-semibold">{translate('singleAgent.choose')}</label>
+              <select id="workbench-single-agent-dialog" className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                value={singleAgent} disabled={isProcessing || messages.length > 0}
+                onChange={(event) => setSingleAgent(event.target.value as AIProvider)}>
+                {selectableSingleAgents.map((provider) => <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>)}
+              </select>
+            </div>
+          ) : null}
+          {mode === 'free' && presetId !== 'brainstorm' && presetId !== 'single' ? (
             <div className="mt-4 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
               <h3 className="mb-2 text-sm font-semibold">{translate('input.sendSelectedProviders')}</h3>
               <TargetChips providers={activeProviders} states={states} selected={targets} onChange={handleTargetsChange} disabled={isProcessing} locale={locale}/>
@@ -2603,6 +2685,8 @@ export function ChatArea({
   states: Record<AIProvider, ProviderState>;
   trace?: ProcessTraceState;
 }) {
+  const activeSteps = trace?.steps.filter((step) => step.status === 'active' && step.kind !== 'fanout') ?? [];
+  const activeProviders = new Set(activeSteps.map((step) => step.provider).filter((provider): provider is AIProvider => provider !== undefined));
   if (messages.length === 0) {
     const providers = Object.values(states);
     const anyReady = providers.some((state) => isSendable(state));
@@ -2625,6 +2709,9 @@ export function ChatArea({
     <div className="space-y-3 p-2">
       {messages.map((message) => {
         const p = message.provider;
+        // While this provider is still working, the decorative waiting scene
+        // replaces its redundant in-flight transcript placeholder.
+        if (message.role === 'ai' && !message.final && p && activeProviders.has(p as AIProvider)) return null;
         const isProvider = typeof p === 'string' && p in AI_PROVIDERS;
         const thinking = isProvider && !message.final && states[p as AIProvider]?.thinking === true;
         const statusLabel =
@@ -2655,28 +2742,8 @@ export function ChatArea({
           </article>
         );
       })}
-      {trace?.steps.some((step) => step.status === 'active' && step.kind !== 'fanout') ? (
-        <div className="workbench-transcript-activity mx-auto max-w-3xl rounded-xl border border-dashed border-sky-200 bg-sky-50/50 px-4 py-4 dark:border-sky-900 dark:bg-sky-950/20">
-          <div className="flex items-center gap-3">
-            <span className="workbench-working-orb flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-sky-200 bg-white text-sky-700 dark:border-sky-800 dark:bg-zinc-900 dark:text-sky-300" aria-hidden="true">
-              <span className="workbench-live-indicator" />
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-                {translateKey('processTrace.workInProgress', locale)}
-              </div>
-              <div className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-                {trace.steps.filter((step) => step.status === 'active' && step.kind !== 'fanout').map((step) => step.label).join(' · ')}
-              </div>
-              <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                {translateKey('processTrace.progressNote', locale)}
-              </div>
-            </div>
-          </div>
-          <div className="workbench-activity-track mt-3 h-1 overflow-hidden rounded-full bg-sky-100 dark:bg-sky-950" aria-hidden="true">
-            <div className="workbench-activity-sweep h-full w-1/3 rounded-full bg-sky-500/70" />
-          </div>
-        </div>
+      {activeSteps.length > 0 ? (
+        <ThinkingVisualization activeSteps={activeSteps} states={states} locale={locale} />
       ) : null}
     </div>
   );
@@ -2688,5 +2755,5 @@ function modeFromReplayPlan(plan: ReplayPlan): ChatMode | undefined {
 }
 
 function conversationPresetId(presetId: WorkflowPresetId, mode: ChatMode): WorkflowPresetId | undefined {
-  return presetId === 'brainstorm' && mode === 'free' ? presetId : undefined;
+  return (presetId === 'brainstorm' || presetId === 'single') && mode === 'free' ? presetId : undefined;
 }
