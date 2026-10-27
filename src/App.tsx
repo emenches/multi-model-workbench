@@ -308,7 +308,13 @@ export default function App() {
   const [messages, setMessages] = useState<Bubble[]>(() => bubblesFromSession(initialConversation.active));
   const [workflowStatus, setWorkflowStatus] = useState('');
   const [mode, setMode] = useState<ChatMode>(initialConversation.active.mode);
-  const [presetId, setPresetId] = useState<WorkflowPresetId>(initialConversation.active.presetId ?? initialConversation.active.mode);
+  const [presetId, setPresetId] = useState<WorkflowPresetId>(
+    initialConversation.active.presetId
+    ?? (initialConversation.active.mode === 'free' && initialConversation.active.messages.length === 0 ? 'single' : initialConversation.active.mode),
+  );
+  const [singleAgent, setSingleAgent] = useState<AIProvider>(
+    initialConversation.active.singleAgent ?? DEFAULT_FREE_TARGET_PROVIDERS[0],
+  );
   const [replayDrawerOpen, setReplayDrawerOpen] = useState(false);
   const [processTrace, setProcessTrace] = useState<ProcessTraceState | undefined>();
   const [processTraceDetailOpen, setProcessTraceDetailOpen] = useState(false);
@@ -438,6 +444,7 @@ export default function App() {
   const pullBridge = useRef(new Map<AIProvider, PullBridgeState>());
   const replayPanelRef = useRef<ReplayPanel | null>(null);
   const targets = targetSelection.targets;
+  const freeDispatchTargets = presetId === 'single' ? [singleAgent] : targets;
   const activeProviders = useMemo(
     () => activeProvidersForStandby(appSettings.standbyProvider),
     [appSettings.standbyProvider],
@@ -459,7 +466,7 @@ export default function App() {
     if (modalHiddenProviders.has(centered)) return [];
     return [centered];
   }, [centerSurface, modalHiddenProviders, presentation, states]);
-  const hasFreeModeTargets = useMemo(() => hasEffectiveFreeModeTargets(targets, states), [states, targets]);
+  const hasFreeModeTargets = useMemo(() => hasEffectiveFreeModeTargets(freeDispatchTargets, states), [states, freeDispatchTargets]);
   const anySendableTargets = useMemo(() => defaultTargets(states, activeProviders), [activeProviders, states]);
   const requiredModeProviders = useMemo(() => {
     // Consult can reuse two distinct, signed-in providers for its later,
@@ -583,13 +590,15 @@ export default function App() {
         const existing = current.find((session) => session.id === activeSessionId);
         const storedMessages = conversationMessages(messages);
         const storedPresetId = conversationPresetId(presetId, mode);
-        if (existing && !sessionContentChanged(existing, storedMessages, mode, storedPresetId)) return current;
-        const base = existing ?? createConversationSession({ id: activeSessionId, mode, presetId: storedPresetId });
+        if (existing && !sessionContentChanged(existing, storedMessages, mode, storedPresetId)
+          && (storedPresetId !== 'single' || existing.singleAgent === singleAgent)) return current;
+        const base = existing ?? createConversationSession({ id: activeSessionId, mode, presetId: storedPresetId, singleAgent });
         const next = upsertConversationSession(current, {
           ...base,
           title: titleFromFirstUserMessage(storedMessages),
           updatedAt: Date.now(),
           mode,
+          ...(storedPresetId === 'single' ? { singleAgent } : { singleAgent: undefined }),
           presetId: storedPresetId,
           messages: storedMessages,
         });
@@ -597,7 +606,7 @@ export default function App() {
       });
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [activeSessionId, messages, mode, presetId]);
+  }, [activeSessionId, messages, mode, presetId, singleAgent]);
 
   const setManualFocusLock = useCallback((lock: ManualFocusLock | undefined) => {
     manualFocusLockRef.current = lock;
@@ -1552,7 +1561,7 @@ export default function App() {
     if (!trimmed) return;
     const brainstorm = presetId === 'brainstorm';
     const workflowTargets = mode === 'free' && !brainstorm
-      ? preparedWorkflowTargets ?? freeModeTargets(targets, statesRef.current)
+      ? preparedWorkflowTargets ?? freeModeTargets(freeDispatchTargets, statesRef.current)
       : undefined;
     if (workflowTargets?.length === 0) return;
     const previousWorkflowExecution = workflowExecutionTailRef.current;
@@ -1643,7 +1652,7 @@ export default function App() {
           : undefined;
     const participants = workflowRoles
       ? [...new Set(Object.values(workflowRoles))]
-      : freeModeTargets(targets, statesRef.current);
+      : freeModeTargets(freeDispatchTargets, statesRef.current);
 
     const providersToFreshen = pendingProviderSessionResets(
       pendingProviderResetRef.current,
@@ -1713,7 +1722,7 @@ export default function App() {
       }
     }
 
-    const workflowTargets = serialGraph ? undefined : freeModeTargets(targets, statesRef.current);
+    const workflowTargets = serialGraph ? undefined : freeModeTargets(freeDispatchTargets, statesRef.current);
     if (workflowTargets?.length === 0) {
       setWorkflowStatus(translate('input.sendFailed'));
       setIsProcessing(false);
@@ -1776,7 +1785,7 @@ export default function App() {
     replayContextSessionRef.current = undefined;
     setMessages([]);
     setMode('free');
-    setPresetId('free');
+    setPresetId('single');
     setWorkflowStatus('');
     setProcessTrace(undefined);
     setReplayDrawerOpen(false);
@@ -1824,7 +1833,8 @@ export default function App() {
       replayContextSessionRef.current = session.messages.length > 0 ? session.id : undefined;
       setMessages(bubblesFromSession(session));
       setMode(session.mode);
-      setPresetId(session.presetId ?? session.mode);
+      setPresetId(session.presetId ?? (session.mode === 'free' && session.messages.length === 0 ? 'single' : session.mode));
+      setSingleAgent(session.singleAgent ?? DEFAULT_FREE_TARGET_PROVIDERS[0]);
       setWorkflowStatus('');
       setProcessTrace(undefined);
       setReplayDrawerOpen(false);
@@ -2306,6 +2316,17 @@ export default function App() {
                 {translate(presetForId(presetId).displayNameKey)}
                 <span className="text-zinc-400" aria-hidden="true">⌄</span>
               </button>
+              {presetId === 'single' ? (
+                <div className="workbench-single-agent-header flex items-center gap-2">
+                  <label htmlFor="workbench-single-agent-header" className="text-xs text-zinc-500 dark:text-zinc-400">{translate('singleAgent.choose')}</label>
+                  <select id="workbench-single-agent-header" className="rounded-lg border border-zinc-200 bg-transparent px-2 py-1.5 text-xs dark:border-zinc-700"
+                    value={singleAgent} disabled={isProcessing || messages.length > 0}
+                    title={messages.length > 0 ? translate('sidebar.newChat') : undefined}
+                    onChange={(event) => setSingleAgent(event.target.value as AIProvider)}>
+                    {activeProviders.map((provider) => <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>)}
+                  </select>
+                </div>
+              ) : null}
               <span className="workbench-header-separator" aria-hidden="true"/>
               <span className="workbench-conversation-status truncate text-xs text-zinc-500 dark:text-zinc-400">
                 {workflowStatus || (isProcessing ? translate('processTrace.awaiting') : translate('processTrace.settled'))}
@@ -2468,6 +2489,27 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                  {presetId === 'single' ? (
+                    <div className="workbench-single-agent-picker mx-auto mt-5 flex flex-wrap items-center justify-center gap-2.5">
+                      <label htmlFor="workbench-single-agent" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{translate('singleAgent.choose')}</label>
+                      <select id="workbench-single-agent" className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                        value={singleAgent} disabled={isProcessing}
+                        onChange={(event) => setSingleAgent(event.target.value as AIProvider)}>
+                        {activeProviders.map((provider) => (
+                          <option value={provider} key={provider}>{AI_PROVIDERS[provider].name}</option>
+                        ))}
+                      </select>
+                      <span className={`text-xs ${isSendable(states[singleAgent]) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                        {translate(isSendable(states[singleAgent]) ? 'singleAgent.ready' : 'singleAgent.signIn')}
+                      </span>
+                      {!isSendable(states[singleAgent]) ? (
+                        <button type="button" className="rounded-lg border border-zinc-300 px-3 py-2 text-xs dark:border-zinc-700"
+                          onClick={() => void openProviderLogin(singleAgent).catch((error: unknown) => setProviderWindowError(error instanceof Error ? error.message : String(error)))}>
+                          {translate('sidebar.agentLogin')}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <div className="workbench-new-chat-project mx-auto mt-5 flex max-w-xl items-center justify-center gap-2">
                     <label className="sr-only" htmlFor="workbench-new-chat-project">{translate('sidebar.chooseProject')}</label>
                     <span className="text-xs text-zinc-500 dark:text-zinc-400">{translate('sidebar.chooseProject')}</span>
@@ -2548,7 +2590,17 @@ export default function App() {
               activeProviders={activeProviders} disabled={isProcessing} layout="dialog"
             />
           </div>
-          {mode === 'free' && presetId !== 'brainstorm' ? (
+          {presetId === 'single' ? (
+            <div className="mt-4 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+              <label htmlFor="workbench-single-agent-dialog" className="mb-2 block text-xs font-semibold">{translate('singleAgent.choose')}</label>
+              <select id="workbench-single-agent-dialog" className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                value={singleAgent} disabled={isProcessing || messages.length > 0}
+                onChange={(event) => setSingleAgent(event.target.value as AIProvider)}>
+                {activeProviders.map((provider) => <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>)}
+              </select>
+            </div>
+          ) : null}
+          {mode === 'free' && presetId !== 'brainstorm' && presetId !== 'single' ? (
             <div className="mt-4 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
               <h3 className="mb-2 text-sm font-semibold">{translate('input.sendSelectedProviders')}</h3>
               <TargetChips providers={activeProviders} states={states} selected={targets} onChange={handleTargetsChange} disabled={isProcessing} locale={locale}/>
@@ -2698,5 +2750,5 @@ function modeFromReplayPlan(plan: ReplayPlan): ChatMode | undefined {
 }
 
 function conversationPresetId(presetId: WorkflowPresetId, mode: ChatMode): WorkflowPresetId | undefined {
-  return presetId === 'brainstorm' && mode === 'free' ? presetId : undefined;
+  return (presetId === 'brainstorm' || presetId === 'single') && mode === 'free' ? presetId : undefined;
 }
