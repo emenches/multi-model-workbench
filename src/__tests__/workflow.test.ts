@@ -156,6 +156,29 @@ describe('workflow engine', () => {
     await expect(promise).resolves.toEqual({ response: 'real final', turn: 1 });
   });
 
+  it('emits turn-specific confirmation only when an active waiter accepts the provider answer', async () => {
+    const confirmed: BridgeMessage[] = [];
+    onBridgeMessage((message) => {
+      if (message.action === 'WORKFLOW_STEP_CONFIRMED') confirmed.push(message);
+    });
+    // Orphan DONE must never mark a workflow step complete.
+    publishBridgeMessage(done('gemini', 'stale result'));
+    expect(confirmed).toHaveLength(0);
+
+    const pending = sendAndWait('gemini', 'fresh prompt');
+    await Promise.resolve();
+    publishBridgeMessage(done('gemini', 'not authoritative', 'title'));
+    expect(confirmed).toHaveLength(0);
+    publishBridgeMessage(done('gemini', 'verified result', 'pull'));
+    await expect(pending).resolves.toEqual({ response: 'verified result', turn: 1 });
+    expect(confirmed).toEqual([{
+      v: 1, action: 'WORKFLOW_STEP_CONFIRMED', provider: 'gemini',
+      payload: { turn: 1, text: 'verified result' }, transport: 'local',
+    }]);
+    publishBridgeMessage(done('gemini', 'late result'));
+    expect(confirmed).toHaveLength(1);
+  });
+
   it('registers the waiter before sending so a synchronous DONE from send resolves', async () => {
     vi.mocked(host.provider.send).mockImplementationOnce(async () => {
       publishBridgeMessage(done('claude', 'fast'));
