@@ -339,7 +339,7 @@ function FocusStage({
         <div className="flex flex-wrap justify-end gap-2 text-xs">
           {centerSurface === 'text' ? (
             <button type="button" className="border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={onEnlargeCenter}>
-              {t('provider.realPage')}
+              {t('provider.realPage')} <span aria-hidden="true">↗</span>
             </button>
           ) : (
             <button type="button" className="border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={onCollapseCenter}>
