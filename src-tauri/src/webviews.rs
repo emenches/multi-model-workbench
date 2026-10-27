@@ -87,7 +87,10 @@ const PERMISSION_SHIM_JS: &str = r#"(function () {
 })();"#;
 
 fn provider_uses_permission_shim(provider: &str) -> bool {
-    provider != "grok"
+    // Preserve native browser permission APIs during Claude and Grok sign-in.
+    // Altering these APIs can interfere with normal site-integrity checks.
+    // This does not bypass provider verification or change the browser's identity.
+    !matches!(provider, "grok" | "claude")
 }
 
 fn provider_uses_document_start_bridge(provider: &str) -> bool {
@@ -2836,10 +2839,14 @@ mod tests {
     }
 
     #[test]
-    fn grok_keeps_core_web_apis_unmodified_for_cloudflare_challenges() {
-        assert!(!provider_uses_permission_shim("grok"));
+    fn auth_sensitive_providers_keep_native_permission_apis() {
+        for provider in ["grok", "claude"] {
+            assert!(!provider_uses_permission_shim(provider));
+        }
         assert!(!provider_uses_document_start_bridge("grok"));
-        for provider in ["chatgpt", "claude", "gemini"] {
+        // The Claude workflow bridge is unchanged by this scoped experiment.
+        assert!(provider_uses_document_start_bridge("claude"));
+        for provider in ["chatgpt", "gemini", "meta"] {
             assert!(provider_uses_permission_shim(provider));
             assert!(provider_uses_document_start_bridge(provider));
         }
