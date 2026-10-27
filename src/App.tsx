@@ -2125,9 +2125,11 @@ export default function App() {
                   </div>
                 </details>
               ) : null}
-              {stepTimeout && !stepTimeout.timedOut ? (
-                <StepTimeoutDialog event={stepTimeout} onClose={() => setStepTimeout(undefined)} locale={locale} />
-              ) : null}
+              {/* Parallel Consult steps start independent countdowns. A single
+                  last-started countdown can point at a provider that already
+                  finished while another provider is still generating. The
+                  always-on trace shows actual confirmation; retain the real
+                  timed-out retry dialog below instead. */}
             </section>
             <section aria-label="AI connections" className="workbench-provider-dock mx-3 my-3 shrink-0 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
               <div className="mb-2 flex items-center justify-between gap-2">
