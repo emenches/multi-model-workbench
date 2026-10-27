@@ -196,6 +196,53 @@ describe('pull transport', () => {
     expect(messages.some((msg) => msg.action === 'RESPONSE_DONE')).toBe(false);
   });
 
+  it('recovers a transient ChatGPT pull failure without a new boot or duplicate messages', async () => {
+    vi.useFakeTimers();
+    const { messages, cleanup } = collectMessages();
+    setProviderAwaiting(provider, true);
+    handleTitleMessage({ v: 1, action: 'STATUS_REPORT', provider, bootId: 'stable', seq: 1, transport: 'title' });
+    vi.mocked(host.provider.evalWithCallback)
+      .mockRejectedValueOnce(new Error('WKWebView temporarily unresponsive'))
+      .mockRejectedValueOnce(new Error('WKWebView temporarily unresponsive'))
+      .mockResolvedValueOnce(JSON.stringify([
+        { ...message(1, 'stable', 'RESPONSE_DONE'), payload: 'Recovered complete answer' },
+      ]));
+    const failure = pullProvider(provider);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await failure;
+    expect(messages.some((msg) => (msg.payload as { bridge?: string })?.bridge === 'degraded')).toBe(true);
+    expect(messages.some((msg) => msg.action === 'RESPONSE_DONE')).toBe(false);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(messages).toContainEqual(expect.objectContaining({
+      action: 'RESPONSE_DONE', provider, transport: 'pull', payload: 'Recovered complete answer',
+    }));
+    expect(messages).toContainEqual(expect.objectContaining({
+      action: 'STATUS_REPORT', provider, transport: 'local', payload: { bridge: 'ok' },
+    }));
+    expect(host.provider.stop).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it('never loops retries or fabricates DONE after persistent ChatGPT pull failure', async () => {
+    vi.useFakeTimers();
+    const { messages, cleanup } = collectMessages();
+    setProviderAwaiting(provider, true);
+    handleTitleMessage({ v: 1, action: 'STATUS_REPORT', provider, bootId: 'stable', seq: 1, transport: 'title' });
+    vi.mocked(host.provider.evalWithCallback).mockRejectedValue(new Error('eval timeout'));
+    const initial = pullProvider(provider);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await initial;
+    await vi.advanceTimersByTimeAsync(35_000);
+    const calls = vi.mocked(host.provider.evalWithCallback).mock.calls.length;
+    expect(calls).toBe(8); // initial pair + three recovery pairs
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(vi.mocked(host.provider.evalWithCallback)).toHaveBeenCalledTimes(calls);
+    expect(messages.filter((msg) => (msg.payload as { bridge?: string })?.bridge === 'degraded')).toHaveLength(1);
+    expect(messages.some((msg) => msg.action === 'RESPONSE_DONE')).toBe(false);
+    expect(host.provider.stop).not.toHaveBeenCalled();
+    cleanup();
+  });
+
   it('bulkReady title hints trigger a pull', async () => {
     vi.mocked(host.provider.evalWithCallback).mockResolvedValue(JSON.stringify([]));
     handleTitleMessage({

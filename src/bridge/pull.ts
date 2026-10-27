@@ -4,12 +4,16 @@ import { host } from '../host';
 import { publishBridgeMessage } from './bus';
 
 export const DONE_WATCHDOG_MS = 5000;
+export const PULL_RECOVERY_DELAY_MS = 5_000;
+export const PULL_RECOVERY_MAX_ATTEMPTS = 3;
 export const AWAITING_MAX_MS = 10 * 60 * 1000;
 export const AWAITING_ABSOLUTE_MAX_MS = 60 * 60 * 1000;
 
 const lastConsumed = new Map<string, { bootId: string; mid: number }>();
 const pending = new Set<AIProvider>();
 const degraded = new Set<AIProvider>();
+const recoveryTimers = new Map<AIProvider, ReturnType<typeof globalThis.setTimeout>>();
+const recoveryAttempts = new Map<AIProvider, number>();
 const pollTimers = new Map<AIProvider, ReturnType<typeof globalThis.setInterval>>();
 const pullInflight = new Map<AIProvider, { promise: Promise<void>; force: boolean }>();
 const activeBoot = new Map<AIProvider, string>();
@@ -85,6 +89,7 @@ export function handleTitleMessage(message: BridgeMessage): void {
 
 export function recoverProvider(provider: AIProvider): void {
   clearDoneWatchdog(provider);
+  clearPullRecovery(provider);
   if (!degraded.delete(provider)) return;
   publish({
     v: 1,
@@ -112,9 +117,11 @@ export function setProviderAwaiting(provider: AIProvider, awaiting: boolean): vo
   if (awaiting) {
     pending.add(provider);
     ensurePoll(provider);
+    if (degraded.has(provider)) schedulePullRecovery(provider);
     return;
   }
   pending.delete(provider);
+  clearPullRecovery(provider);
   const timer = pollTimers.get(provider);
   if (timer !== undefined) globalThis.clearInterval(timer);
   pollTimers.delete(provider);
@@ -170,6 +177,9 @@ async function pullProviderInner(provider: AIProvider, options: { force?: boolea
     markDegraded(provider, 'pull_failed');
     return;
   }
+  // A successful callback is direct evidence the old provider document is
+  // responsive again. Keep boot/mid watermarks intact; never forge DONE.
+  if (degraded.has(provider)) recoverProvider(provider);
   let maxMid = 0;
   let sawDone = false;
   const providerBoot = activeBoot.get(provider);
@@ -194,18 +204,47 @@ async function pullProviderInner(provider: AIProvider, options: { force?: boolea
 }
 
 function markDegraded(provider: AIProvider, reason: string): void {
+  const wasDegraded = degraded.has(provider);
   degraded.add(provider);
   clearDoneWatchdog(provider);
   const timer = pollTimers.get(provider);
   if (timer !== undefined) globalThis.clearInterval(timer);
   pollTimers.delete(provider);
-  publish({
-    v: 1,
-    action: 'STATUS_REPORT',
-    provider,
-    payload: { bridge: 'degraded', reason },
-    transport: 'local',
-  });
+  // Emit the degradation transition once, rather than on every failed probe.
+  if (!wasDegraded) {
+    publish({
+      v: 1,
+      action: 'STATUS_REPORT',
+      provider,
+      payload: { bridge: 'degraded', reason },
+      transport: 'local',
+    });
+  }
+  schedulePullRecovery(provider);
+}
+
+// An eval callback may fail transiently during WKWebView navigation or a
+// busy script. Re-probe only while the workflow is waiting, with a bounded
+// retry budget. A successful probe drains the existing outbox; a genuine
+// new-document bootId remains a hard workflow failure.
+function schedulePullRecovery(provider: AIProvider): void {
+  if (!pending.has(provider) || recoveryTimers.has(provider)) return;
+  const attempts = recoveryAttempts.get(provider) ?? 0;
+  if (attempts >= PULL_RECOVERY_MAX_ATTEMPTS) return;
+  const timer = globalThis.setTimeout(() => {
+    recoveryTimers.delete(provider);
+    if (!pending.has(provider) || !degraded.has(provider)) return;
+    recoveryAttempts.set(provider, attempts + 1);
+    void pullProvider(provider, { force: true });
+  }, PULL_RECOVERY_DELAY_MS * (attempts + 1));
+  recoveryTimers.set(provider, timer);
+}
+
+function clearPullRecovery(provider: AIProvider): void {
+  const timer = recoveryTimers.get(provider);
+  if (timer !== undefined) globalThis.clearTimeout(timer);
+  recoveryTimers.delete(provider);
+  recoveryAttempts.delete(provider);
 }
 
 function synthesizeDone(provider: AIProvider, payload: string): Promise<void> {
@@ -272,6 +311,9 @@ export function resetBridgePullForTests(): void {
   lastConsumed.clear();
   pending.clear();
   degraded.clear();
+  for (const timer of recoveryTimers.values()) globalThis.clearTimeout(timer);
+  recoveryTimers.clear();
+  recoveryAttempts.clear();
   activeBoot.clear();
   lastSeenBoot.clear();
   awaitingEpoch.clear();
