@@ -86,6 +86,23 @@ const PERMISSION_SHIM_JS: &str = r#"(function () {
   } catch (e) {}
 })();"#;
 
+/// Claude's sign-in documents must run without app-provided document-start scripts.
+/// Keep the existing Workbench bridge on the provider's chat pages after login,
+/// but avoid instrumenting auth/SSO pages or other origins.
+fn provider_document_start_script(provider: &str, script: &str) -> String {
+    if provider != "claude" {
+        return script.to_owned();
+    }
+    format!(
+        r#"(function () {{
+            var path = window.location.pathname;
+            if (window.location.hostname !== 'claude.ai' ||
+                /^\/(?:login|signup|sign-up|auth|oauth|verify|callback)(?:\/|$)/i.test(path)) return;
+            {script}
+        }})();"#
+    )
+}
+
 fn provider_uses_permission_shim(provider: &str) -> bool {
     // Preserve native browser permission APIs during Claude and Grok sign-in.
     // Altering these APIs can interfere with normal site-integrity checks.
@@ -1186,6 +1203,7 @@ pub async fn provider_open(
             .map_err(|error| error.to_string())?,
         BOOTSTRAP_JS
     );
+    let init_script = provider_document_start_script(&provider, &init_script);
     let delayed_grok_script = if provider == "grok" {
         Some(delayed_grok_bridge_script(&provider)?)
     } else {
@@ -2808,7 +2826,8 @@ mod tests {
         prepare_grok_external_auth_return, prepare_grok_navigation, prepare_grok_popup_recovery,
         provider_document_allows_generic_eval, provider_show_should_focus,
         provider_state_allows_control_eval, stale_chatgpt_bridge_eval_allowed, provider_uses_document_start_bridge,
-        provider_uses_permission_shim, record_grok_bridge_challenge, reset_state_for_page_load,
+        provider_uses_permission_shim, provider_document_start_script,
+        record_grok_bridge_challenge, reset_state_for_page_load,
         retire_grok_document, runtime, should_drive_grok_bridge,
         should_drive_grok_bridge_from_background, should_reset_bridge_on_boot_rotation,
         staleness_action, state_with, Bounds, GrokBridgeDriveOutcome, GrokBridgeDriveResult,
@@ -2836,6 +2855,18 @@ mod tests {
         assert!(!provider_show_should_focus(None));
         assert!(!provider_show_should_focus(Some(false)));
         assert!(provider_show_should_focus(Some(true)));
+    }
+
+    #[test]
+    fn claude_auth_documents_do_not_receive_the_workbench_bridge() {
+        let marker = "window.__MAC_TEST_BRIDGE__ = 1;";
+        let guarded = provider_document_start_script("claude", marker);
+        assert!(guarded.contains("location.hostname !== 'claude.ai'"));
+        assert!(guarded.contains("login|signup|sign-up|auth|oauth|verify|callback"));
+        assert!(guarded.contains(marker));
+        // Other providers retain their existing initialization behavior.
+        assert_eq!(provider_document_start_script("chatgpt", marker), marker);
+        assert_eq!(provider_document_start_script("grok", marker), marker);
     }
 
     #[test]
