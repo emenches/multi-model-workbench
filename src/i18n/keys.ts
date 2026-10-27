@@ -147,6 +147,7 @@ export const I18N_KEYS = [
   'processTrace.noSelectedAI',
   'processTrace.response',
   'processTrace.waitingForResponse',
+  'processTrace.completionUnconfirmed',
   'processTrace.step',
   'workflowStatus.freeTargets',
   'workflowStatus.brainstormTargets',
