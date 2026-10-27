@@ -64,6 +64,26 @@ export function prependResponseLanguagePolicy(prompt: string, policy?: ResponseL
   return `${responseLanguageDirective(policy)}\n\n${prompt}`;
 }
 
+/** A short reminder at the actual answer boundary, after multi-model outputs.
+ * This resists language drift from old non-English workflow prompt templates
+ * without translating quoted evidence or overriding explicit user requests.
+ */
+export function appendResponseLanguageReminder(prompt: string, policy?: ResponseLanguagePolicy): string {
+  if (!policy) return prompt;
+  const fallback = policy.setting === 'auto'
+    ? 'the primary language of the ORIGINAL USER QUESTION, or the user\'s explicitly requested output language'
+    : `${LOCALE_NAMES[policy.setting]}, unless the ORIGINAL USER QUESTION explicitly requests another output language`;
+  return [
+    prompt,
+    '',
+    '[Final response-language instruction]',
+    `Write the natural-language response in ${fallback}.`,
+    'Do not copy the language of preceding workflow instructions, other AI messages or source material unless it is also the language requested by the original user.',
+    'Keep direct quotations, code, names and citations in their source form.',
+    '[/Final response-language instruction]',
+  ].join('\n');
+}
+
 export function responseLanguageDirective(policy: ResponseLanguagePolicy): string {
   const requirement =
     policy.setting === 'auto'
