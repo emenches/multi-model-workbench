@@ -75,6 +75,11 @@ const CHATGPT_USER_MESSAGE_SELECTORS = [
   '[data-chatgpt-search-unit-key$=":user"]',
 ];
 const CHATGPT_USER_MESSAGE_SELECTOR = CHATGPT_USER_MESSAGE_SELECTORS.join(', ');
+// Chat/Work's assistant unit survives layout changes in the nested markdown body.
+const CHATGPT_ASSISTANT_UNIT_SELECTOR = [
+  '[data-content-search-unit-key$=":assistant"]',
+  '[data-chatgpt-search-unit-key$=":assistant"]',
+].join(', ');
 const CHATGPT_LIVE_SEND_BUTTON_SELECTORS = [
   'button[data-testid="composer-submit-button"]',
   'button[aria-label="Send message"]',
@@ -587,13 +592,47 @@ class InactiveSendOperationError extends Error {
     if (!waitingForResponse || adapter?.provider !== 'chatgpt') return {};
     const anchor = refreshChatGptUserTurnAnchor(adapter);
     const mayRead = Boolean(anchor) || chatGptMayReadResponseWithoutAnchor();
-    const responseNodes = document.querySelectorAll(adapter.responseSelectors.join(', ')).length;
+    const strictResponses = Array.from(document.querySelectorAll(adapter.responseSelectors.join(', ')));
+    const assistantUnits = Array.from(document.querySelectorAll(CHATGPT_ASSISTANT_UNIT_SELECTOR));
+    const responseNodes = strictResponses.length;
+    // Text-free DOM health probe: if the native assistant unit contains a long
+    // response while our serializer sees only a heading, these lengths differ.
+    // Only inspect the most recent *post-anchor* assistant unit; old turns are
+    // not evidence of this response.
+    const latestUnit = [...assistantUnits].reverse().find((unit) =>
+      !anchor || elementFollows(anchor, unit),
+    );
+    const latestUnitTextContent = latestUnit?.textContent?.trim() ?? '';
+    const latestUnitInnerText = latestUnit && 'innerText' in latestUnit
+      ? String((latestUnit as Element & { innerText?: unknown }).innerText ?? '').trim()
+      : '';
+    const latestUnitSerializedText = latestUnit ? serializeResponseText(latestUnit) : '';
+    const latestUnitMarkdownNodes = latestUnit
+      ? latestUnit.querySelectorAll(
+          '.markdown, [data-markdown-text-style="assistant-message"], [data-message-author-role="assistant"]',
+        ).length
+      : 0;
+    const latestUnitFrames = latestUnit ? latestUnit.querySelectorAll('iframe').length : 0;
+    const rejected = { beforeAnchor: 0, asUser: 0, baseline: 0, empty: 0, scaffold: 0, echo: 0, eligible: 0 };
+    for (const response of [...new Set([...strictResponses, ...assistantUnits])]) {
+      if (anchor && !elementFollows(anchor, response)) rejected.beforeAnchor += 1;
+      else if (!anchor && responseBaselineEls.has(response)) rejected.baseline += 1;
+      else if (isUserMessageElement(response)) rejected.asUser += 1;
+      else {
+        const raw = extractResponseText(response);
+        const text = meaningfulChatGptAnswerText(response, raw);
+        if (!raw) rejected.empty += 1;
+        else if (!text) rejected.scaffold += 1;
+        else if (isLikelyPromptEcho(text, pendingPromptText)) rejected.echo += 1;
+        else rejected.eligible += 1;
+      }
+    }
     const candidate = mayRead ? getLatestResponseCandidate() : null;
     const turn = candidate ? currentChatGptCompletionTurn(candidate.element) : null;
     const completion = turn && candidate ? chatGptCompletionEvidence(turn, candidate) : null;
     const capturePhase = !mayRead
       ? 'waiting-user-anchor'
-      : responseNodes === 0
+      : !candidate && responseNodes === 0 && assistantUnits.length === 0
         ? 'assistant-selector-missing'
         : !candidate
           ? 'candidate-rejected'
@@ -606,6 +645,19 @@ class InactiveSendOperationError extends Error {
       capturePhase,
       captureUserNodes: document.querySelectorAll(CHATGPT_USER_MESSAGE_SELECTOR).length,
       captureResponseNodes: responseNodes,
+      captureAssistantUnits: assistantUnits.length,
+      captureLatestUnitDomChars: latestUnitTextContent.length,
+      captureLatestUnitRenderedChars: latestUnitInnerText.length,
+      captureLatestUnitSerializedChars: latestUnitSerializedText.length,
+      captureLatestUnitMarkdownNodes: latestUnitMarkdownNodes,
+      captureLatestUnitFrames: latestUnitFrames,
+      captureRejectedBeforeAnchor: rejected.beforeAnchor,
+      captureRejectedAsUser: rejected.asUser,
+      captureRejectedBaseline: rejected.baseline,
+      captureRejectedEmpty: rejected.empty,
+      captureRejectedScaffold: rejected.scaffold,
+      captureRejectedEcho: rejected.echo,
+      captureEligibleNodes: rejected.eligible,
       captureAnchor: Boolean(anchor),
       captureAnchorLatched: chatGptUserTurnAnchorLatched,
       captureGenerationSeen: chatGptResponseGenerationObserved,
@@ -720,8 +772,13 @@ class InactiveSendOperationError extends Error {
 
     const existingResponses = document.querySelectorAll(activeAdapter.responseSelectors.join(', '));
     lastSeenResponseEl = existingResponses.length > 0 ? existingResponses[existingResponses.length - 1] : null;
-    responseBaselineEls = new Set(existingResponses);
-    responseBaselineTextCounts = countResponseTextKeys(Array.from(existingResponses));
+    // Snapshot alternate Chat/Work assistant units as well; none predating
+    // this send may qualify as a fresh answer even after a DOM remount.
+    const baselineCandidates = activeAdapter.provider === 'chatgpt'
+      ? [...existingResponses, ...document.querySelectorAll(CHATGPT_ASSISTANT_UNIT_SELECTOR)]
+      : Array.from(existingResponses);
+    responseBaselineEls = new Set(baselineCandidates);
+    responseBaselineTextCounts = countResponseTextKeys(baselineCandidates);
     responseGeneration += 1;
     activeResponseGeneration = responseGeneration;
     waitingForResponse = true;
@@ -1328,17 +1385,86 @@ class InactiveSendOperationError extends Error {
     // through to the baseline filters below instead of staying silent.
     if (adapter.provider === 'chatgpt' && !chatGptAnchor && !chatGptMayReadResponseWithoutAnchor()) return null;
     const responseEls = Array.from(document.querySelectorAll(adapter.responseSelectors.join(', ')));
-    if (responseEls.length === 0) return null;
+    if (responseEls.length === 0 && adapter.provider !== 'chatgpt') return null;
     for (let index = responseEls.length - 1; index >= 0; index -= 1) {
       const response = responseEls[index];
       if (chatGptAnchor && !elementFollows(chatGptAnchor, response)) continue;
       if (!chatGptAnchor && waitingForResponse && responseBaselineEls.has(response)) continue;
       if (isUserMessageElement(response)) continue;
-      const text = extractResponseText(response);
+      const rawText = extractResponseText(response);
+      const text = adapter.provider === 'chatgpt'
+        ? meaningfulChatGptAnswerText(response, rawText)
+        : rawText;
       if (!chatGptAnchor && waitingForResponse && text && !responseTextIsBeyondBaseline(text, responseEls)) continue;
       if (text && !isLikelyPromptEcho(text, pendingPromptText)) return { element: response, text };
     }
+    // Some authenticated Chat/Work pages render a complete answer inside a
+    // new assistant unit without any adapter-specific markdown element.
+    // Require a verified post-send user bubble AND the same new-element,
+    // new-text, assistant-role, ordering, and prompt-echo protections.
+    // The existing current-turn stable completion signal still controls DONE.
+    if (adapter.provider === 'chatgpt' && waitingForResponse && chatGptUserTurnAnchorLatched) {
+      const units = Array.from(document.querySelectorAll(CHATGPT_ASSISTANT_UNIT_SELECTOR));
+      for (let index = units.length - 1; index >= 0; index -= 1) {
+        const response = units[index];
+        if (chatGptAnchor && !elementFollows(chatGptAnchor, response)) continue;
+        if (responseBaselineEls.has(response) || isUserMessageElement(response)) continue;
+        const text = meaningfulChatGptAnswerText(response, extractResponseText(response));
+        if (!text || !responseTextIsBeyondBaseline(text, units)) continue;
+        if (isLikelyPromptEcho(text, pendingPromptText)) continue;
+        return { element: response, text };
+      }
+    }
     return null;
+  }
+
+  // The Chat/Work heading is not answer content, even when a terminal
+  // copy control is present. It must not become RESPONSE_CHUNK or DONE.
+  // Only strip it from an assistant unit if the DOM identifies it as its
+  // own chrome heading; do not remove quoted words from a real answer.
+  function chatGptIsChromeHeading(text: string): boolean {
+    const withoutMarkup = text.trim()
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^\*{1,2}/, '')
+      .replace(/\*{1,2}$/, '')
+      .trim();
+    return /^chatgpt\s+said\s*[:：]?$/i.test(withoutMarkup);
+  }
+
+  function meaningfulChatGptAnswerText(response: Element, rawText: string | null): string | null {
+    if (!rawText) return null;
+    let text = rawText.trim();
+    if (chatGptIsChromeHeading(text)) return null;
+
+    // New-style assistant units sometimes contain a visible heading
+    // preceding the actual answer. Copy only the answer, not that heading
+    // or any tertiary tool-status footer.
+    const isAssistantUnit = CHATGPT_ASSISTANT_UNIT_SELECTOR.split(', ').some((selector) =>
+      response.getAttribute(selector.startsWith('[data-content-')
+        ? 'data-content-search-unit-key'
+        : 'data-chatgpt-search-unit-key')?.endsWith(':assistant'),
+    );
+    if (isAssistantUnit) {
+      const heading = response.querySelector('[data-conversation-role="assistant"]');
+      const headingText = heading?.textContent?.trim() ?? '';
+      if (headingText && chatGptIsChromeHeading(headingText)) {
+        const serializedHeading = serializeResponseText(heading!).trim();
+        for (const prefix of [serializedHeading, headingText]) {
+          if (prefix && text.startsWith(prefix)) {
+            text = text.slice(prefix.length).trim();
+            break;
+          }
+        }
+      }
+      const tertiary = response.querySelector('[data-markdown-text-tone="tertiary"]');
+      const tertiaryText = tertiary ? serializeResponseText(tertiary).trim() : '';
+      if (tertiaryText && text.endsWith(tertiaryText)) {
+        text = text.slice(0, -tertiaryText.length).trim();
+      }
+    }
+    if (!text || chatGptIsChromeHeading(text)) return null;
+    if (/^(?:pro thinking|thinking|reasoning|searching|working on it|finalizing answer)$/i.test(text)) return null;
+    return text;
   }
 
   function isUserMessageElement(response: Element): boolean {

@@ -199,6 +199,30 @@ describe('workflow engine', () => {
     }]);
   });
 
+  it.each(['ChatGPT said:', '#### ChatGPT said:', '**ChatGPT said:**'])(
+    'rejects a ChatGPT heading-only DONE instead of confirming a completed Consult step: %s',
+    async (heading) => {
+      const events: BridgeMessage[] = [];
+      onBridgeMessage((message) => {
+        if (message.action === 'WORKFLOW_STEP_CONFIRMED' || message.action === 'WORKFLOW_STEP_FAILED') {
+          events.push(message);
+        }
+      });
+      const pending = sendAndWait('chatgpt', 'some prompt');
+      const rejection = pending.catch((error: unknown) => error);
+      await Promise.resolve();
+      publishBridgeMessage(done('chatgpt', heading, 'pull'));
+      const error = await rejection;
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('heading instead of an answer');
+      expect(events.some((event) => event.action === 'WORKFLOW_STEP_CONFIRMED')).toBe(false);
+      expect(events).toContainEqual(expect.objectContaining({
+        action: 'WORKFLOW_STEP_FAILED',
+        provider: 'chatgpt',
+      }));
+    },
+  );
+
   it('registers the waiter before sending so a synchronous DONE from send resolves', async () => {
     vi.mocked(host.provider.send).mockImplementationOnce(async () => {
       publishBridgeMessage(done('claude', 'fast'));
