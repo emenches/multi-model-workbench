@@ -181,6 +181,7 @@ export const zhTW: Record<I18nKey, string> = {
   'sidebar.addAgent': '新增模型',
   'sidebar.agents': '模型',
   'sidebar.activityToggle': '活動面板',
+  'sidebar.emptyChatTitle': '你想聊些什麼？',
   'sidebar.emptyTitle': '今天想做什麼？',
   'sidebar.emptySubtitle': '選擇工作流程，然後開始對話。',
   'sidebar.chooseProject': '對話專案',
