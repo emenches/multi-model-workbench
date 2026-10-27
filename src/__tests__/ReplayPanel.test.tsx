@@ -70,6 +70,15 @@ function buttonWithText(node: ReactNode, text: string): ReactElement {
   return firstElement(node, (element) => element.type === 'button' && textOf(element).includes(text));
 }
 
+const nativeWindowGeometry = {
+  windowWidth: 940,
+  windowHeight: 700,
+  webviewWidth: 940,
+  webviewHeight: 700,
+  webviewX: 0,
+  webviewY: 0,
+};
+
 describe('ReplayPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -77,14 +86,7 @@ describe('ReplayPanel', () => {
     vi.mocked(host.snapshot.list).mockResolvedValue([]);
     vi.mocked(host.snapshot.load).mockResolvedValue(null);
     vi.mocked(host.snapshot.delete).mockResolvedValue(undefined);
-    vi.mocked(host.provider.openWindow).mockResolvedValue({
-      windowWidth: 940,
-      windowHeight: 700,
-      webviewWidth: 940,
-      webviewHeight: 700,
-      webviewX: 0,
-      webviewY: 0,
-    });
+    vi.mocked(host.provider.openWindow).mockResolvedValue(nativeWindowGeometry);
     vi.mocked(replaySnapshot).mockResolvedValue({
       ok: true,
       plan: {
@@ -269,25 +271,16 @@ describe('ReplayPanel', () => {
       preflight: { ok: false, unavailable: ['meta'], aliased: [] },
     });
     let rejectFirst!: (reason: Error) => void;
-    const first = new Promise<void>((_, reject) => { rejectFirst = reject; });
+    const first = new Promise<typeof nativeWindowGeometry>((_, reject) => { rejectFirst = reject; });
     let resolveRetry!: () => void;
-    const retry = new Promise<void>((resolve) => { resolveRetry = resolve; });
+    const retry = new Promise<typeof nativeWindowGeometry>((resolve) => {
+      resolveRetry = () => resolve(nativeWindowGeometry);
+    });
     const onOpenLogin = vi.fn().mockResolvedValue(undefined);
     const login = path === 'host' ? vi.mocked(host.provider.openWindow) : onOpenLogin;
-    // The native host returns geometry, while the optional UI callback
-    // returns void. Both must preserve the same in-flight retry semantics.
-    if (path === 'host') {
-      const geometry = {
-        windowWidth: 940, windowHeight: 700,
-        webviewWidth: 940, webviewHeight: 700,
-        webviewX: 0, webviewY: 0,
-      };
-      vi.mocked(host.provider.openWindow)
-        .mockReturnValueOnce(first.then(() => geometry))
-        .mockReturnValueOnce(retry.then(() => geometry));
-    } else {
-      onOpenLogin.mockReturnValueOnce(first).mockReturnValueOnce(retry);
-    }
+    // A native login returns its geometry. The optional callback's return
+    // value is ignored by ReplayPanel; both share the same guard semantics.
+    login.mockReturnValueOnce(first).mockReturnValueOnce(retry);
     const panel = new ReplayPanel({ onOpenLogin: path === 'host' ? undefined : onOpenLogin });
     await panel.startReplay({ kind: 'last', snapshot: buildSnapshot() });
     const openClick = propsOf(buttonWithText(panel.render(), t('replay.openLogin', 'en'))).onClick!;
