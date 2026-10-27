@@ -798,6 +798,13 @@ export default function App() {
         }
         return;
       }
+      if (message.action === 'WORKFLOW_STEP_CONFIRMED') {
+        // A provider's raw RESPONSE_DONE is not proof that the running graph
+        // accepted the answer. Only the active waiter emits this local event.
+        // Keep it out of the chat transcript; it updates progress only.
+        setProcessTrace((current) => (current ? reduceProcessTraceEvent(current, message, localeRef.current) : current));
+        return;
+      }
       if (!isRenderableResponseMessage(message) || !message.provider) return;
       setProcessTrace((current) => (current ? reduceProcessTraceEvent(current, message, localeRef.current) : current));
       let active = activeResponses.current.get(message.provider);
