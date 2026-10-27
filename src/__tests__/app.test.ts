@@ -17,7 +17,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 import { bubbleAuthorLabel } from '../bubbleAuthorLabel';
-import App, { ChatArea, presentationHiddenProvidersForCenterSurface } from '../App';
+import App, { agentHeaderStatus, ChatArea, presentationHiddenProvidersForCenterSurface } from '../App';
 import { I18nProvider } from '../i18n/context';
 import { applyCenterHiddenCommands } from '../ui/presentationCommands';
 import { defaultPresentation, setProviderPresentation } from '../ui/presentation';
@@ -57,6 +57,21 @@ describe('App bubble author labels', () => {
   });
 });
 
+
+describe('Start screen agent status', () => {
+  it('shows genuine ready, interim verification, and remembered session states separately', () => {
+    expect(agentHeaderStatus(state('chatgpt'), true, false)).toBe('ready');
+    const unknown = { ...state('claude'), webview: 'none' as const, dom: 'unknown' as const, login: 'unknown' as const };
+    expect(agentHeaderStatus(unknown, false, false)).toBeNull();
+    expect(agentHeaderStatus(unknown, true, true)).toBe('checking');
+    expect(agentHeaderStatus(unknown, true, false)).toBe('open');
+    expect(agentHeaderStatus({ ...unknown, webview: 'creating' }, false, false)).toBe('checking');
+    expect(agentHeaderStatus({ ...unknown, webview: 'loaded' }, false, false)).toBe('checking');
+    expect(agentHeaderStatus({ ...unknown, login: 'logged_out' }, true, true)).toBeNull();
+    expect(agentHeaderStatus({ ...unknown, login: 'blocked' }, true, true)).toBeNull();
+  });
+});
+
 describe('App workflow controls', () => {
   it('does not expose the legacy ask-before-each-step toggle', () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, { language: 'en', children: createElement(App) }));
@@ -69,6 +84,8 @@ describe('App workflow controls', () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, { language: 'en', children: createElement(App) }));
 
     expect(html).toContain('workbench-connected-agent-strip');
+    expect(html).toContain('var(--wb-sidebar-width, 252px)');
+    expect(html).toContain('Checking agent connections');
     expect(html).toContain('workbench-new-chat-screen');
     expect(html).toContain('workbench-new-chat-workflow');
     expect(html).toContain('Simple Chat');
