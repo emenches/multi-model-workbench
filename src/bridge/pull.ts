@@ -6,6 +6,7 @@ import { publishBridgeMessage } from './bus';
 export const DONE_WATCHDOG_MS = 5000;
 export const PULL_RECOVERY_DELAY_MS = 5_000;
 export const PULL_RECOVERY_MAX_ATTEMPTS = 3;
+export const SILENT_PULL_PROBE_INTERVAL_MS = 15_000;
 export const AWAITING_MAX_MS = 10 * 60 * 1000;
 export const AWAITING_ABSOLUTE_MAX_MS = 60 * 60 * 1000;
 
@@ -16,6 +17,10 @@ const recoveryTimers = new Map<AIProvider, ReturnType<typeof globalThis.setTimeo
 const recoveryAttempts = new Map<AIProvider, number>();
 type PullFailureKind = 'callback_timeout' | 'callback_closed' | 'webview_unavailable' | 'host_not_ready' | 'document_blocked' | 'invalid_json' | 'invalid_batch' | 'eval_failed';
 const lastPullFailure = new Map<AIProvider, PullFailureKind>();
+// Successful empty callbacks otherwise leave no diagnostic footprint, making
+// silent title reporting indistinguishable from a stalled response pull loop.
+const lastTitleStatusAt = new Map<AIProvider, number>();
+const lastEmptyPullProbeAt = new Map<AIProvider, number>();
 const pollTimers = new Map<AIProvider, ReturnType<typeof globalThis.setInterval>>();
 const pullInflight = new Map<AIProvider, { promise: Promise<void>; force: boolean }>();
 const activeBoot = new Map<AIProvider, string>();
@@ -66,6 +71,9 @@ export function onProviderBootRotation(listener: (provider: AIProvider) => void)
 
 export function handleTitleMessage(message: BridgeMessage): void {
   if (message.transport === 'title' && message.action !== 'STATUS_REPORT') return;
+  if (message.transport === 'title' && message.action === 'STATUS_REPORT' && message.provider) {
+    lastTitleStatusAt.set(message.provider, Date.now());
+  }
   if (message.provider && message.bootId) {
     const current = activeBoot.get(message.provider);
     if (current !== message.bootId) {
@@ -123,6 +131,7 @@ export function setProviderAwaiting(provider: AIProvider, awaiting: boolean): vo
     return;
   }
   pending.delete(provider);
+  lastEmptyPullProbeAt.delete(provider);
   clearPullRecovery(provider);
   const timer = pollTimers.get(provider);
   if (timer !== undefined) globalThis.clearInterval(timer);
@@ -200,6 +209,7 @@ async function pullProviderInner(provider: AIProvider, options: { force?: boolea
     });
   }
   lastPullFailure.delete(provider);
+  maybeReportSilentEmptyPull(provider, batch);
   // A successful callback is direct evidence the old provider document is
   // responsive again. Keep boot/mid watermarks intact; never forge DONE.
   if (degraded.has(provider)) recoverProvider(provider);
@@ -224,6 +234,31 @@ async function pullProviderInner(provider: AIProvider, options: { force?: boolea
     await host.provider.eval(provider, `window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.ackBulk(${maxMid});`);
   }
   if (sawDone) setProviderAwaiting(provider, false);
+}
+
+// This measures the *native eval callback*, not whether the injected engine
+// exists: its read expression also returns [] when __MAC_BRIDGE__ is absent.
+// Distinguish a reachable WebView with an empty outbox from an unreachable
+// callback without claiming that response extraction is working.
+function maybeReportSilentEmptyPull(provider: AIProvider, batch: BridgeMessage[]): void {
+  if (provider !== 'chatgpt' || !pending.has(provider) || batch.length !== 0) return;
+  const titleAt = lastTitleStatusAt.get(provider);
+  if (titleAt === undefined) return;
+  const now = Date.now();
+  const silentMs = now - titleAt;
+  if (silentMs < SILENT_PULL_PROBE_INTERVAL_MS ||
+      now - (lastEmptyPullProbeAt.get(provider) ?? titleAt) < SILENT_PULL_PROBE_INTERVAL_MS) return;
+  lastEmptyPullProbeAt.set(provider, now);
+  publish({
+    v: 1,
+    action: 'STATUS_REPORT',
+    provider,
+    transport: 'local',
+    payload: {
+      pullDiagnostic: 'eval-ok-empty',
+      statusSilentMs: Math.floor(silentMs / 1_000) * 1_000,
+    },
+  });
 }
 
 function markDegraded(provider: AIProvider, reason: string): void {
@@ -370,6 +405,8 @@ export function resetBridgePullForTests(): void {
   recoveryTimers.clear();
   recoveryAttempts.clear();
   lastPullFailure.clear();
+  lastTitleStatusAt.clear();
+  lastEmptyPullProbeAt.clear();
   activeBoot.clear();
   lastSeenBoot.clear();
   awaitingEpoch.clear();
