@@ -2309,6 +2309,10 @@ const CHATGPT_BRIDGE_PEEK_JS: &str =
     "window.__MAC_BRIDGE__ ? window.__MAC_BRIDGE__.peekOutbox() : []";
 const CHATGPT_BRIDGE_ACK_PREFIX: &str =
     "window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.ackBulk(";
+// Exact, read-only probe used only to distinguish a present bridge/engine
+// from a successful native eval into a document with no injected bridge.
+const CHATGPT_BRIDGE_HEALTH_JS: &str =
+    "(function(){var b=window.__MAC_BRIDGE__;var e=window.__MAC_ENGINE__;return {bridgePresent:!!b,enginePresent:!!e,bootMatches:!!b&&!!e&&b.bootId===e.bootId,adapterInstalled:!!e&&typeof e.adapterVersion==="number"&&e.adapterVersion>0,statusTicks:!!e&&Number.isSafeInteger(e.statusTicks)?e.statusTicks:null,responsePollTicks:!!e&&Number.isSafeInteger(e.responsePollTicks)?e.responsePollTicks:null,engineAwaiting:!!e&&e.waitingForResponse===true};})()";
 
 fn stale_chatgpt_bridge_eval_allowed(
     provider: &str,
@@ -2324,7 +2328,7 @@ fn stale_chatgpt_bridge_eval_allowed(
         return false;
     }
     if callback {
-        return js == CHATGPT_BRIDGE_PEEK_JS;
+        return js == CHATGPT_BRIDGE_PEEK_JS || js == CHATGPT_BRIDGE_HEALTH_JS;
     }
     let Some(mid) = js
         .strip_prefix(CHATGPT_BRIDGE_ACK_PREFIX)
@@ -2691,6 +2695,7 @@ mod tests {
 
     use super::{
         accept_status_for_session_reset, adopt_grok_bridge_boot, bridge_resets_on_boot_rotation,
+        CHATGPT_BRIDGE_HEALTH_JS,
         cancel_grok_navigation, cancel_grok_popup_recovery, cancel_session_reset,
         challenge_auxiliary_navigation_allowed, claim_grok_popup_recovery, confirm_grok_page_load,
         decide_new_window_action, external_handoff_allowed, chatgpt_renderer_auxiliary_url, delayed_grok_bridge_script, eval_callback_reports_true,
@@ -3457,6 +3462,11 @@ mod tests {
         let ack = "window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.ackBulk(99);";
 
         assert!(stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, peek, true));
+        assert!(stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, CHATGPT_BRIDGE_HEALTH_JS, true));
+        assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, CHATGPT_BRIDGE_HEALTH_JS, false));
+        assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &blocked, CHATGPT_BRIDGE_HEALTH_JS, true));
+        assert!(!stale_chatgpt_bridge_eval_allowed("gemini", &stale, CHATGPT_BRIDGE_HEALTH_JS, true));
+        assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, "window.__MAC_ENGINE__", true));
         assert!(stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, ack, false));
         assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, peek, false));
         assert!(!stale_chatgpt_bridge_eval_allowed("chatgpt", &stale, ack, true));
