@@ -193,6 +193,7 @@ export const de: Record<I18nKey, string> = {
   'sidebar.addAgent': 'Agent hinzufügen',
   'sidebar.agents': 'Agenten',
   'sidebar.activityToggle': 'Aktivitätsbereich',
+  'sidebar.emptyChatTitle': 'Worüber möchtest du sprechen?',
   'sidebar.emptyTitle': 'Woran möchten Sie arbeiten?',
   'sidebar.emptySubtitle': 'Workflow auswählen und Unterhaltung starten.',
   'sidebar.chooseProject': 'Chat-Projekt',
