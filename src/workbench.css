@@ -992,3 +992,27 @@ html:not(.ai-sister) .workbench-shell .workbench-activity-drawer .workbench-trac
   html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflows { gap: 6px; }
   html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflow { padding-inline: 10px; }
 }
+
+/* Simple Chat keeps one explicit agent above the single input, separate
+   from Free fan-out's multi-model target picker. */
+html:not(.ai-sister) .workbench-shell .workbench-simple-agent-select {
+  min-width: 130px;
+  max-width: 220px;
+  background: var(--wb-surface);
+  color: var(--wb-ink);
+  border-color: var(--wb-strong-border);
+  outline-offset: 2px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-simple-agent-select:focus-visible {
+  outline: 2px solid var(--wb-accent);
+}
+html:not(.ai-sister) .workbench-shell .workbench-simple-agent-select:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-chat-screen .workbench-simple-agent {
+  padding: 5px 12px;
+}
+@media (max-width: 850px) {
+  html:not(.ai-sister) .workbench-shell .workbench-simple-agent > span:last-child { display: none; }
+}

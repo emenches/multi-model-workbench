@@ -7,6 +7,13 @@ export const ja: Record<I18nKey, string> = {
   'mode.coding.name': 'コーディング',
   'mode.roundtable.name': 'ラウンドテーブル',
   'preset.catalog.aria': 'プリセット一覧',
+  'preset.simple.displayName': 'シンプルチャット',
+  'preset.simple.meta': '1つのモデル',
+  'preset.simple.description': '選択した1つのモデルと直接会話します。並列送信やレビューは行いません。',
+  'preset.simple.costLabel': '選択した1つのモデル',
+  'preset.simple.agentLabel': '使用するモデル',
+  'preset.simple.noAgent': 'モデルを接続してください',
+  'preset.simple.oneAgentNote': 'メッセージはこのモデルだけに送られます。',
   'preset.free.displayName': '並列回答',
   'preset.free.meta': '1分未満',
   'preset.free.description':

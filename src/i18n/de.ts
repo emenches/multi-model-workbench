@@ -7,6 +7,13 @@ export const de: Record<I18nKey, string> = {
   'mode.coding.name': 'Programmieren',
   'mode.roundtable.name': 'Diskussionsrunde',
   'preset.catalog.aria': 'Vorlagenkatalog',
+  'preset.simple.displayName': 'Einfacher Chat',
+  'preset.simple.meta': 'Ein Agent',
+  'preset.simple.description': 'Direkt mit einem verbundenen Agenten sprechen – ohne parallele Anfragen oder Reviews.',
+  'preset.simple.costLabel': 'Ein Agent · Geringer Aufwand',
+  'preset.simple.agentLabel': 'Chat mit',
+  'preset.simple.noAgent': 'Zuerst einen Agenten verbinden',
+  'preset.simple.oneAgentNote': 'Nur dieser Agent erhält die Nachricht.',
   'preset.free.displayName': 'Parallele Antworten',
   'preset.free.meta': '< 1 Min.',
   'preset.free.description':
