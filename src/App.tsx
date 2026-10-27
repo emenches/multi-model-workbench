@@ -2626,13 +2626,13 @@ export function ChatArea({
             </span>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-                {t('processTrace.workInProgress', locale)}
+                {translateKey('processTrace.workInProgress', locale)}
               </div>
               <div className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
                 {trace.steps.filter((step) => step.status === 'active' && step.kind !== 'fanout').map((step) => step.label).join(' · ')}
               </div>
               <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                {t('processTrace.progressNote', locale)}
+                {translateKey('processTrace.progressNote', locale)}
               </div>
             </div>
           </div>

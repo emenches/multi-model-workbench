@@ -24,10 +24,10 @@ export function activeStepActivity(
   const phase: ActivePhase =
     secondsWithoutNewText >= 60
       ? 'no-update'
-      : providerReportsGenerating
-        ? 'generating'
-        : step.content
-          ? 'receiving'
+      : step.content
+        ? 'receiving'
+        : providerReportsGenerating
+          ? 'generating'
           : 'waiting';
   return { phase, elapsedSeconds, secondsWithoutNewText };
 }

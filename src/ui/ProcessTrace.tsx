@@ -73,9 +73,13 @@ export function ProcessTrace({
             {trace.steps.map((step) => {
               const activity = activeStepActivity(step, Boolean(step.provider && states?.[step.provider]?.thinking), nowMs);
               const phaseText = activity
-                ? activity.phase === 'no-update'
-                  ? `${t('processTrace.noRecentOutput', locale)} · ${activity.secondsWithoutNewText}s`
-                  : `${t(activity.phase === 'generating' ? 'processTrace.generating' : activity.phase === 'receiving' ? 'processTrace.receiving' : 'processTrace.awaiting', locale)} · ${activity.elapsedSeconds}s`
+                ? t(activity.phase === 'no-update'
+                  ? 'processTrace.noRecentOutput'
+                  : activity.phase === 'generating'
+                    ? 'processTrace.generating'
+                    : activity.phase === 'receiving'
+                      ? 'processTrace.receiving'
+                      : 'processTrace.awaiting', locale)
                 : '';
               return (
               <li key={step.id} className={`workbench-trace-step rounded-lg border transition-colors ${activity
@@ -110,6 +114,11 @@ export function ProcessTrace({
                       {activity ? (
                         <span className="mt-1 block text-[0.75rem] leading-relaxed text-sky-700 dark:text-sky-300">
                           {phaseText}
+                          {activity.phase === 'no-update' ? (
+                            <span className="ml-1 font-normal text-zinc-500 dark:text-zinc-400">
+                              ({activity.secondsWithoutNewText}s)
+                            </span>
+                          ) : null}
                           <span className="ml-2 text-zinc-500 dark:text-zinc-400">
                             {formatI18n(t('processTrace.elapsed', locale), { time: formatElapsed(activity.elapsedSeconds) })}
                           </span>

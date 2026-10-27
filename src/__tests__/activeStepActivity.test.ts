@@ -26,6 +26,7 @@ describe('workflow activity state', () => {
     expect(activeStepActivity(step, false, 40_000)).toEqual({
       phase: 'receiving', elapsedSeconds: 39, secondsWithoutNewText: 15,
     });
+    expect(activeStepActivity(step, true, 40_000)?.phase).toBe('receiving');
     expect(activeStepActivity(step, false, 86_000)).toEqual({
       phase: 'no-update', elapsedSeconds: 85, secondsWithoutNewText: 61,
     });
