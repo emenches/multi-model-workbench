@@ -61,6 +61,7 @@ import { ThinkingVisualization } from './ui/ThinkingVisualization';
 import { makeFileDragGuard } from './ui/fileDrop';
 import { PreflightDialog } from './ui/PreflightDialog';
 import { PresetCatalog } from './ui/PresetCatalog';
+import { PRESET_CATALOG } from './ui/presetCatalogData';
 import { ModalDialog } from './ui/ModalDialog';
 import { createProcessTrace, reduceProcessTraceEvent, settleProcessTrace, type ProcessTraceState } from './ui/processTraceModel';
 import { ProcessTrace } from './ui/ProcessTrace';
@@ -312,7 +313,7 @@ export default function App() {
   const [processTrace, setProcessTrace] = useState<ProcessTraceState | undefined>();
   const [processTraceDetailOpen, setProcessTraceDetailOpen] = useState(false);
   // Keep the reading area usable while retaining a full, opt-in timeline.
-  const [workflowDetailsExpanded, setWorkflowDetailsExpanded] = useState(false);
+  // Full timeline now lives in the optional right-side Activity panel.
   const [targetSelection, setTargetSelection] = useState<FreeTargetSelection>(() => ({
     targets: [...DEFAULT_FREE_TARGET_PROVIDERS],
     defaultsInitialized: true,
@@ -2122,6 +2123,18 @@ export default function App() {
     ? formatI18n(translate('input.modeNotReady'), { remaining: missingModeProviderCount })
     : undefined;
 
+  const composer = (
+    <InputBar
+      onSend={send}
+      onCancel={cancelWorkflow}
+      disabled={noSendableProviders}
+      sendBlocked={modeSendBlocked}
+      blockedMessage={modeBlockedMessage}
+      isProcessing={isProcessing}
+      locale={locale}
+    />
+  );
+  const newChatWelcome = messages.length === 0 && !isProcessing;
   return (
     <main className="app-shell workbench-shell h-screen overflow-hidden bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div
@@ -2299,7 +2312,7 @@ export default function App() {
             <div className="workbench-connected-agent-strip mt-3 flex flex-wrap items-center gap-1.5" aria-label={translate('sidebar.agents')}>
               {activeProviders.filter((provider) => states[provider].login === 'logged_in').map((provider) => (
                 <button key={provider} type="button" className="workbench-agent-pill inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs"
-                  onClick={() => viewWorkflowProvider(provider)} title={AI_PROVIDERS[provider].name}>
+                  onClick={() => openProviderModelSettings(provider)} title={AI_PROVIDERS[provider].name}>
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true"/>
                   {AI_PROVIDERS[provider].name}
                 </button>
@@ -2334,7 +2347,24 @@ export default function App() {
                 {processTrace?.steps.some((step) => step.status === 'active') ? <span className="ml-1 h-1.5 w-1.5 rounded-full bg-sky-500 inline-block" aria-hidden="true"/> : null}
               </button>
             </div>
+            {modelSettingsProvider && activeProviders.includes(modelSettingsProvider) ? (
+              <div className="workbench-model-controls-popover mt-2">
+                <ProviderModelControls provider={modelSettingsProvider} onOpenProvider={openProviderModelSettings}
+                  onClose={() => setModelSettingsProvider(undefined)}/>
+              </div>
+            ) : null}
           </header>
+          {checkpoint ? (
+            <details className="workbench-checkpoint-inline mt-3 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950" open>
+              <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-amber-900 dark:text-amber-100">{translate('checkpoint.confirmEachStep')}</summary>
+              <div className="border-t border-amber-300 p-3 dark:border-amber-900">
+                <CheckpointCard checkpoint={checkpoint} draft={checkpointDraft}
+                  onDraftChange={setCheckpointDraft}
+                  onNativeEdit={(provider) => { void forceProviderNativeCenter(provider); }}
+                  locale={locale}/>
+              </div>
+            </details>
+          ) : null}
           {activityPanelOpen ? (
             <aside id="workbench-activity-drawer" aria-label={translate('sidebar.activity')} className="workbench-activity-drawer">
               <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
@@ -2418,7 +2448,45 @@ export default function App() {
               handleTranscriptScroll();
             }}
           >
-            <ChatArea messages={messages} locale={locale} states={states} trace={isProcessing ? processTrace : undefined} />
+            {newChatWelcome ? (
+              <div className="workbench-new-chat-screen flex min-h-full flex-col items-center justify-center px-3 py-6">
+                <div className="workbench-new-chat-body mx-auto w-full max-w-2xl">
+                  <h2 className="workbench-new-chat-title text-center text-2xl font-semibold tracking-tight">
+                    {translate('sidebar.emptyTitle')}
+                  </h2>
+                  <p className="mt-2 text-center text-sm text-zinc-500 dark:text-zinc-400">{translate('sidebar.emptySubtitle')}</p>
+                  <div className="workbench-new-chat-workflows mt-8 flex flex-wrap justify-center gap-2" aria-label={translate('sidebar.workflowChoice')}>
+                    {PRESET_CATALOG.map((preset) => (
+                      <button key={preset.id} type="button" disabled={isProcessing}
+                        className={`workbench-new-chat-workflow rounded-full border px-3.5 py-2 text-xs font-semibold transition-colors ${presetId === preset.id ? 'workbench-new-chat-workflow-selected' : ''}`}
+                        aria-pressed={presetId === preset.id} title={translate(preset.descriptionKey)}
+                        onClick={() => selectPreset(preset.id)}>
+                        {preset.graphId === 'free' && preset.id !== 'brainstorm' ? '✦ ' : ''}
+                        {translate(preset.displayNameKey)}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="workbench-new-chat-project mx-auto mt-5 flex max-w-xl items-center justify-center gap-2">
+                    <label className="sr-only" htmlFor="workbench-new-chat-project">{translate('sidebar.chooseProject')}</label>
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">{translate('sidebar.chooseProject')}</span>
+                    <select id="workbench-new-chat-project" className="max-w-52 rounded-lg border border-zinc-200 bg-transparent px-2 py-1.5 text-xs dark:border-zinc-700"
+                      value={effectiveProjectStore.activeProjectId ?? ''}
+                      onChange={(event) => {
+                        const session = sessions.find((item) => item.id === activeSessionId);
+                        if (session) assignConversationProject(session, event.target.value || undefined);
+                      }}>
+                      <option value="">{translate('sidebar.general')}</option>
+                      {projectStore.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                    </select>
+                    <button type="button" className="rounded-lg px-2 py-1.5 text-xs text-sky-700 hover:bg-zinc-100 dark:text-sky-300 dark:hover:bg-zinc-800"
+                      onClick={() => setProjectSettingsOpen(true)}>+ {translate('sidebar.newProject')}</button>
+                  </div>
+                  <div className="workbench-new-chat-composer mt-4">{composer}</div>
+                </div>
+              </div>
+            ) : (
+              <ChatArea messages={messages} locale={locale} states={states} trace={isProcessing ? processTrace : undefined} />
+            )}
           </div>
           {import.meta.env.DEV && showDevDiagnostics ? (
             <section
@@ -2435,19 +2503,24 @@ export default function App() {
               <EchoPanel />
             </section>
           ) : null}
-          <div className="ai-sister-conversation-composer workbench-composer-region shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800">
-            <InputBar
-              onSend={send}
-              onCancel={cancelWorkflow}
-              disabled={noSendableProviders}
-              sendBlocked={modeSendBlocked}
-              blockedMessage={modeBlockedMessage}
-              isProcessing={isProcessing}
-              locale={locale}
-            />
+          <div className={`ai-sister-conversation-composer workbench-composer-region shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800 ${newChatWelcome ? 'hidden' : ''}`}>
+            {!newChatWelcome ? composer : null}
           </div>
         </section>
       </div>
+      {projectSettingsOpen ? (
+        <ModalDialog titleId="workbench-project-editor-title" onEscape={() => setProjectSettingsOpen(false)}
+          onBackdrop={() => setProjectSettingsOpen(false)}
+          panelClassName="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-zinc-300 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 id="workbench-project-editor-title" className="text-lg font-semibold">{translate('sidebar.projectSettings')}</h2>
+            <button type="button" className="rounded-lg border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700"
+              onClick={() => setProjectSettingsOpen(false)}>{translate('sidebar.cancel')}</button>
+          </div>
+          <ProjectPicker store={effectiveProjectStore} onSave={saveProjectStore}
+            disabled={isProcessing || !projectsReady} loadError={projectLoadError}/>
+        </ModalDialog>
+      ) : null}
       {workflowOptionsOpen ? (
         <ModalDialog titleId="workbench-mode-title" descriptionId="workbench-mode-description"
           onEscape={() => setWorkflowOptionsOpen(false)}
