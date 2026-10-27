@@ -237,7 +237,19 @@ export const PROMPTS = {
       secondResponse: string,
       secondName: string,
     ) =>
-      `使用者問了：「${question}」\n\n${firstName} 的回答：\n${firstResponse}\n\n${secondName} 的回答：\n${secondResponse}\n\n請檢查兩人說的對不對，對比他們的差異，指出誰的觀點更完整，有沒有遺漏或錯誤。也請你做些研究，補上你自己的答案。`,
+      [
+        'Original user question:',
+        question,
+        '',
+        `Initial answer from ${firstName}:`,
+        firstResponse,
+        '',
+        `Initial answer from ${secondName}:`,
+        secondResponse,
+        '',
+        'Review both answers for factual accuracy, completeness, disagreements, and unsupported claims. Cross-check where possible, clearly flag uncertainty, and add missing relevant evidence. Do not assume either model is correct.',
+        'Write your review in the language requested or primarily used by the ORIGINAL USER in their question, not in the language of the workflow instructions, model responses, or sources. Do not translate quotations or technical identifiers unless the user asks.',
+      ].join('\n\n'),
     summary: (
       question: string,
       firstResponse: string,
@@ -247,7 +259,22 @@ export const PROMPTS = {
       reviewerResponse: string,
       reviewerName: string,
     ) =>
-      `使用者問了：「${question}」\n\n${firstName} 的回答：\n${firstResponse}\n\n${secondName} 的回答：\n${secondResponse}\n\n${reviewerName} 的審查：\n${reviewerResponse}\n\n請綜合以上三位的回答，找出共識與分歧，總結他們的說法，並做點研究補上你自己的最終答案。`,
+      [
+        'Original user question:',
+        question,
+        '',
+        `Initial answer from ${firstName}:`,
+        firstResponse,
+        '',
+        `Initial answer from ${secondName}:`,
+        secondResponse,
+        '',
+        `Critical review by ${reviewerName}:`,
+        reviewerResponse,
+        '',
+        'Produce a clear final answer to the ORIGINAL USER QUESTION. Synthesize supported agreements, explain material disagreements and any uncertainties, and distinguish verified statements from estimates or suggestions. Do not copy unsupported claims simply because another model said them.',
+        'Use the original user\'s requested or primary question language for the final answer, regardless of the language of any model response, quoted evidence, or these workflow instructions. Preserve source quotations, names, URLs, and code without translation unless requested.',
+      ].join('\n\n'),
   },
   roundtable: {
     /**
