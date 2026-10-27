@@ -329,6 +329,8 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
   const captureAnchor = booleanProp(payload, 'captureAnchor');
   const captureGenerationSeen = booleanProp(payload, 'captureGenerationSeen');
   if (rendererDiagnostic === 'navigation-blocked') parts.push('ChatGPT DIL renderer navigation blocked by native policy');
+  if (rendererDiagnostic === 'navigation-allowed') parts.push('ChatGPT DIL renderer navigation allowed inside native page');
+  if (rendererDiagnostic === 'top-level-recovered') parts.push('ChatGPT DIL renderer escaped to top-level; native page restored');
   if (rendererDiagnostic === 'popup-blocked') parts.push('ChatGPT DIL renderer popup blocked by native policy');
   if (capturePhase) parts.push(`capture ${capturePhase}`);
   if (statusErrorStage) parts.push(`status probe error ${statusErrorStage}`);
@@ -372,7 +374,7 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
       bulkReady: bulkReady ?? null,
       doneReady: doneReady ?? null,
       ...(statusErrorStage ? { statusErrorStage } : {}),
-      ...(rendererDiagnostic === 'navigation-blocked' || rendererDiagnostic === 'popup-blocked'
+      ...(['navigation-blocked', 'navigation-allowed', 'top-level-recovered', 'popup-blocked'].includes(rendererDiagnostic ?? '')
         ? { rendererDiagnostic } : {}),
       ...(pullDiagnostic ? {
         pullDiagnostic,

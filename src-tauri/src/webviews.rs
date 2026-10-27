@@ -1020,6 +1020,29 @@ fn chatgpt_renderer_auxiliary_url(provider: &str, url: &tauri::Url) -> bool {
         && url.path().ends_with("/runner.html")
 }
 
+/// WKWebView reports the DIL iframe's navigation through the URL-only
+/// on_navigation callback. The provider's current *top-level* URL must remain
+/// the trusted ChatGPT application before permitting this exact CDN runner.
+/// A second guard at page-load completion restores the trusted app if the
+/// runner nevertheless became the top-level document.
+fn allow_chatgpt_renderer_navigation(
+    provider: &str,
+    target: &tauri::Url,
+    current_main_url: &tauri::Url,
+) -> bool {
+    chatgpt_renderer_auxiliary_url(provider, target)
+        && adapters::url_matches_provider_app(provider, current_main_url).unwrap_or(false)
+}
+
+fn chatgpt_renderer_replaced_top_level(
+    provider: &str,
+    loaded_url: &tauri::Url,
+    current_main_url: &tauri::Url,
+) -> bool {
+    chatgpt_renderer_auxiliary_url(provider, loaded_url)
+        && chatgpt_renderer_auxiliary_url(provider, current_main_url)
+}
+
 fn decide_new_window_action(url: &tauri::Url, allowlisted: bool) -> NewWindowAction {
     if url.host_str() == Some("mac-bridge.invalid") {
         return NewWindowAction::DenySilent;
@@ -1259,6 +1282,40 @@ pub async fn provider_open(
                     reset_bridge_state(&load_app, &load_provider);
                 }
                 PageLoadEvent::Finished => {
+                    if chatgpt_renderer_auxiliary_url(&load_provider, payload.url()) {
+                        // A subframe load leaves Webview::url() on chatgpt.com.
+                        // If the actual top-level URL became the CDN runner,
+                        // restore the provider instead of hosting it as the app.
+                        let top_level_replaced = webview
+                            .url()
+                            .ok()
+                            .is_some_and(|main_url| {
+                                chatgpt_renderer_replaced_top_level(
+                                    &load_provider,
+                                    payload.url(),
+                                    &main_url,
+                                )
+                            });
+                        if top_level_replaced {
+                            let _ = load_app.emit_to(
+                                "main",
+                                "bridge://msg",
+                                serde_json::json!({
+                                    "v": 1,
+                                    "action": "STATUS_REPORT",
+                                    "provider": &load_provider,
+                                    "transport": "local",
+                                    "payload": { "rendererDiagnostic": "top-level-recovered" }
+                                }),
+                            );
+                            if let Ok(adapter) = adapters::get_adapter(&load_provider) {
+                                if let Ok(app_url) = tauri::Url::parse(&adapter.urls.app) {
+                                    let _ = webview.navigate(app_url);
+                                }
+                            }
+                        }
+                        return;
+                    }
                     if load_provider != "grok" {
                         if load_provider == "chatgpt"
                             && adapters::url_matches_provider_app(&load_provider, payload.url())
@@ -1297,12 +1354,18 @@ pub async fn provider_open(
             }
         })
         .on_navigation(move |url| {
-            // DIL renderer frames/resources remain permitted by WebKit, but
-            // this top-level navigation callback must not replace ChatGPT's
-            // own document with a CDN runner lacking our provider bridge.
+            // WKWebView sends the DIL reply iframe through this URL-only
+            // callback. Blocking it prevents ChatGPT from rendering answers.
+            // Permit only this exact CDN runner while the WebView's top-level
+            // document is still an allowed ChatGPT app URL. Renderer popups
+            // remain denied; the load callback guards top-level takeover.
             if chatgpt_renderer_auxiliary_url(&nav_provider, url) {
-                // Record when WKWebView's navigation callback rejects the
-                // ChatGPT DIL runner. Never log a URL, token or page content.
+                let current_main_url = get_provider_webview(&nav_app, &nav_provider)
+                    .ok()
+                    .and_then(|webview| webview.url().ok());
+                let allowed = current_main_url.as_ref().is_some_and(|current| {
+                    allow_chatgpt_renderer_navigation(&nav_provider, url, current)
+                });
                 let _ = nav_app.emit_to(
                     "main",
                     "bridge://msg",
@@ -1311,10 +1374,16 @@ pub async fn provider_open(
                         "action": "STATUS_REPORT",
                         "provider": &nav_provider,
                         "transport": "local",
-                        "payload": { "rendererDiagnostic": "navigation-blocked" }
+                        "payload": {
+                            "rendererDiagnostic": if allowed {
+                                "navigation-allowed"
+                            } else {
+                                "navigation-blocked"
+                            }
+                        }
                     }),
                 );
-                return false;
+                return allowed;
             }
             if url.host_str() == Some("mac-bridge.invalid") {
                 return false;
@@ -2722,7 +2791,9 @@ mod tests {
         CHATGPT_BRIDGE_HEALTH_JS,
         cancel_grok_navigation, cancel_grok_popup_recovery, cancel_session_reset,
         challenge_auxiliary_navigation_allowed, claim_grok_popup_recovery, confirm_grok_page_load,
-        decide_new_window_action, external_handoff_allowed, chatgpt_renderer_auxiliary_url, delayed_grok_bridge_script, eval_callback_reports_true,
+        decide_new_window_action, external_handoff_allowed, chatgpt_renderer_auxiliary_url,
+        allow_chatgpt_renderer_navigation, chatgpt_renderer_replaced_top_level,
+        delayed_grok_bridge_script, eval_callback_reports_true,
         expire_grok_navigation_start_lease, fresh_session_boot, gemini_sorry_navigation_active,
         generic_staleness_dispatch_allowed, grok_app_title_ready,
         grok_auth_popup_may_complete_login, grok_bridge_drive_allowed, grok_bridge_host_action,
@@ -3015,6 +3086,27 @@ mod tests {
         assert!(!chatgpt_renderer_auxiliary_url("chatgpt", &url("http://cdn.platform.openai.com/deployments/dil/v14/runner.html")));
         assert!(!chatgpt_renderer_auxiliary_url("chatgpt", &url("https://cdn.platform.openai.com/other/runner.html")));
         assert!(!chatgpt_renderer_auxiliary_url("chatgpt", &url("https://example.com/deployments/dil/v14/runner.html")));
+    }
+
+    #[test]
+    fn chatgpt_dil_runner_requires_trusted_main_page_and_exact_resource() {
+        let chat = url("https://chatgpt.com/c/real-conversation");
+        let renderer = url("https://cdn.platform.openai.com/deployments/dil/v14/runner.html");
+        assert!(allow_chatgpt_renderer_navigation("chatgpt", &renderer, &chat));
+        assert!(!allow_chatgpt_renderer_navigation("claude", &renderer, &chat));
+        assert!(!allow_chatgpt_renderer_navigation("chatgpt", &renderer, &url("https://example.com/")));
+        assert!(!allow_chatgpt_renderer_navigation("chatgpt", &renderer, &renderer));
+        assert!(!allow_chatgpt_renderer_navigation("chatgpt", &url("https://cdn.platform.openai.com/other/runner.html"), &chat));
+        assert!(!allow_chatgpt_renderer_navigation("chatgpt", &url("http://cdn.platform.openai.com/deployments/dil/v14/runner.html"), &chat));
+    }
+
+    #[test]
+    fn chatgpt_dil_runner_cannot_remain_the_top_level_page() {
+        let renderer = url("https://cdn.platform.openai.com/deployments/dil/v14/runner.html");
+        let chat = url("https://chatgpt.com/c/real-conversation");
+        assert!(!chatgpt_renderer_replaced_top_level("chatgpt", &renderer, &chat));
+        assert!(chatgpt_renderer_replaced_top_level("chatgpt", &renderer, &renderer));
+        assert!(!chatgpt_renderer_replaced_top_level("claude", &renderer, &renderer));
     }
 
     #[test]
