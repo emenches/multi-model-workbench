@@ -175,6 +175,7 @@ export const I18N_KEYS = [
   'sidebar.addAgent',
   'sidebar.agents',
   'sidebar.activityToggle',
+  'sidebar.emptyChatTitle',
   'sidebar.emptyTitle',
   'sidebar.emptySubtitle',
   'sidebar.chooseProject',
