@@ -9,7 +9,7 @@ export const PULL_RECOVERY_MAX_ATTEMPTS = 3;
 export const SILENT_PULL_PROBE_INTERVAL_MS = 15_000;
 // Exact read-only diagnostic expression also whitelisted by the native host.
 // It examines our injected objects only, never the site's DOM or user text.
-export const CHATGPT_BRIDGE_HEALTH_JS = '(function(){var b=window.__MAC_BRIDGE__;var e=window.__MAC_ENGINE__;return {bridgePresent:!!b,enginePresent:!!e,bootMatches:!!b&&!!e&&b.bootId===e.bootId,adapterInstalled:!!e&&typeof e.adapterVersion==="number"&&e.adapterVersion>0,statusTicks:!!e&&Number.isSafeInteger(e.statusTicks)?e.statusTicks:null,responsePollTicks:!!e&&Number.isSafeInteger(e.responsePollTicks)?e.responsePollTicks:null,engineAwaiting:!!e&&e.waitingForResponse===true};})()';
+export const CHATGPT_BRIDGE_HEALTH_JS = '(function(){var b=window.__MAC_BRIDGE__;var e=window.__MAC_ENGINE__;var d=b&&b.diagnostics;var n=function(v){return Number.isSafeInteger(v)&&v>=0?v:null};var p=function(v){return typeof v==="string"&&/^(?:waiting-user-anchor|assistant-selector-missing|candidate-rejected|completion-turn-missing|completion-marker-missing|completion-marker-present|diagnostics-error)$/.test(v)?v:null};return {bridgePresent:!!b,enginePresent:!!e,bootMatches:!!b&&!!e&&b.bootId===e.bootId,adapterInstalled:!!e&&typeof e.adapterVersion==="number"&&e.adapterVersion>0,statusTicks:!!e?n(e.statusTicks):null,responsePollTicks:!!e?n(e.responsePollTicks):null,engineAwaiting:!!e&&e.waitingForResponse===true,statusEmits:!!e?n(e.statusEmits):null,fillStarts:!!e?n(e.fillStarts):null,fillDones:!!e?n(e.fillDones):null,titleQueued:!!d?n(d.queued):null,titleStarted:!!d?n(d.started):null,titleFinished:!!d?n(d.finished):null,capturePhase:!!e?p(e.capturePhase):null,captureResponseNodes:!!e?n(e.captureResponseNodes):null,captureAssistantUnits:!!e?n(e.captureAssistantUnits):null,captureLatestUnitDomChars:!!e?n(e.captureLatestUnitDomChars):null,captureTextChars:!!e?n(e.captureTextChars):null,captureAnchor:!!e&&e.captureAnchor===true,captureGenerationSeen:!!e&&e.captureGenerationSeen===true};})()';
 export const AWAITING_MAX_MS = 10 * 60 * 1000;
 export const AWAITING_ABSOLUTE_MAX_MS = 60 * 60 * 1000;
 
@@ -274,6 +274,19 @@ interface ChatGptBridgeHealth {
   statusTicks: number | null;
   responsePollTicks: number | null;
   engineAwaiting: boolean;
+  statusEmits: number | null;
+  fillStarts: number | null;
+  fillDones: number | null;
+  titleQueued: number | null;
+  titleStarted: number | null;
+  titleFinished: number | null;
+  capturePhase: string | null;
+  captureResponseNodes: number | null;
+  captureAssistantUnits: number | null;
+  captureLatestUnitDomChars: number | null;
+  captureTextChars: number | null;
+  captureAnchor: boolean;
+  captureGenerationSeen: boolean;
 }
 
 function isChatGptBridgeHealth(value: unknown): value is ChatGptBridgeHealth {
@@ -286,7 +299,25 @@ function isChatGptBridgeHealth(value: unknown): value is ChatGptBridgeHealth {
     typeof health.adapterInstalled === 'boolean' &&
     validTick(health.statusTicks) &&
     validTick(health.responsePollTicks) &&
-    typeof health.engineAwaiting === 'boolean';
+    typeof health.engineAwaiting === 'boolean' &&
+    validTick(health.statusEmits) &&
+    validTick(health.fillStarts) &&
+    validTick(health.fillDones) &&
+    validTick(health.titleQueued) &&
+    validTick(health.titleStarted) &&
+    validTick(health.titleFinished) &&
+    (health.capturePhase === null ||
+      (typeof health.capturePhase === 'string' && [
+        'waiting-user-anchor', 'assistant-selector-missing', 'candidate-rejected',
+        'completion-turn-missing', 'completion-marker-missing',
+        'completion-marker-present', 'diagnostics-error',
+      ].includes(health.capturePhase))) &&
+    validTick(health.captureResponseNodes) &&
+    validTick(health.captureAssistantUnits) &&
+    validTick(health.captureLatestUnitDomChars) &&
+    validTick(health.captureTextChars) &&
+    typeof health.captureAnchor === 'boolean' &&
+    typeof health.captureGenerationSeen === 'boolean';
 }
 
 async function probeChatGptBridge(provider: AIProvider, statusSilentMs: number): Promise<void> {
@@ -309,6 +340,19 @@ async function probeChatGptBridge(provider: AIProvider, statusSilentMs: number):
         statusTicks: health.statusTicks,
         responsePollTicks: health.responsePollTicks,
         engineAwaiting: health.engineAwaiting,
+        statusEmits: health.statusEmits,
+        fillStarts: health.fillStarts,
+        fillDones: health.fillDones,
+        titleQueued: health.titleQueued,
+        titleStarted: health.titleStarted,
+        titleFinished: health.titleFinished,
+        capturePhase: health.capturePhase,
+        captureResponseNodes: health.captureResponseNodes,
+        captureAssistantUnits: health.captureAssistantUnits,
+        captureLatestUnitDomChars: health.captureLatestUnitDomChars,
+        captureTextChars: health.captureTextChars,
+        captureAnchor: health.captureAnchor,
+        captureGenerationSeen: health.captureGenerationSeen,
       },
     });
   } catch (error) {

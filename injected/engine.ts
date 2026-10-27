@@ -42,6 +42,17 @@ interface MacEngineState {
   statusTicks: number;
   responsePollTicks: number;
   waitingForResponse: boolean;
+  // Native read-only, text-free diagnostics updated by the existing status probe.
+  statusEmits: number;
+  fillStarts: number;
+  fillDones: number;
+  capturePhase: string | null;
+  captureResponseNodes: number;
+  captureAssistantUnits: number;
+  captureLatestUnitDomChars: number;
+  captureTextChars: number;
+  captureAnchor: boolean;
+  captureGenerationSeen: boolean;
   stop?: () => void;
 }
 
@@ -329,6 +340,16 @@ class InactiveSendOperationError extends Error {
     statusTicks: 0,
     responsePollTicks: 0,
     waitingForResponse: false,
+    statusEmits: 0,
+    fillStarts: 0,
+    fillDones: 0,
+    capturePhase: null,
+    captureResponseNodes: 0,
+    captureAssistantUnits: 0,
+    captureLatestUnitDomChars: 0,
+    captureTextChars: 0,
+    captureAnchor: false,
+    captureGenerationSeen: false,
     stop,
   };
 
@@ -370,6 +391,8 @@ class InactiveSendOperationError extends Error {
         bootId: bridge.bootId,
       };
       if (fillMs !== undefined) payload.fillMs = fillMs;
+      if (phase === 'start') (window.__MAC_ENGINE__ as MacEngineState).fillStarts += 1;
+      else (window.__MAC_ENGINE__ as MacEngineState).fillDones += 1;
       bridge.emitTitle('STATUS_REPORT', payload, { immediate: true });
     } catch {
       // best effort diagnostic only
@@ -558,6 +581,7 @@ class InactiveSendOperationError extends Error {
     // must remain distinguishable from a timer that never ran.
     (window.__MAC_ENGINE__ as MacEngineState).statusTicks += 1;
     if (!adapter) {
+      (window.__MAC_ENGINE__ as MacEngineState).statusEmits += 1;
       bridge.emit({ v: 1, action: 'STATUS_REPORT', payload: { dom: 'unknown', bootId: bridge.bootId } });
       return;
     }
@@ -595,6 +619,9 @@ class InactiveSendOperationError extends Error {
       // The engine remains installed and its timer continues reporting even
       // when a ChatGPT DOM selector/serializer throws. Never send a claimed
       // 'thinking no' result from a failed probe.
+      const state = window.__MAC_ENGINE__ as MacEngineState;
+      state.capturePhase = 'diagnostics-error';
+      state.statusEmits += 1;
       bridge.emit({
         v: 1,
         action: 'STATUS_REPORT',
@@ -611,6 +638,17 @@ class InactiveSendOperationError extends Error {
       return;
     }
 
+    const state = window.__MAC_ENGINE__ as MacEngineState;
+    if (provider === 'chatgpt' && waitingForResponse) {
+      state.capturePhase = typeof capture.capturePhase === 'string' ? capture.capturePhase : null;
+      state.captureResponseNodes = typeof capture.captureResponseNodes === 'number' ? capture.captureResponseNodes : 0;
+      state.captureAssistantUnits = typeof capture.captureAssistantUnits === 'number' ? capture.captureAssistantUnits : 0;
+      state.captureLatestUnitDomChars = typeof capture.captureLatestUnitDomChars === 'number' ? capture.captureLatestUnitDomChars : 0;
+      state.captureTextChars = typeof capture.captureTextChars === 'number' ? capture.captureTextChars : 0;
+      state.captureAnchor = capture.captureAnchor === true;
+      state.captureGenerationSeen = capture.captureGenerationSeen === true;
+    }
+    state.statusEmits += 1;
     bridge.emit({
       v: 1,
       action: 'STATUS_REPORT',
@@ -2043,7 +2081,9 @@ class InactiveSendOperationError extends Error {
 
   function cancelResponseWait() {
     waitingForResponse = false;
-    (window.__MAC_ENGINE__ as MacEngineState).waitingForResponse = false;
+    const state = window.__MAC_ENGINE__ as MacEngineState;
+    state.waitingForResponse = false;
+    state.capturePhase = null;
     clearTimersForResponse();
     responseBaselineEls.clear();
     responseBaselineTextCounts.clear();

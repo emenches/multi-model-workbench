@@ -129,6 +129,8 @@ export function isProviderAppHost(hostname: string, appHosts: unknown): boolean 
 interface MacBridge {
   version: 1;
   bootId: string;
+  // Text-free title writer liveness (frame queue can be blocked independently of engine timers).
+  diagnostics: { queued: number; started: number; finished: number };
   emit(message: unknown): void;
   dispatch(message: BridgeMessage): void;
   onDispatch(handler: (message: BridgeMessage) => void): void;
@@ -175,12 +177,14 @@ interface MacBridge {
   let latestTitle: { action: MessageAction; payload?: unknown } | undefined;
   let titleEmitChain = Promise.resolve();
   let inFlightTitleFrame: string | undefined;
+  const titleHealth = { queued: 0, started: 0, finished: 0 };
 
   function logError(error: unknown) {
     console.error('[MAC bridge]', error);
   }
 
   function emitTitleNow(action: MessageAction, payload?: unknown): void {
+    titleHealth.queued += 1;
     titleEmitChain = titleEmitChain
       .then(() => emitTitleFrame(action, payload))
       .catch((error: unknown) => {
@@ -189,6 +193,7 @@ interface MacBridge {
   }
 
   async function emitTitleFrame(action: MessageAction, payload?: unknown): Promise<void> {
+    titleHealth.started += 1;
     const titlePayload =
       action === 'STATUS_REPORT' && outbox.length > 0
         ? { ...((payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>), bulkReady: outbox.length }
@@ -217,6 +222,7 @@ interface MacBridge {
       await delay(40);
       if (document.title === inFlightTitleFrame) document.title = previous;
     } finally {
+      titleHealth.finished += 1;
       if (inFlightTitleFrame === frame) inFlightTitleFrame = undefined;
     }
   }
@@ -313,6 +319,7 @@ interface MacBridge {
   const bridge: MacBridge = {
     version: 1,
     bootId,
+    diagnostics: titleHealth,
     emit(message: unknown) {
       const maybe = message as Partial<BridgeMessage>;
       if (maybe.action === 'RESPONSE_CHUNK' || maybe.action === 'RESPONSE_DONE' || maybe.action === 'REPORT_BROKEN') {

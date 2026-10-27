@@ -201,7 +201,12 @@ describe('pull transport', () => {
     vi.mocked(host.provider.evalWithCallback).mockImplementation(async (_provider, js) =>
       js === CHATGPT_BRIDGE_HEALTH_JS
         ? JSON.stringify({ bridgePresent: true, enginePresent: true, bootMatches: true,
-          adapterInstalled: true, statusTicks: 2, responsePollTicks: 5, engineAwaiting: true })
+          adapterInstalled: true, statusTicks: 2, responsePollTicks: 5, engineAwaiting: true,
+          statusEmits: 2, fillStarts: 1, fillDones: 1,
+          titleQueued: 4, titleStarted: 4, titleFinished: 3,
+          capturePhase: 'candidate-rejected', captureResponseNodes: 3,
+          captureAssistantUnits: 2, captureLatestUnitDomChars: 1600,
+          captureTextChars: 0, captureAnchor: true, captureGenerationSeen: true })
         : JSON.stringify([]));
     await vi.advanceTimersByTimeAsync(16_000);
     expect(messages).toContainEqual(expect.objectContaining({
@@ -209,13 +214,22 @@ describe('pull transport', () => {
       payload: { pullDiagnostic: 'bridge-probe', statusSilentMs: 15_000,
         bridgePresent: true, enginePresent: true, bootMatches: true,
         adapterInstalled: true, statusTicks: 2, responsePollTicks: 5,
-        engineAwaiting: true },
+        engineAwaiting: true, statusEmits: 2, fillStarts: 1, fillDones: 1,
+        titleQueued: 4, titleStarted: 4, titleFinished: 3,
+        capturePhase: 'candidate-rejected', captureResponseNodes: 3,
+        captureAssistantUnits: 2, captureLatestUnitDomChars: 1600,
+        captureTextChars: 0, captureAnchor: true, captureGenerationSeen: true },
     }));
 
     vi.mocked(host.provider.evalWithCallback).mockImplementation(async (_provider, js) =>
       js === CHATGPT_BRIDGE_HEALTH_JS
         ? JSON.stringify({ bridgePresent: false, enginePresent: false, bootMatches: false,
-          adapterInstalled: false, statusTicks: null, responsePollTicks: null, engineAwaiting: false })
+          adapterInstalled: false, statusTicks: null, responsePollTicks: null, engineAwaiting: false,
+          statusEmits: null, fillStarts: null, fillDones: null,
+          titleQueued: null, titleStarted: null, titleFinished: null,
+          capturePhase: null, captureResponseNodes: null,
+          captureAssistantUnits: null, captureLatestUnitDomChars: null, captureTextChars: null,
+          captureAnchor: false, captureGenerationSeen: false })
         : JSON.stringify([]));
     await vi.advanceTimersByTimeAsync(16_000);
     expect(messages).toContainEqual(expect.objectContaining({

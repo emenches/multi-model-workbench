@@ -244,7 +244,10 @@ describe('injected engine input hardening', () => {
     expect(state.responsePollTicks).toBeGreaterThanOrEqual(2);
     expect(state.waitingForResponse).toBe(true);
     expect(Object.keys(state).sort()).toEqual([
-      'adapterVersion', 'bootId', 'responsePollTicks', 'statusTicks', 'stop', 'waitingForResponse',
+      'adapterVersion', 'bootId', 'captureAnchor', 'captureAssistantUnits',
+      'captureGenerationSeen', 'captureLatestUnitDomChars', 'capturePhase',
+      'captureResponseNodes', 'captureTextChars', 'fillDones', 'fillStarts',
+      'responsePollTicks', 'statusEmits', 'statusTicks', 'stop', 'waitingForResponse',
     ]);
   });
 

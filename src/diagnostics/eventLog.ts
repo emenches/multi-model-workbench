@@ -312,6 +312,19 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
   const statusTicks = numberProp(payload, 'statusTicks');
   const responsePollTicks = numberProp(payload, 'responsePollTicks');
   const engineAwaiting = booleanProp(payload, 'engineAwaiting');
+  const statusEmits = numberProp(payload, 'statusEmits');
+  const fillStarts = numberProp(payload, 'fillStarts');
+  const fillDones = numberProp(payload, 'fillDones');
+  const titleQueued = numberProp(payload, 'titleQueued');
+  const titleStarted = numberProp(payload, 'titleStarted');
+  const titleFinished = numberProp(payload, 'titleFinished');
+  const nativeCapturePhase = stringProp(payload, 'capturePhase');
+  const captureResponseNodes = numberProp(payload, 'captureResponseNodes');
+  const captureAssistantUnits = numberProp(payload, 'captureAssistantUnits');
+  const captureLatestUnitDomChars = numberProp(payload, 'captureLatestUnitDomChars');
+  const captureTextChars = numberProp(payload, 'captureTextChars');
+  const captureAnchor = booleanProp(payload, 'captureAnchor');
+  const captureGenerationSeen = booleanProp(payload, 'captureGenerationSeen');
   if (capturePhase) parts.push(`capture ${capturePhase}`);
   if (statusErrorStage) parts.push(`status probe error ${statusErrorStage}`);
   if (pullDiagnostic) parts.push(`pull ${pullDiagnostic}`);
@@ -326,6 +339,11 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
     parts.push(`status ticks ${statusTicks ?? 'unknown'}`);
     parts.push(`response poll ticks ${responsePollTicks ?? 'unknown'}`);
     parts.push(`engine awaiting ${engineAwaiting === true ? 'yes' : 'no'}`);
+    parts.push(`status emitted ${statusEmits ?? 'unknown'}`);
+    parts.push(`title queued/started/finished ${titleQueued ?? '?'}/${titleStarted ?? '?'}/${titleFinished ?? '?'}`);
+    parts.push(`fill started/done ${fillStarts ?? '?'}/${fillDones ?? '?'}`);
+    parts.push(`capture ${nativeCapturePhase ?? 'unknown'}`);
+    parts.push(`answer chars ${captureTextChars ?? '?'}`);
   }
   if (dom) parts.push(`dom ${dom}`);
   if (login) parts.push(`login ${login}`);
@@ -362,6 +380,19 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
           statusTicks: statusTicks ?? null,
           responsePollTicks: responsePollTicks ?? null,
           engineAwaiting: engineAwaiting ?? null,
+          statusEmits: statusEmits ?? null,
+          fillStarts: fillStarts ?? null,
+          fillDones: fillDones ?? null,
+          titleQueued: titleQueued ?? null,
+          titleStarted: titleStarted ?? null,
+          titleFinished: titleFinished ?? null,
+          capturePhase: nativeCapturePhase ?? null,
+          captureResponseNodes: captureResponseNodes ?? null,
+          captureAssistantUnits: captureAssistantUnits ?? null,
+          captureLatestUnitDomChars: captureLatestUnitDomChars ?? null,
+          captureTextChars: captureTextChars ?? null,
+          captureAnchor: captureAnchor ?? null,
+          captureGenerationSeen: captureGenerationSeen ?? null,
         } : {}),
       } : {}),
       ...(capturePhase ? {
