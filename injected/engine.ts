@@ -2032,7 +2032,13 @@ class InactiveSendOperationError extends Error {
   // already on screen still has to pass responseBaselineEls, responseTextIsBeyondBaseline,
   // isUserMessageElement, and isLikelyPromptEcho — the same filters the other providers use.
   function chatGptMayReadResponseWithoutAnchor(): boolean {
-    return waitingForResponse && chatGptResponseGenerationObserved;
+    if (!waitingForResponse) return false;
+    if (chatGptResponseGenerationObserved) return true;
+    // ChatGPT can render the answer without exposing its brief thinking phase.
+    // If THIS send previously had a verified matching user turn which then
+    // unmounted, keep reading fresh assistant nodes behind strict pre-send
+    // element/text baselines. Never use this path for an unconfirmed send.
+    return chatGptUserTurnAnchorLatched && !chatGptPendingDraftStillInComposer(adapter!);
   }
 
   function noteChatGptResponseGeneration(): void {
