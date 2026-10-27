@@ -309,7 +309,12 @@ export default function App() {
   const [messages, setMessages] = useState<Bubble[]>(() => bubblesFromSession(initialConversation.active));
   const [workflowStatus, setWorkflowStatus] = useState('');
   const [mode, setMode] = useState<ChatMode>(initialConversation.active.mode);
-  const [presetId, setPresetId] = useState<WorkflowPresetId>(initialConversation.active.presetId ?? initialConversation.active.mode);
+  const [presetId, setPresetId] = useState<WorkflowPresetId>(
+    initialConversation.active.presetId
+      ?? (initialConversation.active.mode === 'free' && initialConversation.active.messages.length === 0
+        ? 'simple'
+        : initialConversation.active.mode),
+  );
   const [replayDrawerOpen, setReplayDrawerOpen] = useState(false);
   const [processTrace, setProcessTrace] = useState<ProcessTraceState | undefined>();
   const [processTraceDetailOpen, setProcessTraceDetailOpen] = useState(false);
@@ -1563,7 +1568,7 @@ export default function App() {
     const brainstorm = presetId === 'brainstorm';
     const workflowTargets = mode === 'free' && !brainstorm
       ? presetId === 'simple'
-        ? simpleChatTargets(simpleAgent, statesRef.current)
+        ? simpleChatTargets(simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, statesRef.current)
         : preparedWorkflowTargets ?? freeModeTargets(targets, statesRef.current)
       : undefined;
     if (workflowTargets?.length === 0) return;
@@ -1656,7 +1661,7 @@ export default function App() {
     const participants = workflowRoles
       ? [...new Set(Object.values(workflowRoles))]
       : presetId === 'simple'
-        ? simpleChatTargets(simpleAgent, statesRef.current)
+        ? simpleChatTargets(simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, statesRef.current)
         : freeModeTargets(targets, statesRef.current);
 
     const providersToFreshen = pendingProviderSessionResets(
@@ -1730,7 +1735,7 @@ export default function App() {
     const workflowTargets = serialGraph
       ? undefined
       : presetId === 'simple'
-        ? simpleChatTargets(simpleAgent, statesRef.current)
+        ? simpleChatTargets(simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, statesRef.current)
         : freeModeTargets(targets, statesRef.current);
     if (workflowTargets?.length === 0) {
       setWorkflowStatus(translate('input.sendFailed'));
