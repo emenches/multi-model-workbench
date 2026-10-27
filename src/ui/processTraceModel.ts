@@ -15,6 +15,10 @@ export interface ProcessTraceStep {
   role?: string;
   turn?: number;
   status: ProcessTraceStepStatus;
+  /** Wall-clock start of a live step, for truthful elapsed time in the UI. */
+  startedAt?: number;
+  /** Last time the response text actually changed (not merely a repeat poll). */
+  lastOutputAt?: number;
 }
 
 export interface ProcessTraceState {
@@ -123,6 +127,7 @@ function addRoleStep(
     label: `${displayRole} · ${providerName}`,
     detail: role && label && role !== label ? role : undefined,
     status: 'active',
+    startedAt: Date.now(),
   };
   return { ...trace, steps: [...trace.steps, step] };
 }
@@ -147,6 +152,8 @@ function applyProviderResponse(
       ? {
           ...step,
           status: nextStatus,
+          startedAt: step.startedAt ?? Date.now(),
+          lastOutputAt: content && content !== step.content ? Date.now() : step.lastOutputAt,
           content: content || step.content,
           detail: content
             ? `${oneLinePreview(content)} · ${t('processTrace.completionUnconfirmed', locale)}`
@@ -219,6 +226,8 @@ function responseStep(provider: AIProvider, status: ProcessTraceStepStatus, loca
     detail: content ? oneLinePreview(content) : t('processTrace.waitingForResponse', locale),
     content: content || undefined,
     status,
+    startedAt: status === 'active' ? Date.now() : undefined,
+    lastOutputAt: content ? Date.now() : undefined,
   };
 }
 
