@@ -279,10 +279,9 @@ export function InputBar({
             {t('input.stop', locale)}
           </button>
         ) : null}
-        <span className="workbench-composer-hint mr-auto hidden text-[0.6875rem] text-zinc-400 sm:inline">{t('input.sendHint', locale)}</span>
         <button
           type="button"
-          className="workbench-composer-send flex min-h-9 items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-700 dark:bg-emerald-900 dark:text-zinc-100 dark:hover:bg-emerald-800"
+          className="workbench-composer-send ml-auto flex min-h-9 items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-700 dark:bg-emerald-900 dark:text-zinc-100 dark:hover:bg-emerald-800"
           onClick={() => void submit()}
           disabled={sendDisabled}
         >
