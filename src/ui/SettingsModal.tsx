@@ -383,7 +383,7 @@ export function SettingsModal({
       titleId="settings-title"
       onEscape={closeSettings}
       onBackdrop={closeSettings}
-      panelClassName="max-h-[92vh] w-full max-w-2xl overflow-auto rounded-lg border border-zinc-300 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
+      panelClassName="workbench-settings-dialog max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl border border-zinc-300 bg-white p-6 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
     >
         <div className="mb-4 flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3">
           <h2 id="settings-title" className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{t('settings.title')}</h2>

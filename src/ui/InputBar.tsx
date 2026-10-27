@@ -170,7 +170,7 @@ export function InputBar({
 
   return (
     <div
-      className={`mt-3 space-y-2 rounded border p-2 transition-colors ${
+      className={`workbench-composer mt-3 space-y-2 rounded-2xl border p-2 transition-colors ${
         showDropActive ? 'border-emerald-400 dark:border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' : 'border-transparent'
       }`}
       onDragEnter={handleDragEnter}
@@ -178,10 +178,10 @@ export function InputBar({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div className="flex gap-2">
+      <div className="workbench-composer-body flex flex-wrap items-center gap-2">
         <textarea
           ref={textareaRef}
-          className="min-h-12 flex-1 resize-none border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-2 text-sm outline-none focus:border-emerald-500 disabled:opacity-50"
+          className="workbench-composer-textarea min-h-12 w-full flex-[0_0_100%] resize-none border border-zinc-300 bg-zinc-50 p-3 text-sm outline-none focus:border-sky-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
@@ -205,24 +205,31 @@ export function InputBar({
         />
         <button
           type="button"
-          className="border border-zinc-300 dark:border-zinc-700 px-3 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="workbench-composer-attach flex min-h-9 items-center gap-1.5 rounded-lg border border-zinc-300 px-3 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
           onClick={() => fileInputRef.current?.click()}
           disabled={insertDisabled}
         >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20.5 11.5 12 20a6 6 0 0 1-8.5-8.5l9-9a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 0 1-2.8-2.8l8.5-8.5"/>
+          </svg>
           {isReadingFile ? t('input.reading', locale) : t('input.insertFile', locale)}
         </button>
         {isProcessing ? (
-          <button type="button" className="border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950 px-3 text-sm text-red-800 dark:text-red-100 hover:bg-red-100 dark:hover:bg-red-900" onClick={onCancel}>
+          <button type="button" className="workbench-composer-stop min-h-9 rounded-lg border border-red-300 bg-red-50 px-3 text-xs font-medium text-red-800 hover:bg-red-100 dark:border-red-700 dark:bg-red-950 dark:text-red-100 dark:hover:bg-red-900" onClick={onCancel}>
             {t('input.stop', locale)}
           </button>
         ) : null}
+        <span className="workbench-composer-hint mr-auto hidden text-[0.6875rem] text-zinc-400 sm:inline">{t('input.sendHint', locale)}</span>
         <button
           type="button"
-          className="border border-emerald-300 dark:border-emerald-700 bg-emerald-600 text-white dark:bg-emerald-900 dark:text-zinc-100 px-4 text-sm hover:bg-emerald-700 dark:hover:bg-emerald-800 disabled:border-zinc-300 dark:disabled:border-zinc-700 disabled:bg-zinc-100 dark:disabled:bg-zinc-900 disabled:text-zinc-400 dark:disabled:text-zinc-600"
+          className="workbench-composer-send flex min-h-9 items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-700 dark:bg-emerald-900 dark:text-zinc-100 dark:hover:bg-emerald-800"
           onClick={() => void submit()}
           disabled={sendDisabled}
         >
           {isSubmitting ? t('input.preparing', locale) : t('input.send', locale)}
+          <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="m5 12 14 0m-6-6 6 6-6 6"/>
+          </svg>
         </button>
       </div>
       {attachmentChips.length > 0 ? (

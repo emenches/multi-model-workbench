@@ -2065,7 +2065,7 @@ export default function App() {
     : undefined;
 
   return (
-    <main className="app-shell h-screen overflow-hidden bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+    <main className="app-shell workbench-shell h-screen overflow-hidden bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div
         ref={gridRef}
         className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)]"
@@ -2073,7 +2073,7 @@ export default function App() {
       >
         <div
           aria-hidden={messagesMaximized || undefined}
-          className={`ai-sister-left-shell flex min-h-0 min-w-0 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 ${
+          className={`ai-sister-left-shell workbench-left-shell flex min-h-0 min-w-0 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 ${
             messagesMaximized ? 'invisible overflow-hidden pointer-events-none' : ''
           }`}
         >
@@ -2102,7 +2102,7 @@ export default function App() {
             <section
               id="workflow-control-shelf"
               aria-label={translate('preset.catalog.aria')}
-              className={`ai-sister-workflow-shelf shrink-0 border-b border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/70 ${
+              className={`ai-sister-workflow-shelf workbench-workspace-shelf shrink-0 border-b border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/70 ${
                 stageExpanded && !checkpoint && !(stepTimeout && !stepTimeout.timedOut) ? 'hidden' : ''
               }`}
             >
@@ -2163,7 +2163,7 @@ export default function App() {
                   {providerInspectorOpen ? 'Hide details' : 'Details'}
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="workbench-provider-grid grid grid-cols-2 gap-2">
                 {activeProviders.map((provider) => (
                   <div key={provider} className="workbench-provider-tile flex min-w-0 flex-col gap-1 rounded-lg border border-zinc-200 px-2 py-2 dark:border-zinc-800">
                     <div className="flex items-center gap-1.5">
@@ -2200,6 +2200,54 @@ export default function App() {
               ) : null}
               <p className="mt-2 text-[0.65rem] text-zinc-500 dark:text-zinc-400">Connected means the page is available. Workflow steps finish only after their answer is received.</p>
             </section>
+            {!providerInspectorOpen ? (
+              <section aria-label="Workflow activity overview" className="workbench-context-panel mx-3 mb-3 flex min-h-0 flex-1 flex-col rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+                <div className="workbench-context-heading flex items-center justify-between gap-2 pb-3">
+                  <h2 className="text-[0.6875rem] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">{translate('workbench.activity')}</h2>
+                  <button type="button"
+                    className="workbench-context-inspect rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[0.6875rem] font-medium text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
+                    aria-expanded={providerInspectorOpen} aria-controls="workbench-provider-inspector"
+                    onClick={() => setProviderInspectorOpen(true)}>
+                    {translate('workbench.providerView')}
+                    <span className="ml-1" aria-hidden="true">↗</span>
+                  </button>
+                </div>
+                {processTrace?.steps.some((step) => step.kind !== 'fanout') ? (
+                  <ol className="workbench-context-list min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+                    {processTrace.steps.filter((step) => step.kind !== 'fanout').map((step) => (
+                      <li key={step.id} className="workbench-context-item flex items-start gap-2.5 rounded-lg px-2.5 py-2">
+                        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                          step.status === 'done' ? 'bg-emerald-500' : step.status === 'failed' ? 'bg-red-500' : step.status === 'active' ? 'bg-sky-500' : 'bg-zinc-400'
+                        }`} aria-hidden="true" />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-medium">{step.label}</div>
+                          <div className="mt-1 flex items-center gap-1.5 text-[0.6875rem] text-zinc-500 dark:text-zinc-400">
+                            {step.status === 'active' ? <span className="workbench-live-indicator" aria-hidden="true" /> : null}
+                            {step.status === 'done' ? translate('processTrace.done')
+                              : step.status === 'failed' ? translate('processTrace.failed')
+                              : step.status === 'active' ? translate('processTrace.active')
+                              : translate('processTrace.pending')}
+                            {step.status === 'active' && step.content ? ` · ${step.content.length.toLocaleString(locale)} ${translate('workbench.charactersShort')}` : ''}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <div className="workbench-context-empty flex min-h-[145px] flex-1 flex-col items-center justify-center p-4 text-center">
+                    <div className="workbench-context-empty-icon mb-3 grid h-10 w-10 place-items-center rounded-xl" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 17h4l3-9 4 12 3-7h4" />
+                      </svg>
+                    </div>
+                    <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">{translate('workbench.noActiveRun')}</p>
+                    <p className="mt-1 max-w-48 text-[0.6875rem] leading-relaxed text-zinc-500 dark:text-zinc-400">
+                      {translate('workbench.activityHint')}
+                    </p>
+                  </div>
+                )}
+              </section>
+            ) : null}
             <div id="workbench-provider-inspector"
               className="workbench-provider-inspector min-h-0 flex-1"
               hidden={!providerInspectorOpen}>
@@ -2251,106 +2299,78 @@ export default function App() {
           />
         </div>
 
-        <section className="ai-sister-conversation-workspace flex min-h-0 min-w-0 flex-col border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
-          <div className="ai-sister-conversation-toolbar border-b border-zinc-200 dark:border-zinc-800 pb-3">
-            <div className="flex flex-wrap items-start gap-3">
-              {/* The floor is what makes the row wrap: at min-w-0 this block collapses instead, so the
-                  buttons keep squeezing the badge and flex-wrap never fires. */}
-              <div className="min-w-[11rem] flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="ai-sister-mode-badge shrink-0 border border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950 px-2 py-1 text-xs font-medium text-sky-700 dark:text-sky-100">
-                    <span className="mr-1">{presetId === 'brainstorm' ? '✨' : CHAT_MODES[mode].icon}</span>
-                    {presetId === 'brainstorm' ? translate(presetForId(presetId).displayNameKey) : translate(MODE_NAME_KEYS[mode])}
-                  </span>
-                  <span className="min-w-0 truncate text-xs text-zinc-600 dark:text-zinc-400">{workflowStatus || translate('processTrace.settled')}</span>
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <label className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Mode</span>
-                    <button type="button" disabled={isProcessing}
-                      onClick={() => setWorkflowOptionsOpen(true)}
-                      aria-haspopup="dialog" aria-expanded={workflowOptionsOpen}
-                      aria-controls="workbench-workflow-options"
-                      className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold hover:border-sky-500 hover:bg-sky-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
-                    >
-                      {translate(presetForId(presetId).displayNameKey)} <span aria-hidden="true">▾</span>
-                    </button>
-                  </label>
-                  <span className="hidden text-xs text-zinc-500 dark:text-zinc-400 xl:inline">Ready = connected, not necessarily finished responding.</span>
+        <section className="ai-sister-conversation-workspace workbench-conversation-workspace flex min-h-0 min-w-0 flex-col border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
+          <header className="ai-sister-conversation-toolbar workbench-conversation-header border-b border-zinc-200 pb-3 dark:border-zinc-800">
+            <div className="workbench-conversation-header-main flex flex-wrap items-center justify-between gap-3">
+              <div className="workbench-conversation-identity min-w-0 flex-1">
+                <div className="workbench-header-eyebrow">{translate('workbench.eyebrow')}</div>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h1 className="workbench-conversation-title truncate text-xl font-semibold" title={sessions.find((session) => session.id === activeSessionId)?.title ?? translate('workbench.conversation')}>
+                    {sessions.find((session) => session.id === activeSessionId)?.title ?? translate('workbench.conversation')}
+                  </h1>
+                  {isProcessing ? <span className="workbench-header-live flex items-center gap-1.5"><span className="workbench-live-indicator" aria-hidden="true" /> {translate('workbench.live')}</span> : null}
                 </div>
               </div>
-              {/* One group, so the controls wrap as a block and stay right-aligned on the new row. */}
-              <div className="ml-auto flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  className={`flex h-7 items-center justify-center gap-1.5 border px-2 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
-                    replayDrawerOpen ? 'border-sky-400 bg-sky-50 dark:border-sky-800 dark:bg-sky-950' : 'border-zinc-300 dark:border-zinc-700'
-                  }`}
-                  aria-label={translate('replay.historyToggle')}
-                  title={translate('replay.historyToggle')}
-                  aria-expanded={replayDrawerOpen}
-                  aria-controls="replay-history-panel"
-                  onClick={() => setReplayDrawerOpen((open) => !open)}
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 12a9 9 0 1 0 3-6.7" />
-                    <path d="M3 4v5h5" />
-                    <path d="M12 7v5l3 2" />
+              <div className="workbench-header-actions flex flex-wrap items-center gap-1.5">
+                <button type="button"
+                  className={`workbench-icon-button ${replayDrawerOpen ? 'workbench-icon-button-selected' : ''}`}
+                  aria-label={translate('replay.historyToggle')} title={translate('replay.historyToggle')}
+                  aria-expanded={replayDrawerOpen} aria-controls="replay-history-panel"
+                  onClick={() => setReplayDrawerOpen((open) => !open)}>
+                  <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" /><path d="M12 7v5l3 2" />
                   </svg>
-                  <span>{translate('replay.historyToggle')}</span>
+                  <span className="workbench-action-label">{translate('replay.historyToggle')}</span>
                 </button>
-                <button
-                  type="button"
-                  className="border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => void exportConversation()}
-                  disabled={messages.length === 0 || sharing}
-                >
-                  {translate('header.exportMarkdown')}
+                <button type="button" className="workbench-icon-button"
+                  onClick={() => void exportConversation()} disabled={messages.length === 0 || sharing}
+                  aria-label={translate('header.exportMarkdown')} title={translate('header.exportMarkdown')}>
+                  <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 3v12m0 0 4-4m-4 4-4-4" /><path d="M5 16v4h14v-4" />
+                  </svg>
+                  <span className="workbench-action-label">{translate('header.exportMarkdown')}</span>
                 </button>
-                <button
-                  type="button"
-                  className={`flex min-h-9 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
-                    messagesMaximized ? 'border-sky-400 bg-sky-50 dark:border-sky-800 dark:bg-sky-950' : 'border-zinc-300 dark:border-zinc-700'
-                  }`}
+                <button type="button"
+                  className={`workbench-icon-button ${messagesMaximized ? 'workbench-icon-button-selected' : ''}`}
                   aria-label={translate(messagesMaximized ? 'header.restoreMessages' : 'header.maximizeMessages')}
                   title={translate(messagesMaximized ? 'header.restoreMessages' : 'header.maximizeMessages')}
                   aria-pressed={messagesMaximized}
-                  onClick={() => setMessagesMaximized((current) => !current)}
-                >
-                  {messagesMaximized ? (
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 3v4a2 2 0 0 1-2 2H3" />
-                      <path d="M21 9h-4a2 2 0 0 1-2-2V3" />
-                      <path d="M3 15h4a2 2 0 0 1 2 2v4" />
-                      <path d="M15 21v-4a2 2 0 0 1 2-2h4" />
-                    </svg>
-                  ) : (
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 9V3h6" />
-                      <path d="M21 9V3h-6" />
-                      <path d="M3 15v6h6" />
-                      <path d="M21 15v6h-6" />
-                    </svg>
-                  )}
-                  <span>{translate(messagesMaximized ? 'header.restoreMessages' : 'header.maximizeMessages')}</span>
+                  onClick={() => setMessagesMaximized((current) => !current)}>
+                  <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    {messagesMaximized ? <><path d="M9 3v6H3"/><path d="M15 21v-6h6"/><path d="M3 15h6v6"/><path d="M21 9h-6V3"/></>
+                      : <><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></>}
+                  </svg>
                 </button>
                 {import.meta.env.DEV ? (
-                  <button
-                    type="button"
-                    className={`rounded-md border px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 ${showDevDiagnostics ? 'border-sky-500 text-sky-700 dark:text-sky-300' : 'border-zinc-300 dark:border-zinc-700'}`}
+                  <button type="button"
+                    className={`workbench-icon-button ${showDevDiagnostics ? 'workbench-icon-button-selected' : ''}`}
                     onClick={() => setShowDevDiagnostics((current) => !current)}
-                    aria-pressed={showDevDiagnostics}
-                    aria-controls="workbench-dev-diagnostics"
-                  >
-                    Diagnostics
-                  </button>
+                    aria-pressed={showDevDiagnostics} aria-controls="workbench-dev-diagnostics">Diagnostics</button>
                 ) : null}
-                <button type="button" className="border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={() => setSettingsOpen(true)}>
-                  {translate('header.settings')}
+                <button type="button" className="workbench-icon-button" onClick={() => setSettingsOpen(true)}
+                  title={translate('header.settings')} aria-label={translate('header.settings')}>
+                  <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .35 1.88l-1.9 1.9a1.7 1.7 0 0 0-1.88-.35l-1.15.48a1.7 1.7 0 0 0-1.06 1.57H10.3a1.7 1.7 0 0 0-1.06-1.57l-1.15-.48a1.7 1.7 0 0 0-1.88.35l-1.9-1.9A1.7 1.7 0 0 0 4.66 15l-.48-1.15a1.7 1.7 0 0 0-1.57-1.06V10.2a1.7 1.7 0 0 0 1.57-1.06L4.66 8a1.7 1.7 0 0 0-.35-1.88l1.9-1.9a1.7 1.7 0 0 0 1.88.35l1.15-.48A1.7 1.7 0 0 0 10.3 2.5h3.46a1.7 1.7 0 0 0 1.06 1.57l1.15.48a1.7 1.7 0 0 0 1.88-.35l1.9 1.9A1.7 1.7 0 0 0 19.4 8l.48 1.15a1.7 1.7 0 0 0 1.57 1.06v2.58a1.7 1.7 0 0 0-1.57 1.06z"/>
+                  </svg>
                 </button>
               </div>
             </div>
-          </div>
+            <div className="workbench-conversation-header-sub flex flex-wrap items-center gap-2">
+              <button type="button" disabled={isProcessing}
+                onClick={() => setWorkflowOptionsOpen(true)}
+                aria-haspopup="dialog" aria-expanded={workflowOptionsOpen}
+                aria-controls="workbench-workflow-options"
+                className="workbench-mode-select flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-900">
+                <span className="workbench-mode-select-icon" aria-hidden="true">{presetId === 'brainstorm' ? '✨' : CHAT_MODES[mode].icon}</span>
+                {translate(presetForId(presetId).displayNameKey)}
+                <span className="text-zinc-400" aria-hidden="true">⌄</span>
+              </button>
+              <span className="workbench-header-separator" aria-hidden="true"/>
+              <span className="workbench-conversation-status truncate text-xs text-zinc-500 dark:text-zinc-400">
+                {workflowStatus || (isProcessing ? translate('processTrace.awaiting') : translate('processTrace.settled'))}
+              </span>
+            </div>
+          </header>
           {providerWindowGeometry && import.meta.env.DEV && showDevDiagnostics ? (
             <div role="status" className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
               <span className="font-semibold">Native page geometry</span>
@@ -2448,7 +2468,7 @@ export default function App() {
               <EchoPanel />
             </section>
           ) : null}
-          <div className="ai-sister-conversation-composer shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800">
+          <div className="ai-sister-conversation-composer workbench-composer-region shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800">
             <InputBar
               onSend={send}
               onCancel={cancelWorkflow}
@@ -2596,10 +2616,10 @@ export function ChatArea({
         return (
           <article
             key={message.id}
-            className="ai-sister-message border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-3"
+            className={`ai-sister-message workbench-message ${message.role === 'user' ? 'workbench-message-user' : 'workbench-message-other'} border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-3`}
             data-provider={isProvider ? p : undefined}
           >
-            <div className="mb-1 flex items-center gap-2">
+            <div className="workbench-message-header mb-1 flex items-center gap-2">
               {isProvider ? <AiSisterAvatar provider={p as AIProvider} active={thinking} size="md" /> : null}
               <div className="text-xs uppercase text-zinc-500 dark:text-zinc-500">
                 {bubbleAuthorLabel(message)}
@@ -2610,7 +2630,7 @@ export function ChatArea({
             {thinking ? (
               <div className="whitespace-pre-wrap text-sm italic text-zinc-500 dark:text-zinc-500">{translateKey('chat.thinking', locale)}</div>
             ) : (
-              <div className="text-sm">
+              <div className="workbench-message-content text-sm">
                 <MarkdownText text={message.content} />
               </div>
             )}

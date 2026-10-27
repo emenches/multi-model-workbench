@@ -69,7 +69,7 @@ export function PreflightDialog({
       titleId="preflight-title"
       onEscape={() => dismiss(onClose)}
       onBackdrop={() => dismiss(onClose)}
-      panelClassName="w-full max-w-md rounded-lg border border-zinc-300 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-950"
+      panelClassName="workbench-preflight-dialog w-full max-w-md rounded-2xl border border-zinc-300 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-950"
     >
         <h2 id="preflight-title" className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{model.title}</h2>
         <div className="mt-3 space-y-2 text-sm">

@@ -1,0 +1,679 @@
+/* Workbench desktop visual system.
+ * Inspiration: native macOS utility density, OpenCode's restrained panels,
+ * and ChatGPT's readable transcript. This only changes the default theme;
+ * the opt-in AI-Sister commemorative theme keeps its own visual language.
+ * The native WKWebView windows and their geometry are not styled here. */
+html:not(.ai-sister) .workbench-shell {
+  --wb-canvas: #f7f8fa;
+  --wb-sidebar: #f0f2f5;
+  --wb-surface: #fff;
+  --wb-surface-soft: #f9fafb;
+  --wb-hover: #eef2f7;
+  --wb-border: #e4e8ee;
+  --wb-strong-border: #d6dce4;
+  --wb-ink: #19212c;
+  --wb-secondary: #626f80;
+  --wb-accent: #2978d6;
+  --wb-accent-soft: #eaf3ff;
+  --wb-elevation: 0 8px 26px rgba(18,34,55,.035), 0 1px 3px rgba(18,34,55,.03);
+  color: var(--wb-ink);
+  background: var(--wb-canvas);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter",
+    ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01" on;
+  -webkit-font-smoothing: antialiased;
+}
+html.dark:not(.ai-sister) .workbench-shell {
+  --wb-canvas: #101317;
+  --wb-sidebar: #171b20;
+  --wb-surface: #1b2027;
+  --wb-surface-soft: #20262e;
+  --wb-hover: #282f38;
+  --wb-border: #2d343e;
+  --wb-strong-border: #3a4350;
+  --wb-ink: #f0f2f6;
+  --wb-secondary: #a1aab9;
+  --wb-accent: #79b3ff;
+  --wb-accent-soft: #172f4b;
+  --wb-elevation: 0 12px 28px rgba(0,0,0,.14), 0 1px 2px rgba(0,0,0,.12);
+}
+
+/* Sidebar: one quiet navigation rail, not a separate card for every action. */
+html:not(.ai-sister) .workbench-shell .workbench-left-shell {
+  background: var(--wb-sidebar);
+  border-color: var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-sidebar {
+  background: var(--wb-sidebar);
+  border-color: var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-brand {
+  border-color: var(--wb-border);
+  min-height: 64px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-brand-button {
+  background: var(--wb-surface);
+  box-shadow: 0 1px 4px rgba(25,35,54,.05);
+  border: 1px solid var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-brand-button img {
+  border-radius: 7px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-conversation {
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-strong-border);
+  color: var(--wb-ink);
+  box-shadow: 0 1px 3px rgba(0,0,0,.025);
+  min-height: 38px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-new-conversation:hover:not(:disabled) {
+  background: var(--wb-hover);
+  border-color: var(--wb-accent);
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-item {
+  min-height: 50px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-item[aria-current="page"] {
+  background: var(--wb-surface);
+  color: var(--wb-ink);
+  box-shadow: 0 1px 3px rgba(10,20,30,.045);
+  outline: 1px solid var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-item:not([aria-current="page"]):hover {
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-heading {
+  color: var(--wb-secondary);
+  letter-spacing: .095em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-delete {
+  opacity: .48;
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-delete:focus-visible,
+html:not(.ai-sister) .workbench-shell .workbench-session-delete:hover {
+  opacity: 1;
+}
+
+/* Workspace controls and connection dock borrow from compact developer tools. */
+html:not(.ai-sister) .workbench-shell .workbench-left-shell > div.flex-1 {
+  background: var(--wb-canvas);
+}
+html:not(.ai-sister) .workbench-shell .workbench-workspace-shelf {
+  background: var(--wb-canvas);
+  border-color: var(--wb-border);
+  padding: 17px 15px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-workspace-heading {
+  margin-bottom: 13px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-workspace-heading .text-base {
+  font-weight: 650;
+  letter-spacing: -.025em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-options-button {
+  border-color: var(--wb-strong-border);
+  color: var(--wb-secondary);
+  background: var(--wb-surface);
+  min-height: 32px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 9px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-options-button:hover {
+  color: var(--wb-ink);
+  border-color: var(--wb-accent);
+  background: var(--wb-surface);
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-dock {
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-border);
+  border-radius: 14px;
+  box-shadow: var(--wb-elevation);
+  margin-top: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-dock h2 {
+  color: var(--wb-secondary);
+  font-size: 10px;
+  letter-spacing: .07em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-dock > p {
+  line-height: 1.5;
+  color: var(--wb-secondary);
+  margin-top: 10px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-tile {
+  border: 1px solid var(--wb-border);
+  background: var(--wb-surface-soft);
+  border-radius: 10px;
+  padding: 9px 10px;
+  min-width: 0;
+  gap: 5px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-tile:hover {
+  border-color: var(--wb-strong-border);
+  background: var(--wb-hover);
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-tile > div:last-of-type {
+  gap: 2px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-tile button {
+  color: var(--wb-secondary);
+  padding: 3px 4px;
+  font-size: 10px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-tile button:hover {
+  color: var(--wb-accent);
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-inspector {
+  background: var(--wb-canvas);
+}
+html:not(.ai-sister) .workbench-shell .workbench-focus-pane {
+  background: var(--wb-canvas);
+  padding: 12px 14px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-first-run {
+  background: var(--wb-surface);
+  border-color: var(--wb-border);
+  border-radius: 15px;
+  box-shadow: var(--wb-elevation);
+}
+html:not(.ai-sister) .workbench-shell .workbench-first-run button {
+  border-color: var(--wb-border);
+  border-radius: 11px;
+}
+
+/* Conversation: native toolbar above a calm reading canvas. */
+html:not(.ai-sister) .workbench-shell .workbench-conversation-workspace {
+  background: var(--wb-surface);
+  border-color: var(--wb-border);
+  padding: clamp(14px, 1.6vw, 25px);
+}
+html:not(.ai-sister) .workbench-shell .workbench-conversation-header {
+  flex: none;
+  padding-bottom: 13px;
+  border-color: var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-conversation-header-main {
+  min-height: 45px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-header-eyebrow {
+  color: var(--wb-secondary);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: .115em;
+  margin-bottom: 2px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-conversation-title {
+  font-weight: 650;
+  font-size: clamp(17px, 1.4vw, 21px);
+  letter-spacing: -.036em;
+  line-height: 1.25;
+}
+html:not(.ai-sister) .workbench-shell .workbench-header-actions {
+  gap: 4px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-icon-button {
+  min-height: 33px;
+  min-width: 34px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  color: var(--wb-secondary);
+  font-size: 11px;
+  font-weight: 550;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+}
+html:not(.ai-sister) .workbench-shell .workbench-icon-button:hover:not(:disabled),
+html:not(.ai-sister) .workbench-shell .workbench-icon-button-selected {
+  color: var(--wb-ink);
+  background: var(--wb-hover);
+  border-color: var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-icon-button:disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
+html:not(.ai-sister) .workbench-shell .workbench-action-label {
+  font-size: 11px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-conversation-header-sub {
+  margin-top: 7px;
+  min-height: 32px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-mode-select {
+  background: var(--wb-surface-soft);
+  border-color: var(--wb-border);
+  color: var(--wb-ink);
+  border-radius: 9px;
+  padding: 7px 11px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-mode-select:hover:not(:disabled) {
+  border-color: var(--wb-accent);
+  background: var(--wb-hover);
+}
+html:not(.ai-sister) .workbench-shell .workbench-mode-select:disabled {
+  opacity: .65;
+}
+html:not(.ai-sister) .workbench-shell .workbench-mode-select-icon {
+  opacity: .8;
+}
+html:not(.ai-sister) .workbench-shell .workbench-header-separator {
+  height: 16px;
+  width: 1px;
+  background: var(--wb-border);
+  margin: 0 3px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-conversation-status {
+  color: var(--wb-secondary);
+  flex: 1;
+  min-width: 100px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-header-live {
+  background: var(--wb-accent-soft);
+  color: var(--wb-accent);
+  border-radius: 100px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Transcript: answer content reads like ChatGPT; prompts sit in soft bubbles. */
+html:not(.ai-sister) .workbench-shell .workbench-reading-area {
+  border: 0;
+  padding: clamp(17px, 2vw, 32px) 0;
+  margin-top: 0;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--wb-strong-border) transparent;
+  scrollbar-width: thin;
+  line-height: 1.65;
+}
+html:not(.ai-sister) .workbench-shell .workbench-reading-area > * {
+  max-width: 860px;
+  margin-inline: auto;
+  padding-inline: clamp(3px, 2vw, 22px);
+}
+html:not(.ai-sister) .workbench-shell .workbench-message {
+  border: 0;
+  border-radius: 15px;
+  padding: 16px 17px;
+  margin-block: 6px 18px;
+  box-shadow: none;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-other {
+  background: transparent;
+  color: var(--wb-ink);
+  padding: 12px 5px 17px;
+  border-radius: 0;
+  max-width: 100%;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-user {
+  background: var(--wb-surface-soft);
+  color: var(--wb-ink);
+  border: 1px solid var(--wb-border);
+  max-width: min(88%, 640px);
+  width: fit-content;
+  margin-left: auto;
+  box-shadow: 0 1px 3px rgba(0,0,0,.018);
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-header {
+  margin-bottom: 9px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-header .uppercase {
+  color: var(--wb-secondary);
+  text-transform: none;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .008em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content {
+  font-size: 13.5px;
+  color: var(--wb-ink);
+  line-height: 1.72;
+  overflow-wrap: anywhere;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content p {
+  margin-block: .45em .75em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content pre {
+  border-radius: 10px;
+  border: 1px solid var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content blockquote {
+  border-left: 3px solid var(--wb-strong-border);
+  padding-left: 13px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content a {
+  color: var(--wb-accent);
+  text-underline-offset: 2px;
+}
+
+/* Workflow trace is valuable: keep it legible but not louder than the answer. */
+html:not(.ai-sister) .workbench-shell .workbench-run-details {
+  border-color: var(--wb-border);
+  background: var(--wb-surface-soft);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.02);
+  max-height: min(48vh, 360px);
+  overflow: hidden;
+}
+html:not(.ai-sister) .workbench-shell .workbench-process-trace {
+  background: transparent;
+}
+html:not(.ai-sister) .workbench-shell .workbench-trace-overview {
+  border-bottom: 1px solid var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-trace-step-active {
+  background: var(--wb-accent-soft);
+  border-color: var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-trace-steps {
+  max-height: min(32vh, 300px);
+  scrollbar-width: thin;
+}
+html:not(.ai-sister) .workbench-shell .workbench-transcript-activity {
+  border-color: var(--wb-border);
+  background: var(--wb-surface-soft);
+  border-radius: 12px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-track {
+  height: 3px;
+}
+
+/* Floating composer. Actions sit in the bottom row, textarea uses full width. */
+html:not(.ai-sister) .workbench-shell .workbench-composer-region {
+  border-color: transparent;
+  background: var(--wb-surface);
+  padding-top: 8px;
+  max-width: 900px;
+  width: 100%;
+  margin-inline: auto;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer {
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-strong-border);
+  border-radius: 17px;
+  box-shadow: 0 7px 28px rgba(10,28,55,.055), 0 1px 3px rgba(10,28,55,.045);
+  padding: 9px 11px 10px;
+  margin-top: 3px;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer:focus-within {
+  border-color: var(--wb-accent);
+  box-shadow: 0 0 0 3px rgba(41,120,214,.085), 0 8px 25px rgba(0,0,0,.045);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-body {
+  gap: 8px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-textarea {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  border-radius: 9px;
+  min-height: 61px;
+  padding: 10px 9px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-textarea:focus {
+  outline: 0;
+  box-shadow: none;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-textarea::placeholder {
+  color: var(--wb-secondary);
+  opacity: .76;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-attach {
+  background: var(--wb-surface-soft);
+  border-color: var(--wb-border);
+  color: var(--wb-secondary);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-attach:hover:not(:disabled) {
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-send {
+  border: 0;
+  background: #252c37;
+  color: #fff;
+  min-height: 37px;
+  border-radius: 10px;
+  padding: 7px 15px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.09);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-send:hover:not(:disabled) {
+  background: #3d4b5c;
+}
+html.dark:not(.ai-sister) .workbench-shell .workbench-composer-send {
+  color: #121820;
+  background: #e8ecf3;
+}
+html.dark:not(.ai-sister) .workbench-shell .workbench-composer-send:hover:not(:disabled) {
+  background: #cbd9ea;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-send:disabled {
+  background: var(--wb-hover);
+  color: var(--wb-secondary);
+  box-shadow: none;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-hint {
+  white-space: nowrap;
+  color: var(--wb-secondary);
+  font-size: 10px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer-stop {
+  background: var(--wb-surface);
+  border-color: #efc5c5;
+}
+
+/* Workflows and dialogs: consistent macOS-inspired sheets. */
+html:not(.ai-sister) .workbench-dialog-backdrop {
+  background: rgba(13,19,30,.47);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+}
+html:not(.ai-sister) .workbench-dialog-backdrop > [role="dialog"] {
+  background: var(--wb-surface, #fff);
+  color: var(--wb-ink, #19212c);
+  border: 1px solid var(--wb-strong-border, #d6dce4);
+  border-radius: 18px;
+  box-shadow: 0 30px 90px rgba(5,15,30,.22), 0 5px 20px rgba(5,15,30,.075);
+}
+html.dark:not(.ai-sister) .workbench-dialog-backdrop > [role="dialog"] {
+  --wb-surface: #1b2027;
+  --wb-ink: #f0f2f6;
+  --wb-strong-border: #3a4350;
+}
+html:not(.ai-sister) .workbench-dialog-backdrop .ai-sister-preset-card {
+  border-radius: 13px;
+  min-height: 136px;
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+html:not(.ai-sister) .workbench-dialog-backdrop .ai-sister-preset-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+html:not(.ai-sister) .workbench-dialog-backdrop .ai-sister-preset-card[aria-pressed="true"] {
+  border-color: var(--wb-accent, #2978d6);
+  box-shadow: 0 0 0 2px rgba(41,120,214,.12);
+}
+html:not(.ai-sister) .workbench-dialog-backdrop .workbench-settings-dialog {
+  scrollbar-width: thin;
+}
+
+/* Preserve keyboard discoverability and avoid decorative motion overload. */
+html:not(.ai-sister) .workbench-shell button:focus-visible,
+html:not(.ai-sister) .workbench-dialog-backdrop button:focus-visible {
+  outline: 2px solid var(--wb-accent, #2978d6);
+  outline-offset: 2px;
+}
+html:not(.ai-sister) .workbench-shell button,
+html:not(.ai-sister) .workbench-dialog-backdrop button {
+  transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
+}
+@media (max-width: 1320px) {
+  html:not(.ai-sister) .workbench-shell .workbench-action-label {
+    display: none;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-provider-dock > p {
+    display: none;
+  }
+}
+@media (max-width: 1090px) {
+  html:not(.ai-sister) .workbench-shell .workbench-session-sidebar {
+    width: 196px;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-session-sidebar.w-\[60px\] {
+    width: 60px;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-provider-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-provider-dock {
+    margin: 8px;
+    padding: 9px;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-workspace-shelf {
+    padding: 10px;
+  }
+}
+@media (max-width: 850px) {
+  html:not(.ai-sister) .workbench-shell .workbench-conversation-header-main {
+    gap: 7px;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-conversation-workspace {
+    padding: 12px;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-header-eyebrow {
+    display: none;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-conversation-title {
+    font-size: 17px;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-message-user {
+    max-width: 95%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not(.ai-sister) .workbench-shell *,
+  html:not(.ai-sister) .workbench-dialog-backdrop * {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* Left-side activity overview occupies the idle provider workspace, and never
+   drives additional provider reads or navigation. */
+html:not(.ai-sister) .workbench-shell .workbench-context-panel {
+  background: var(--wb-surface);
+  border-color: var(--wb-border);
+  border-radius: 14px;
+  box-shadow: var(--wb-elevation);
+  overflow: hidden;
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-heading {
+  border-bottom: 1px solid var(--wb-border);
+  margin-bottom: 7px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-inspect {
+  background: var(--wb-surface-soft);
+  border-color: var(--wb-border);
+  color: var(--wb-secondary);
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-inspect:hover {
+  border-color: var(--wb-accent);
+  color: var(--wb-accent);
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-list {
+  scrollbar-width: thin;
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-item {
+  background: var(--wb-surface-soft);
+  border: 1px solid transparent;
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-item:has(.workbench-live-indicator) {
+  border-color: var(--wb-border);
+  background: var(--wb-accent-soft);
+}
+html:not(.ai-sister) .workbench-shell .workbench-context-empty-icon {
+  background: var(--wb-surface-soft);
+  color: var(--wb-secondary);
+  border: 1px solid var(--wb-border);
+}
+
+/* Projects use the same restrained grouping as the connection dock. */
+html:not(.ai-sister) .workbench-shell .workbench-project-picker {
+  background: var(--wb-surface);
+  border-color: var(--wb-border);
+  border-radius: 12px;
+  padding: 11px;
+  margin-bottom: 0;
+}
+html:not(.ai-sister) .workbench-shell .workbench-project-picker h2 {
+  color: var(--wb-secondary);
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-project-picker select,
+html:not(.ai-sister) .workbench-shell .workbench-project-picker input,
+html:not(.ai-sister) .workbench-shell .workbench-project-picker textarea {
+  background: var(--wb-surface-soft);
+  color: var(--wb-ink);
+  border-color: var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-project-picker button {
+  border-color: var(--wb-border);
+  border-radius: 8px;
+  color: var(--wb-secondary);
+}
+html:not(.ai-sister) .workbench-shell .workbench-project-picker button:hover:not(:disabled) {
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-composer.border-emerald-400 {
+  border-color: #10b981;
+  background: var(--wb-accent-soft);
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content {
+  font-size: .875rem;
+}
+html.ai-sister .workbench-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid rgba(167,139,250,.3);
+  border-radius: 9px;
+  color: #c4bdd9;
+}
+html.ai-sister .workbench-icon-button:hover {
+  background: rgba(167,139,250,.12);
+}
+html.ai-sister .workbench-new-conversation {
+  border-color: rgba(167,139,250,.45);
+  background: rgba(30,20,58,.7);
+  color: #f8f7ff;
+}
+
+
+/* The dock responds to the actual width left after the conversation rail. */
+html:not(.ai-sister) .workbench-shell .workbench-provider-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 176px), 1fr));
+}
+/* Native avatar fallback stays minimal in the default workbench theme.
+   The commemorative portrait artwork is reserved for the opt-in theme. */
+html:not(.ai-sister) .workbench-shell .workbench-context-item .workbench-live-indicator {
+  width: 6px;
+  height: 6px;
+  box-shadow: none;
+}

@@ -138,7 +138,7 @@ export function FocusPane({
     // overflow-y-auto 是極端小視窗下的逃生口，讓連線列在被擠壓時仍可捲到；
     // 捲動時原生 webview 的錨點只是換位置、尺寸不變，ResizeObserver 不會觸發，
     // 故用 onScroll（見 onFocusScroll）即時重新同步 webview 座標。
-    <aside className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-white dark:bg-zinc-950 p-3" onScroll={onFocusScroll}>
+    <aside className="workbench-focus-pane flex min-h-0 flex-1 flex-col overflow-y-auto bg-white p-3 dark:bg-zinc-950" onScroll={onFocusScroll}>
       {centeredProvider ? (
         <FocusStage
           provider={centeredProvider}
@@ -222,7 +222,7 @@ function FirstRunPanel({
     <section
       ref={setCenterStageRef}
       aria-labelledby="first-run-title"
-      className="ai-sister-first-run grid min-h-[160px] flex-1 place-items-center overflow-auto rounded-lg border border-zinc-200 bg-gradient-to-b from-sky-50 to-white p-4 dark:border-zinc-800 dark:from-sky-950/30 dark:to-zinc-950"
+      className="ai-sister-first-run workbench-first-run grid min-h-[160px] flex-1 place-items-center overflow-auto rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
     >
       <div className="w-full max-w-2xl text-center">
         <div className="ai-sister-onboarding-star mx-auto grid h-12 w-12 place-items-center rounded-full bg-sky-100 text-2xl dark:bg-sky-950" aria-hidden="true">
