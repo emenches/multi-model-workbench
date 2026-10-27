@@ -17,7 +17,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 import { bubbleAuthorLabel } from '../bubbleAuthorLabel';
-import App, { agentHeaderStatus, ChatArea, presentationHiddenProvidersForCenterSurface } from '../App';
+import App, { agentHeaderStatus, canRestoreWithoutInspectorPane, ChatArea, presentationHiddenProvidersForCenterSurface } from '../App';
 import { I18nProvider } from '../i18n/context';
 import { applyCenterHiddenCommands } from '../ui/presentationCommands';
 import { defaultPresentation, setProviderPresentation } from '../ui/presentation';
@@ -57,6 +57,16 @@ describe('App bubble author labels', () => {
   });
 });
 
+
+describe('Hidden provider restoration', () => {
+  it('reopens chip/side/center-text agents with no mounted inspector and waits only for a visible native center', () => {
+    expect(canRestoreWithoutInspectorPane('chip', 'text', false)).toBe(true);
+    expect(canRestoreWithoutInspectorPane('side', 'text', false)).toBe(true);
+    expect(canRestoreWithoutInspectorPane('center', 'text', false)).toBe(true);
+    expect(canRestoreWithoutInspectorPane('center', 'native', false)).toBe(false);
+    expect(canRestoreWithoutInspectorPane('center', 'native', true)).toBe(true);
+  });
+});
 
 describe('Start screen agent status', () => {
   it('shows genuine ready, interim verification, and remembered session states separately', () => {
