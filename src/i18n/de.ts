@@ -151,7 +151,7 @@ export const de: Record<I18nKey, string> = {
   'input.connectProvider': 'Zum Starten einen Anbieter verbinden',
   'input.checkingProviders': 'Agentenverbindungen werden geprüft…',
   'input.sendSelectedProviders': 'An ausgewählte Anbieter senden',
-  'input.messagePlaceholder': 'Nachricht eingeben… (Enter zum Senden, Shift+Enter für eine neue Zeile)',
+  'input.messagePlaceholder': 'Nachricht eingeben…',
   'input.modeNotReady': 'Für diesen Modus fehlen noch {remaining} KI-Verbindungen',
   'input.preparing': 'Wird geprüft…',
   'input.preparingSession': 'Neue KI-Sitzungen werden vorbereitet…',
