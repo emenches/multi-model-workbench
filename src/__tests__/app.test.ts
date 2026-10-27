@@ -127,6 +127,7 @@ describe('text center presentation hidden set', () => {
     const host = {
       hide: vi.fn().mockResolvedValue(undefined),
       show: vi.fn().mockResolvedValue(undefined),
+      setBounds: vi.fn().mockResolvedValue(undefined),
     };
     const previousPresentation = setProviderPresentation(defaultPresentation(), 'chatgpt', 'center');
     const nextPresentation = setProviderPresentation(previousPresentation, 'claude', 'center');
