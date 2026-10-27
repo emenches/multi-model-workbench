@@ -1071,8 +1071,10 @@ pub async fn provider_open(
     settings::ensure_provider_active_locked(&app, &provider)?;
     let label = provider_label(&provider);
     if let Some(webview) = app.get_webview(&label) {
-        webview.show().map_err(|error| error.to_string())?;
+        // Place the native child before showing it: otherwise previously parked
+        // login content may momentarily cover the HTML toolbar.
         set_webview_bounds(&webview, position, size)?;
+        webview.show().map_err(|error| error.to_string())?;
         let state = current_state(&provider);
         return Ok(state);
     }
@@ -1519,24 +1521,20 @@ pub async fn provider_open_login(
     app: AppHandle,
     webview: tauri::Webview,
     provider: String,
+    bounds: Bounds,
 ) -> Result<(), String> {
     ensure_control_webview(&webview)?;
     let adapter = adapters::get_adapter(&provider)?;
     settings::ensure_provider_active(&app, &provider)?;
-    if app.get_webview(&provider_label(&provider)).is_none() {
-        let bounds = Bounds {
-            x: 24.0,
-            y: 24.0,
-            width: 420.0,
-            height: 320.0,
-        };
-        let _ = provider_open(app.clone(), webview.clone(), provider.clone(), bounds).await?;
-    }
+    // Never create a fallback at (24, 24). Callers must have a positioned
+    // provider WebView and supply measured content-stage bounds.
+    let (position, size) = physical_bounds(&bounds)?;
+    let provider_webview = get_provider_webview(&app, &provider)
+        .map_err(|_| format!("Open {provider} in the content pane before logging in"))?;
+    set_webview_bounds(&provider_webview, position, size)?;
     let login_url = tauri::Url::parse(&adapter.urls.login)
         .map_err(|error| format!("invalid provider login URL: {error}"))?;
-    get_provider_webview(&app, &provider)?
-        .navigate(login_url)
-        .map_err(|error| error.to_string())?;
+    provider_webview.navigate(login_url).map_err(|error| error.to_string())?;
     provider_show(app, webview, provider, Some(true)).await
 }
 

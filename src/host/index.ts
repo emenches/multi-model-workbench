@@ -90,7 +90,8 @@ export const host = {
         provider,
         js: "window.__MAC_ENGINE__ && typeof window.__MAC_ENGINE__.stop === 'function' && window.__MAC_ENGINE__.stop();",
       }),
-    openLogin: (provider: AIProvider): Promise<void> => invoke('provider_open_login', { provider }),
+    openLogin: (provider: AIProvider, bounds: DOMRectReadOnly): Promise<void> =>
+      invoke('provider_open_login', { provider, bounds: toBounds(bounds) }),
     openLoginExternal: (provider: AIProvider): Promise<void> => invoke('provider_open_login_external', { provider }),
     reload: (provider: AIProvider): Promise<void> => invoke('provider_reload', { provider }),
     reconnect: (provider: AIProvider): Promise<void> => invoke('provider_reload', { provider, reconnect: true }),
