@@ -155,7 +155,11 @@ function applyProviderResponse(
 function refreshFreeAggregate(steps: ProcessTraceStep[]): ProcessTraceStep[] {
   const responseRows = steps.filter((step) => step.kind === 'response');
   if (responseRows.length === 0) return steps;
-  const aggregateStatus: ProcessTraceStepStatus = responseRows.every((step) => step.status === 'done') ? 'done' : 'active';
+  const aggregateStatus: ProcessTraceStepStatus = responseRows.every((step) => step.status === 'done')
+    ? 'done'
+    : responseRows.some((step) => step.status === 'active')
+      ? 'active'
+      : 'pending';
   return steps.map((step) => (step.kind === 'fanout' ? { ...step, status: aggregateStatus } : step));
 }
 
