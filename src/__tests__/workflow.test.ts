@@ -541,7 +541,12 @@ describe('workflow engine', () => {
       expect(prompt).toContain('primary language of the user-authored prose');
       expect(prompt).toContain('Traditional Chinese (zh-TW) (the app interface language fallback)');
       expect(prompt.startsWith('<response-language-policy')).toBe(true);
-      expect(prompt.endsWith('Explain dependency injection in simple terms.')).toBe(true);
+      // The original question remains intact, then a final language reminder
+      // deliberately follows it to prevent later workflow steps drifting
+      // into the language of other model responses or prompt templates.
+      expect(prompt).toContain('Explain dependency injection in simple terms.\n\n[Final response-language instruction]');
+      expect(prompt).toContain('primary language of the ORIGINAL USER QUESTION');
+      expect(prompt.endsWith('[/Final response-language instruction]')).toBe(true);
     }
 
     vi.mocked(host.provider.send).mockClear();
@@ -568,6 +573,7 @@ describe('workflow engine', () => {
     ).toBe(true);
     expect(serialPrompts.every((prompt) => prompt.includes('Do not infer it from these workflow instructions, other AI responses'))).toBe(true);
     expect(serialPrompts.every((prompt) => prompt.startsWith('<response-language-policy'))).toBe(true);
+    expect(serialPrompts.every((prompt) => prompt.endsWith('[/Final response-language instruction]'))).toBe(true);
   });
 
   it('replays restored conversation context without replacing the current snapshot question', async () => {
