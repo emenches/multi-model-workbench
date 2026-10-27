@@ -142,6 +142,7 @@ export const I18N_KEYS = [
   'processTrace.pending',
   'processTrace.active',
   'processTrace.done',
+  'processTrace.failed',
   'processTrace.fanout',
   'processTrace.sendingTo',
   'processTrace.noSelectedAI',
