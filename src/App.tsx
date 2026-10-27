@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AI_PROVIDERS, CHAT_MODES, DEFAULT_FREE_TARGET_PROVIDERS } from '../shared/constants';
-import type { AIProvider, BridgeMessage, ChatMode, ProviderState, WorkflowPresetId } from '../shared/types';
+import type { AIProvider, BridgeMessage, ChatMode, ModeRoles, ProviderState, WorkflowPresetId } from '../shared/types';
 import { startBridgePull, resetProviderBootState } from './bridge/pull';
 import { isRenderableResponseMessage } from './bridge/render';
 import { publishBridgeMessage } from './bridge/bus';
@@ -8,6 +8,7 @@ import { EchoPanel } from './dev/EchoPanel';
 import { getRuntimeAppVersion } from './appVersion';
 import { host } from './host';
 import { ProjectPicker } from './workspace/ProjectPicker';
+import { MIN_CONSULT_PROVIDERS, availableConsultProviders, chooseConsultRoles } from './ui/consultAvailability';
 import { EMPTY_PROJECT_STORE, mergeProjectContext, type ProjectStore } from './workspace/model';
 import { useI18n } from './i18n/context';
 import { MODE_NAME_KEYS } from './i18n/modes';
@@ -422,16 +423,21 @@ export default function App() {
   const hasFreeModeTargets = useMemo(() => hasEffectiveFreeModeTargets(targets, states), [states, targets]);
   const anySendableTargets = useMemo(() => defaultTargets(states, activeProviders), [activeProviders, states]);
   const requiredModeProviders = useMemo(() => {
+    // Consult can reuse two distinct, signed-in providers for its later,
+    // sequential review and synthesis roles.
+    if (mode === 'consult') return availableConsultProviders(states, activeProviders);
     const roles = defaultRolesForPreset(mode, presetId, appSettings.modeRoles);
     return roles
       ? ([...new Set(Object.values(roles))] as AIProvider[])
       : presetForId(presetId).requiredProviders;
-  }, [mode, presetId, appSettings.modeRoles]);
+  }, [mode, presetId, appSettings.modeRoles, states, activeProviders]);
   const readyModeProviders = useMemo(
     () => requiredModeProviders.filter((provider) => isSendable(states[provider])),
     [requiredModeProviders, states],
   );
-  const missingModeProviderCount = Math.max(0, requiredModeProviders.length - readyModeProviders.length);
+  const missingModeProviderCount = mode === 'consult'
+    ? Math.max(0, MIN_CONSULT_PROVIDERS - readyModeProviders.length)
+    : Math.max(0, requiredModeProviders.length - readyModeProviders.length);
   const noSendableProviders = !settingsLoaded || (presetId === 'brainstorm'
     ? readyModeProviders.length === 0
     : mode === 'free'
@@ -1466,7 +1472,7 @@ export default function App() {
     if (centeredProvider && centerSurfaceRef.current === 'native') void driveCenteredProviderToStage(centeredProvider);
   }, [overlayGuardOpen, centeredProvider, driveCenteredProviderToStage]);
 
-  const executeSend = async (trimmed: string, preparedWorkflowTargets?: AIProvider[]) => {
+  const executeSend = async (trimmed: string, preparedWorkflowTargets?: AIProvider[], preparedWorkflowRoles?: ModeRoles) => {
     if (!trimmed) return;
     const brainstorm = presetId === 'brainstorm';
     const workflowTargets = mode === 'free' && !brainstorm
@@ -1496,7 +1502,7 @@ export default function App() {
       setProcessTrace(createProcessTrace(mode, workflowTargets ?? [], localeRef.current, presetId));
       const workflowStartedAt = Date.now();
       const snapshotSettings = settingsRef.current;
-      const workflowRoles = defaultRolesForPreset(mode, presetId, snapshotSettings.modeRoles);
+      const workflowRoles = preparedWorkflowRoles ?? defaultRolesForPreset(mode, presetId, snapshotSettings.modeRoles);
       recordEventLog(eventFromWorkflowStart(mode, trimmed.length, workflowTargets?.length));
       const result = await runWorkflow({
         text: trimmed,
@@ -1537,11 +1543,28 @@ export default function App() {
     const brainstorm = presetId === 'brainstorm';
     const serialMode = isSerialMode(mode) ? mode as Exclude<ChatMode, 'free'> : undefined;
     const modeRoles = settingsRef.current.modeRoles;
-    const workflowRoles = brainstorm
-      ? defaultRolesForPreset(mode, presetId, modeRoles)
-      : serialMode
-        ? defaultRolesForPreset(serialMode, undefined, modeRoles)
-        : undefined;
+    const consultRoles = mode === 'consult'
+      ? chooseConsultRoles(
+          modeRoles.consult,
+          availableConsultProviders(
+            statesRef.current,
+            activeProvidersForStandby(settingsRef.current.standbyProvider),
+          ),
+        )
+      : undefined;
+    // Unlike Free mode, Consult must have two independent providers to
+    // compare answers. Do not silently fall back to a single-model review.
+    if (mode === 'consult' && !consultRoles) {
+      setWorkflowStatus('Consult requires two signed-in, ready providers.');
+      return false;
+    }
+    const workflowRoles = mode === 'consult'
+      ? consultRoles
+      : brainstorm
+        ? defaultRolesForPreset(mode, presetId, modeRoles)
+        : serialMode
+          ? defaultRolesForPreset(serialMode, undefined, modeRoles)
+          : undefined;
     const participants = workflowRoles
       ? [...new Set(Object.values(workflowRoles))]
       : freeModeTargets(targets, statesRef.current);
@@ -1621,7 +1644,7 @@ export default function App() {
       return false;
     }
 
-    void executeSend(trimmed, workflowTargets);
+    void executeSend(trimmed, workflowTargets, workflowRoles);
     return true;
   };
 

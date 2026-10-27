@@ -4,6 +4,7 @@ import { formatI18n, t } from '../i18n/t';
 import type { Locale } from '../i18n/resolve';
 import { isSendable } from '../workflow/sendability';
 import { PRESET_CATALOG, defaultRolesForPreset, type PresetCatalogEntry } from './presetCatalogData';
+import { MIN_CONSULT_PROVIDERS, availableConsultProviders } from './consultAvailability';
 import type { ModeRoleAssignments } from './modeRoleAssignment';
 
 export function PresetCatalog({
@@ -140,6 +141,16 @@ function presetReadiness(
   modeRoles?: ModeRoleAssignments,
   activeProviders?: readonly AIProvider[],
 ): { label: string; ready: boolean } {
+  if (preset.graphId === 'consult') {
+    const readyCount = availableConsultProviders(states, activeProviders ?? DEFAULT_FREE_TARGET_PROVIDERS).length;
+    return {
+      label: formatI18n(t('preset.readinessRequired', locale), {
+        ready: Math.min(readyCount, MIN_CONSULT_PROVIDERS),
+        total: MIN_CONSULT_PROVIDERS,
+      }),
+      ready: readyCount >= MIN_CONSULT_PROVIDERS,
+    };
+  }
   const roles = defaultRolesForPreset(preset.graphId, preset.id, modeRoles);
   const required = roles ? ([...new Set(Object.values(roles))] as AIProvider[]) : preset.requiredProviders;
   if (required.length === 0) {
