@@ -188,6 +188,8 @@ export const en: Record<I18nKey, string> = {
   'processTrace.elapsed': 'Elapsed {time}',
   'processTrace.characters': '{count} characters captured',
   'processTrace.noOutputYet': 'Awaiting first text',
+  'thinkingViz.heading': 'Working across models',
+  'thinkingViz.models': 'models',
   'processTrace.workInProgress': 'Response in progress',
   'processTrace.progressNote': 'Live progress appears above; completion is confirmed separately.',
   'processTrace.step': 'Step',

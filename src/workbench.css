@@ -775,3 +775,18 @@ html:not(.ai-sister) .workbench-shell .workbench-process-trace {
     display: none;
   }
 }
+
+/* Procedural decorative waiting artwork, never a progress percentage. */
+.workbench-thinking-visual { margin-block: 16px 25px; color: var(--wb-secondary, #8995a5); }
+.workbench-thinking-svg { display: block; width: 100%; height: clamp(130px,18vh,195px); }
+.workbench-thinking-orbit-a { transform-origin: 360px 98px; animation: wb-think-rotate 12s linear infinite; }
+.workbench-thinking-orbit-b { transform-origin: 360px 98px; animation: wb-think-rotate 17s linear reverse infinite; }
+.workbench-thinking-center { transform-origin: 360px 98px; animation: wb-think-pulse 4s ease-in-out infinite; }
+.workbench-thinking-dot { animation: wb-think-shimmer 3s ease-in-out infinite; animation-delay: var(--thinking-delay, 0s); }
+.workbench-thinking-caption-mark { width: 7px; height: 7px; border-radius: 50%; background: #7bb8e6; box-shadow: 0 0 0 4px #609ad626; }
+@keyframes wb-think-rotate { to { rotate: 360deg; } }
+@keyframes wb-think-pulse { 0%, 100% { scale: .95; opacity: .7; } 50% { scale: 1.08; opacity: 1; } }
+@keyframes wb-think-shimmer { 0%,100% { opacity: .20; } 50% { opacity: .95; } }
+@media (prefers-reduced-motion: reduce) {
+  .workbench-thinking-orbit-a,.workbench-thinking-orbit-b,.workbench-thinking-center,.workbench-thinking-dot { animation: none !important; }
+}

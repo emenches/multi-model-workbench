@@ -190,6 +190,8 @@ export const ja: Record<I18nKey, string> = {
   'processTrace.elapsed': '経過 {time}',
   'processTrace.characters': '{count}文字を取得',
   'processTrace.noOutputYet': '最初のテキストを待機中',
+  'thinkingViz.heading': 'モデルが処理中',
+  'thinkingViz.models': 'モデル',
   'processTrace.workInProgress': '応答を処理中',
   'processTrace.progressNote': '進捗は上に表示されます。完了は別途確認されます。',
   'processTrace.step': 'ステップ',

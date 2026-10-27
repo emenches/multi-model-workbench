@@ -57,6 +57,7 @@ import {
 import { FocusPane, type CenterSurface } from './ui/FocusPane';
 import { InputBar } from './ui/InputBar';
 import { MarkdownText } from './ui/MarkdownText';
+import { ThinkingVisualization } from './ui/ThinkingVisualization';
 import { makeFileDragGuard } from './ui/fileDrop';
 import { PreflightDialog } from './ui/PreflightDialog';
 import { PresetCatalog } from './ui/PresetCatalog';
@@ -2675,6 +2676,8 @@ export function ChatArea({
   states: Record<AIProvider, ProviderState>;
   trace?: ProcessTraceState;
 }) {
+  const activeSteps = trace?.steps.filter((step) => step.status === 'active' && step.kind !== 'fanout') ?? [];
+  const activeProviders = new Set(activeSteps.map((step) => step.provider).filter((provider): provider is AIProvider => provider !== undefined));
   if (messages.length === 0) {
     const providers = Object.values(states);
     const anyReady = providers.some((state) => isSendable(state));
@@ -2697,6 +2700,9 @@ export function ChatArea({
     <div className="space-y-3 p-2">
       {messages.map((message) => {
         const p = message.provider;
+        // While this provider is still working, the decorative waiting scene
+        // replaces its redundant in-flight transcript placeholder.
+        if (message.role === 'ai' && !message.final && p && activeProviders.has(p as AIProvider)) return null;
         const isProvider = typeof p === 'string' && p in AI_PROVIDERS;
         const thinking = isProvider && !message.final && states[p as AIProvider]?.thinking === true;
         const statusLabel =
@@ -2727,28 +2733,8 @@ export function ChatArea({
           </article>
         );
       })}
-      {trace?.steps.some((step) => step.status === 'active' && step.kind !== 'fanout') ? (
-        <div className="workbench-transcript-activity mx-auto max-w-3xl rounded-xl border border-dashed border-sky-200 bg-sky-50/50 px-4 py-4 dark:border-sky-900 dark:bg-sky-950/20">
-          <div className="flex items-center gap-3">
-            <span className="workbench-working-orb flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-sky-200 bg-white text-sky-700 dark:border-sky-800 dark:bg-zinc-900 dark:text-sky-300" aria-hidden="true">
-              <span className="workbench-live-indicator" />
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-                {translateKey('processTrace.workInProgress', locale)}
-              </div>
-              <div className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-                {trace.steps.filter((step) => step.status === 'active' && step.kind !== 'fanout').map((step) => step.label).join(' · ')}
-              </div>
-              <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                {translateKey('processTrace.progressNote', locale)}
-              </div>
-            </div>
-          </div>
-          <div className="workbench-activity-track mt-3 h-1 overflow-hidden rounded-full bg-sky-100 dark:bg-sky-950" aria-hidden="true">
-            <div className="workbench-activity-sweep h-full w-1/3 rounded-full bg-sky-500/70" />
-          </div>
-        </div>
+      {activeSteps.length > 0 ? (
+        <ThinkingVisualization activeSteps={activeSteps} states={states} locale={locale} />
       ) : null}
     </div>
   );

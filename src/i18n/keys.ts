@@ -172,6 +172,8 @@ export const I18N_KEYS = [
   'processTrace.elapsed',
   'processTrace.characters',
   'processTrace.noOutputYet',
+  'thinkingViz.heading',
+  'thinkingViz.models',
   'processTrace.workInProgress',
   'processTrace.progressNote',
   'workflowStatus.freeTargets',

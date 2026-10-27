@@ -178,6 +178,8 @@ export const zhTW: Record<I18nKey, string> = {
   'processTrace.elapsed': '已經過 {time}',
   'processTrace.characters': '已擷取 {count} 字元',
   'processTrace.noOutputYet': '等待第一段文字',
+  'thinkingViz.heading': '模型正在處理',
+  'thinkingViz.models': '個模型',
   'processTrace.workInProgress': '正在產生回應',
   'processTrace.progressNote': '即時進度顯示於上方；完成狀態另行確認。',
   'processTrace.step': '步驟',
