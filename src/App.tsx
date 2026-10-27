@@ -1633,6 +1633,19 @@ export default function App() {
 
   const send = async (trimmed: string): Promise<boolean> => {
     if (!trimmed) return false;
+    // Record the implicit initial agent as soon as this conversation is sent.
+    // Otherwise a restarted Simple Chat could silently choose a different
+    // model if login/availability ordering changes.
+    if (presetId === 'simple' && simpleAgent && !savedSimpleAgent) {
+      setSessions((current) => {
+        const existing = current.find((session) => session.id === activeSessionId);
+        if (!existing || existing.singleProvider) return current;
+        return persistConversationSessions(upsertConversationSession(current, {
+          ...existing, mode: 'free', presetId: 'simple', singleProvider: simpleAgent,
+          updatedAt: Date.now(),
+        }));
+      });
+    }
     const brainstorm = presetId === 'brainstorm';
     const serialMode = isSerialMode(mode) ? mode as Exclude<ChatMode, 'free'> : undefined;
     const modeRoles = settingsRef.current.modeRoles;
