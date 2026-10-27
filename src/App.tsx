@@ -9,6 +9,8 @@ import { getRuntimeAppVersion } from './appVersion';
 import { host } from './host';
 import { ProjectPicker } from './workspace/ProjectPicker';
 import { usableLoginStageBounds } from './ui/loginStageBounds';
+import { PRESET_CATALOG } from './ui/presetCatalogData';
+import { activeProject } from './workspace/model';
 import { MIN_CONSULT_PROVIDERS, availableConsultProviders, chooseConsultRoles } from './ui/consultAvailability';
 import { EMPTY_PROJECT_STORE, mergeProjectContext, type ProjectStore } from './workspace/model';
 import { useI18n } from './i18n/context';
@@ -358,6 +360,7 @@ export default function App() {
   const [focusPaneWidth, setFocusPaneWidth] = useState(() => defaultSettings().focusPaneWidth);
   const [stageExpanded, setStageExpanded] = useState(false);
   const [messagesMaximized, setMessagesMaximized] = useState(false);
+  const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
   const [scrollFocusedProvider, setScrollFocusedProvider] = useState<AIProvider | undefined>();
   const [presentation, setPresentation] = useState<PresentationByProvider>(() => defaultPresentation());
   const [centerSurface, setCenterSurface] = useState<CenterSurface>('text');
@@ -2065,13 +2068,28 @@ export default function App() {
                 stageExpanded && !checkpoint && !(stepTimeout && !stepTimeout.timedOut) ? 'hidden' : ''
               }`}
             >
-              <AiSisterEnsembleCard />
+              <div className="workbench-workspace-heading mb-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Workspace</div>
+                  <div className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                    {activeProject(projectStore)?.name ?? 'General'}
+                  </div>
+                </div>
+                <button type="button"
+                  className="workbench-options-button shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium dark:border-zinc-700"
+                  onClick={() => setWorkflowOptionsOpen((open) => !open)}
+                  aria-expanded={workflowOptionsOpen} aria-controls="workbench-workflow-options">
+                  {workflowOptionsOpen ? 'Hide tools' : 'Tools & modes'}
+                </button>
+              </div>
               <ProjectPicker
                 store={projectStore}
                 disabled={isProcessing || !projectsReady}
                 onSave={saveProjectStore}
                 loadError={projectLoadError}
               />
+              <div id="workbench-workflow-options" hidden={!workflowOptionsOpen && !checkpoint && !stepTimeout} className="workbench-options mt-3">
+              <AiSisterEnsembleCard />
               <PresetCatalog
                 mode={mode}
                 selectedPresetId={presetId}
@@ -2113,6 +2131,7 @@ export default function App() {
               {stepTimeout && !stepTimeout.timedOut ? (
                 <StepTimeoutDialog event={stepTimeout} onClose={() => setStepTimeout(undefined)} locale={locale} />
               ) : null}
+              </div>
             </section>
             <FocusPane
               providers={activeProviders}
@@ -2173,6 +2192,23 @@ export default function App() {
                     {presetId === 'brainstorm' ? translate(presetForId(presetId).displayNameKey) : translate(MODE_NAME_KEYS[mode])}
                   </span>
                   <span className="min-w-0 truncate text-xs text-zinc-600 dark:text-zinc-400">{workflowStatus || translate('processTrace.settled')}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Mode</span>
+                    <select
+                      aria-label="Workflow mode"
+                      value={presetId}
+                      disabled={isProcessing}
+                      onChange={(event) => selectPreset(event.target.value as WorkflowPresetId)}
+                      className="workbench-mode-select max-w-48 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    >
+                      {PRESET_CATALOG.map((preset) => (
+                        <option key={preset.id} value={preset.id}>{translate(preset.displayNameKey)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <span className="hidden text-xs text-zinc-500 dark:text-zinc-400 xl:inline">Ready = connected, not necessarily finished responding.</span>
                 </div>
               </div>
               {/* One group, so the controls wrap as a block and stay right-aligned on the new row. */}
@@ -2291,7 +2327,7 @@ export default function App() {
           ) : null}
           <div
             ref={transcriptRef}
-            className="ai-sister-conversation-transcript mt-3 min-h-0 flex-1 overflow-auto border-y border-zinc-200 dark:border-zinc-800 py-3"
+            className="ai-sister-conversation-transcript workbench-reading-area mt-3 min-h-0 flex-1 overflow-auto border-y border-zinc-200 dark:border-zinc-800 py-4"
             onScroll={(event) => {
               transcriptStickToEndRef.current = isTranscriptNearEnd(event.currentTarget);
               handleTranscriptScroll();
