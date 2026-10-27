@@ -299,6 +299,8 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
   const thinking = booleanProp(payload, 'thinking');
   const bulkReady = numberProp(payload, 'bulkReady');
   const doneReady = booleanProp(payload, 'doneReady');
+  const capturePhase = stringProp(payload, 'capturePhase');
+  if (capturePhase) parts.push(`capture ${capturePhase}`);
   if (dom) parts.push(`dom ${dom}`);
   if (login) parts.push(`login ${login}`);
   if (typeof thinking === 'boolean') parts.push(`thinking ${thinking ? 'yes' : 'no'}`);
@@ -320,6 +322,15 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
       reason,
       bulkReady: bulkReady ?? null,
       doneReady: doneReady ?? null,
+      ...(capturePhase ? {
+        capturePhase,
+        captureUserNodes: numberProp(payload, 'captureUserNodes') ?? null,
+        captureResponseNodes: numberProp(payload, 'captureResponseNodes') ?? null,
+        captureAnchor: booleanProp(payload, 'captureAnchor') ?? null,
+        captureAnchorLatched: booleanProp(payload, 'captureAnchorLatched') ?? null,
+        captureGenerationSeen: booleanProp(payload, 'captureGenerationSeen') ?? null,
+        captureTextChars: numberProp(payload, 'captureTextChars') ?? null,
+      } : {}),
     },
   };
 }

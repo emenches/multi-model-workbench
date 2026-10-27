@@ -68,6 +68,11 @@ const CHATGPT_USER_MESSAGE_SELECTORS = [
   'div[id^="response-"].items-end',
   '.message-bubble.user',
   '[data-user-message-bubble]',
+  // The signed-in Chat/Work layout can identify user messages by search-unit keys
+  // without rendering [data-message-author-role="user"]. Mirror the existing
+  // user-message exclusion selectors so a verified new prompt can be anchored.
+  '[data-content-search-unit-key$=":user"]',
+  '[data-chatgpt-search-unit-key$=":user"]',
 ];
 const CHATGPT_USER_MESSAGE_SELECTOR = CHATGPT_USER_MESSAGE_SELECTORS.join(', ');
 const CHATGPT_LIVE_SEND_BUTTON_SELECTORS = [
@@ -565,8 +570,47 @@ class InactiveSendOperationError extends Error {
       v: 1,
       action: 'STATUS_REPORT',
       provider: adapter.provider,
-      payload: { dom: 'ready', login, thinking: isGenerating(), bootId: bridge.bootId },
+      payload: {
+        dom: 'ready',
+        login,
+        thinking: isGenerating(),
+        bootId: bridge.bootId,
+        ...chatGptCaptureSnapshot(),
+      },
     });
+  }
+
+  // Bounded, text-free capture telemetry for diagnosing a completed native
+  // ChatGPT answer that never appears in Consult. Keep extraction gates intact:
+  // this reports the first missing positive signal, but cannot complete a step.
+  function chatGptCaptureSnapshot(): Record<string, string | number | boolean> {
+    if (!waitingForResponse || adapter?.provider !== 'chatgpt') return {};
+    const anchor = refreshChatGptUserTurnAnchor(adapter);
+    const mayRead = Boolean(anchor) || chatGptMayReadResponseWithoutAnchor();
+    const responseNodes = document.querySelectorAll(adapter.responseSelectors.join(', ')).length;
+    const candidate = mayRead ? getLatestResponseCandidate() : null;
+    const turn = candidate ? currentChatGptCompletionTurn(candidate.element) : null;
+    const completion = turn && candidate ? chatGptCompletionEvidence(turn, candidate) : null;
+    const capturePhase = !mayRead
+      ? 'waiting-user-anchor'
+      : responseNodes === 0
+        ? 'assistant-selector-missing'
+        : !candidate
+          ? 'candidate-rejected'
+          : !turn
+            ? 'completion-turn-missing'
+            : !completion
+              ? 'completion-marker-missing'
+              : 'completion-marker-present';
+    return {
+      capturePhase,
+      captureUserNodes: document.querySelectorAll(CHATGPT_USER_MESSAGE_SELECTOR).length,
+      captureResponseNodes: responseNodes,
+      captureAnchor: Boolean(anchor),
+      captureAnchorLatched: chatGptUserTurnAnchorLatched,
+      captureGenerationSeen: chatGptResponseGenerationObserved,
+      captureTextChars: candidate?.text.length ?? 0,
+    };
   }
 
   function reportChallengeBlocked(provider: AIProvider) {
