@@ -388,7 +388,7 @@ describe('injected engine input hardening', () => {
       v: 1,
       action: 'STATUS_REPORT',
       provider: 'grok',
-      payload: { dom: 'ready', login: 'logged_out', thinking: false, bootId: 'boot1' },
+      payload: { dom: 'ready', login: 'unknown', thinking: false, bootId: 'boot1' },
     });
 
     send(handler, 'must not enter a hidden textarea');
@@ -414,7 +414,7 @@ describe('injected engine input hardening', () => {
       v: 1,
       action: 'STATUS_REPORT',
       provider: 'grok',
-      payload: { dom: 'ready', login: 'logged_out', thinking: false, bootId: 'boot1' },
+      payload: { dom: 'ready', login: 'unknown', thinking: false, bootId: 'boot1' },
     });
   });
 
