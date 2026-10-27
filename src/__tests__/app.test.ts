@@ -72,7 +72,10 @@ describe('App workflow controls', () => {
     expect(html).toContain('workbench-new-chat-screen');
     expect(html).toContain('workbench-new-chat-workflow');
     expect(html).toContain('Simple Chat');
-    expect(html).toContain('Free fan-out');
+    expect(html).not.toContain('Free fan-out');
+    expect(html).toContain('More workflows');
+    expect(html).toContain('Consult');
+
     expect(html).toContain('workbench-simple-agent-select');
     expect(html).toContain('workbench-new-chat-composer');
     expect(html).toContain('workbench-session-sidebar');
@@ -113,7 +116,9 @@ describe('Workbench reading surfaces', () => {
     expect(html).toContain('workbench-conversation-header');
     expect(html).toContain('workbench-conversation-workspace');
     expect(html).toContain('workbench-connected-agent-strip');
-    expect(html).toContain('workbench-activity-button');
+    expect(html).toContain('workbench-primary-activity');
+    expect(html).toContain('More actions');
+    expect(html).toContain('workbench-new-chat-workflows');
     expect(html).toContain('workbench-new-chat-project');
     expect(html).toContain('workbench-new-chat-workflows');
   });

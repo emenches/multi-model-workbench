@@ -190,6 +190,8 @@ export const en: Record<I18nKey, string> = {
   'sidebar.workflowChoice': 'Choose a workflow',
   'sidebar.agentLogin': 'Sign in',
   'sidebar.noAgents': 'No agents connected',
+  'workbench.moreActions': 'More actions',
+  'workbench.moreWorkflows': 'More workflows',
   'workbench.workflowProgress': 'Workflow progress',
   'workbench.showDetails': 'Show details',
   'workbench.hideDetails': 'Hide details',
