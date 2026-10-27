@@ -144,17 +144,20 @@ export function ProcessTrace({
 function statusLabel(status: ProcessTraceStepStatus, locale: Locale): string {
   if (status === 'pending') return t('processTrace.pending', locale);
   if (status === 'active') return t('processTrace.active', locale);
+  if (status === 'failed') return t('processTrace.failed', locale);
   return t('processTrace.done', locale);
 }
 
 function statusClass(status: ProcessTraceStepStatus): string {
   if (status === 'pending') return 'text-zinc-500 dark:text-zinc-500';
   if (status === 'active') return 'text-sky-700 dark:text-sky-300';
+  if (status === 'failed') return 'text-red-700 dark:text-red-300';
   return 'text-emerald-700 dark:text-emerald-300';
 }
 
 function statusDotClass(status: ProcessTraceStepStatus): string {
   if (status === 'pending') return 'bg-zinc-400';
   if (status === 'active') return 'bg-sky-500';
+  if (status === 'failed') return 'bg-red-500';
   return 'bg-emerald-500';
 }
