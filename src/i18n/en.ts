@@ -163,6 +163,7 @@ export const en: Record<I18nKey, string> = {
   'processTrace.sendingTo': 'Sending to',
   'processTrace.noSelectedAI': 'No selected AI',
   'processTrace.response': 'response',
+  'processTrace.completionUnconfirmed': 'Completion not confirmed',
   'processTrace.waitingForResponse': 'Waiting for response',
   'processTrace.step': 'Step',
   'workflowStatus.freeTargets': '⚡ {providers} answering in parallel…',
