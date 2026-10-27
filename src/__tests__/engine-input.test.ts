@@ -217,6 +217,51 @@ describe('injected engine input hardening', () => {
     expect(JSON.stringify(env.emitted.at(-1))).not.toContain('PRIVATE CURRENT PROMPT');
   });
 
+  it('keeps ChatGPT status heartbeats alive if pending-answer diagnostics throw', async () => {
+    vi.useFakeTimers();
+    const env = createEnv({ inputKind: 'contenteditable' });
+    mountProseMirrorComposer(env);
+    const handler = await installEngine(env);
+    dispatchAdapter(handler, bundledChatGptAdapter({
+      timing: {
+        doneDelayMs: 1_000_000,
+        chunkDebounceMs: 1_000_000,
+        statusIntervalMs: 1_000,
+        backupPollMs: 1_000_000,
+      },
+    }));
+    send(handler, 'private prompt text', 'chatgpt');
+    await flushMicrotasks();
+    const actualQuery = env.document.querySelectorAll.bind(env.document);
+    const failingQuery = vi.spyOn(env.document, 'querySelectorAll').mockImplementation((selector) => {
+      if (selector.includes('[data-content-search-unit-key$=":assistant"]')) {
+        throw new Error('private content from native DOM');
+      }
+      return actualQuery(selector);
+    });
+    // A manual status request must not crash the engine when the snapshot
+    // hits an unexpected native DOM shape.
+    expect(() => handler({ v: 1, action: 'CHECK_STATUS', provider: 'chatgpt' } as BridgeMessage)).not.toThrow();
+    expect(env.emitted.at(-1)).toMatchObject({
+      action: 'STATUS_REPORT',
+      provider: 'chatgpt',
+      payload: {
+        dom: 'ready',
+        thinking: null,
+        statusErrorStage: 'capture',
+        capturePhase: 'diagnostics-error',
+      },
+    });
+    const count = env.emitted.filter((m) => (m.payload as { statusErrorStage?: string })?.statusErrorStage === 'capture').length;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(env.emitted.filter((m) => (m.payload as { statusErrorStage?: string })?.statusErrorStage === 'capture')).toHaveLength(count + 1);
+    expect(JSON.stringify(env.emitted)).not.toContain('private content from native DOM');
+
+    failingQuery.mockRestore();
+    handler({ v: 1, action: 'CHECK_STATUS', provider: 'chatgpt' } as BridgeMessage);
+    expect((env.emitted.at(-1)?.payload as { statusErrorStage?: string }).statusErrorStage).toBeUndefined();
+  });
+
   it('never reports Done when ChatGPT exposes only its chrome heading and copy control', async () => {
     vi.useFakeTimers();
     const env = createEnv({ inputKind: 'contenteditable' });

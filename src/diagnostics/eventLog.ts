@@ -300,10 +300,12 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
   const bulkReady = numberProp(payload, 'bulkReady');
   const doneReady = booleanProp(payload, 'doneReady');
   const capturePhase = stringProp(payload, 'capturePhase');
+  const statusErrorStage = stringProp(payload, 'statusErrorStage');
   const pullDiagnostic = stringProp(payload, 'pullDiagnostic');
   const pullFailureKind = stringProp(payload, 'pullFailureKind');
   const recoveryAttempt = numberProp(payload, 'recoveryAttempt');
   if (capturePhase) parts.push(`capture ${capturePhase}`);
+  if (statusErrorStage) parts.push(`status probe error ${statusErrorStage}`);
   if (pullDiagnostic) parts.push(`pull ${pullDiagnostic}`);
   if (pullFailureKind) parts.push(`failure ${pullFailureKind}`);
   if (pullDiagnostic && typeof recoveryAttempt === 'number') parts.push(`attempt ${recoveryAttempt}`);
@@ -328,6 +330,7 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
       reason,
       bulkReady: bulkReady ?? null,
       doneReady: doneReady ?? null,
+      ...(statusErrorStage ? { statusErrorStage } : {}),
       ...(pullDiagnostic ? { pullDiagnostic, pullFailureKind: pullFailureKind ?? null, recoveryAttempt: recoveryAttempt ?? null } : {}),
       ...(capturePhase ? {
         capturePhase,
