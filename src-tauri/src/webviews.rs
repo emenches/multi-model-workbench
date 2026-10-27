@@ -1340,6 +1340,13 @@ pub async fn provider_open(
             let provider_allowed =
                 adapters::url_allowed_for_provider(&popup_provider, &url).unwrap_or(false);
             let sso_allowed = adapters::url_allowed_for_sso(&popup_provider, &url).unwrap_or(false);
+            // Gemini frequently requests provider-app window.open calls while
+            // generating. Such duplicated Gemini app windows are not OAuth
+            // popups and must not be launched or handed to the system browser.
+            // Keep allowlisted Google/Apple SSO windows for explicit login.
+            if popup_provider == "gemini" && provider_allowed && !sso_allowed {
+                return NewWindowResponse::Deny;
+            }
             let allowlisted = provider_allowed || sso_allowed;
             match decide_new_window_action(&url, allowlisted) {
                 // Host popups in our own decorated window: the platform-default popup
@@ -2945,6 +2952,15 @@ mod tests {
         assert!(!external_handoff_allowed("gemini", &url("https://auth.x.ai/oauth/authorize?state=test")));
         assert_eq!(decide_new_window_action(&url("https://accounts.google.com/o/oauth2/v2/auth"), true), NewWindowAction::AllowPopup);
         assert_eq!(decide_new_window_action(&url("https://challenges.cloudflare.com/turnstile"), false), NewWindowAction::DenyExternal);
+    }
+
+    #[test]
+    fn gemini_app_popups_are_not_sso_popups() {
+        let app = url("https://gemini.google.com/app");
+        let google_sign_in = url("https://accounts.google.com/o/oauth2/v2/auth");
+        assert!(adapters::url_allowed_for_provider("gemini", &app).unwrap());
+        assert!(!adapters::url_allowed_for_sso("gemini", &app).unwrap());
+        assert!(adapters::url_allowed_for_sso("gemini", &google_sign_in).unwrap());
     }
 
     #[test]
