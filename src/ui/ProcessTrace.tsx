@@ -13,6 +13,7 @@ export function ProcessTrace({
   locale = 'en',
   onDetailOpenChange,
   compact = false,
+  expanded = true,
   states,
   onViewProvider,
 }: {
@@ -20,6 +21,7 @@ export function ProcessTrace({
   locale?: Locale;
   onDetailOpenChange?: (open: boolean) => void;
   compact?: boolean;
+  expanded?: boolean;
   states?: Partial<Record<AIProvider, ProviderState>>;
   onViewProvider?: (provider: AIProvider) => void;
 }) {
@@ -29,6 +31,10 @@ export function ProcessTrace({
   const confirmedSteps = trace.steps.filter((step) => step.status === 'done' && step.kind !== 'fanout').length;
   const totalSteps = trace.steps.filter((step) => step.kind !== 'fanout').length;
   const hasActive = trace.steps.some((step) => step.status === 'active');
+  const highlightedSteps = liveSteps.length > 0
+    ? liveSteps.slice(0, 2)
+    : trace.steps.filter((step) => step.kind !== 'fanout' && step.status === 'failed').slice(-2);
+  const additionalActiveCount = Math.max(0, liveSteps.length - highlightedSteps.length);
 
   useEffect(() => {
     if (!hasActive) return;
@@ -55,7 +61,42 @@ export function ProcessTrace({
             <div className="min-w-0 truncate text-right text-[0.6875rem] text-sky-700 dark:text-sky-200">{trace.currentStatus || t('processTrace.settled', locale)}</div>
           </div>
         ) : null}
-        {totalSteps > 0 ? (
+        {!expanded ? (
+          <div className="workbench-trace-compact flex flex-wrap items-center gap-2 px-1.5 py-2">
+            {highlightedSteps.length > 0 ? highlightedSteps.map((step) => {
+              const activity = activeStepActivity(step, Boolean(step.provider && states?.[step.provider]?.thinking), nowMs);
+              const phase = activity
+                ? t(activity.phase === 'no-update'
+                  ? 'processTrace.noRecentOutput'
+                  : activity.phase === 'generating'
+                    ? 'processTrace.generating'
+                    : activity.phase === 'receiving'
+                      ? 'processTrace.receiving'
+                      : 'processTrace.awaiting', locale)
+                : t('processTrace.failed', locale);
+              return (
+                <div key={step.id} className="workbench-trace-compact-item flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+                  {activity ? <span className="workbench-live-indicator" aria-hidden="true" /> : <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-hidden="true" />}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-semibold">{step.label}</span>
+                    <span className="block truncate text-[0.6875rem] text-zinc-500 dark:text-zinc-400">{phase}</span>
+                  </span>
+                  {activity ? <span className="workbench-trace-compact-time shrink-0 text-[0.6875rem] tabular-nums text-zinc-500 dark:text-zinc-400">{formatElapsed(activity.elapsedSeconds)}</span> : null}
+                </div>
+              );
+            }) : (
+              <span className="px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400">
+                {trace.currentStatus || formatI18n(t('processTrace.stepsConfirmed', locale), { done: confirmedSteps, total: totalSteps })}
+              </span>
+            )}
+            {additionalActiveCount > 0 ? (
+              <span className="workbench-trace-compact-overflow shrink-0 px-2 text-[0.6875rem] text-zinc-500 dark:text-zinc-400">
+                +{formatI18n(t('processTrace.activeCount', locale), { count: additionalActiveCount })}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {expanded && totalSteps > 0 ? (
           <div className="workbench-trace-overview flex flex-wrap items-center justify-between gap-2 px-2.5 py-2 text-xs">
             <span className="font-medium text-zinc-700 dark:text-zinc-200">
               {formatI18n(t('processTrace.stepsConfirmed', locale), { done: confirmedSteps, total: totalSteps })}
@@ -68,7 +109,7 @@ export function ProcessTrace({
             ) : null}
           </div>
         ) : null}
-        {trace.steps.length > 0 ? (
+        {expanded && trace.steps.length > 0 ? (
           <ol className="workbench-trace-steps max-h-[min(44vh,32rem)] space-y-1 overflow-y-auto px-1 pb-1">
             {trace.steps.map((step) => {
               const activity = activeStepActivity(step, Boolean(step.provider && states?.[step.provider]?.thinking), nowMs);
@@ -149,9 +190,9 @@ export function ProcessTrace({
               );
             })}
           </ol>
-        ) : (
+        ) : expanded ? (
           <div className="px-2.5 py-2 text-xs text-zinc-500 dark:text-zinc-500">{t('processTrace.waitingEvents', locale)}</div>
-        )}
+        ) : null}
       </section>
       {detailStep?.content ? (
         <ModalDialog

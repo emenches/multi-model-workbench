@@ -677,3 +677,101 @@ html:not(.ai-sister) .workbench-shell .workbench-context-item .workbench-live-in
   height: 6px;
   box-shadow: none;
 }
+/* Rounded provider preview chrome. Native WKWebView pages remain owned by Tauri. */
+html:not(.ai-sister) .workbench-shell .workbench-provider-stage {
+  border-radius: 16px;
+  border-color: var(--wb-border);
+  background: var(--wb-surface);
+  box-shadow: var(--wb-elevation);
+  isolation: isolate;
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-stage-toolbar {
+  min-height: 54px;
+  border-color: var(--wb-border);
+  background: var(--wb-surface-soft);
+  padding: 9px 13px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-stage-actions > button,
+html:not(.ai-sister) .workbench-shell .workbench-provider-stage-actions > div > button {
+  border: 1px solid var(--wb-border);
+  background: var(--wb-surface);
+  color: var(--wb-secondary);
+  border-radius: 9px;
+  min-height: 31px;
+  padding: 5px 11px;
+  font-weight: 550;
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-stage-actions button:hover:not(:disabled) {
+  border-color: var(--wb-strong-border);
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-stage-menu {
+  background: var(--wb-surface);
+  border-color: var(--wb-border);
+  border-radius: 11px;
+  box-shadow: var(--wb-elevation);
+}
+html:not(.ai-sister) .workbench-shell .workbench-provider-stage-menu button {
+  border-radius: 7px;
+}
+
+/* Live progress uses a quiet summary; Show details reveals the full timeline. */
+html:not(.ai-sister) .workbench-shell .workbench-run-details {
+  border-color: var(--wb-border);
+  background: var(--wb-surface-soft);
+  border-radius: 15px;
+  max-height: min(44vh, 340px);
+  padding: 10px 12px 8px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-run-header {
+  min-height: 29px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-run-count {
+  color: var(--wb-secondary);
+  font-variant-numeric: tabular-nums;
+}
+html:not(.ai-sister) .workbench-shell .workbench-progress-toggle {
+  border-color: var(--wb-border);
+  background: var(--wb-surface);
+  color: var(--wb-secondary);
+  white-space: nowrap;
+}
+html:not(.ai-sister) .workbench-shell .workbench-progress-toggle:hover {
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+  border-color: var(--wb-strong-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-trace-compact {
+  padding-block: 7px 0;
+  gap: 7px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-trace-compact-item {
+  flex-basis: 190px;
+  background: var(--wb-surface);
+  border-color: var(--wb-border);
+  color: var(--wb-ink);
+  border-radius: 10px;
+  min-height: 49px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-trace-compact-time {
+  font-variant-numeric: tabular-nums;
+}
+html:not(.ai-sister) .workbench-shell .workbench-trace-step-active {
+  background: var(--wb-surface);
+  border-color: var(--wb-border);
+}
+html:not(.ai-sister) .workbench-shell .workbench-trace-steps {
+  max-height: min(28vh, 230px);
+}
+html:not(.ai-sister) .workbench-shell .workbench-process-trace {
+  margin-top: 0;
+}
+@media (max-width: 1020px) {
+  html:not(.ai-sister) .workbench-shell .workbench-trace-compact-item {
+    flex-basis: 100%;
+  }
+  html:not(.ai-sister) .workbench-shell .workbench-run-count {
+    display: none;
+  }
+}

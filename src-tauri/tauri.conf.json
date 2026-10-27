@@ -15,11 +15,14 @@
       {
         "label": "main",
         "title": "Multi-AI Chat Desktop",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 960,
-        "minHeight": 640,
-        "dragDropEnabled": false
+        "width": 1480,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 580,
+        "dragDropEnabled": false,
+        "resizable": true,
+        "maximizable": true,
+        "center": true
       }
     ],
     "security": {
@@ -41,7 +44,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "targets": ["nsis", "dmg", "appimage"],
+    "targets": [
+      "nsis",
+      "dmg",
+      "appimage"
+    ],
     "macOS": {
       "signingIdentity": "-"
     },

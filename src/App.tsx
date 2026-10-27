@@ -310,6 +310,8 @@ export default function App() {
   const [replayDrawerOpen, setReplayDrawerOpen] = useState(false);
   const [processTrace, setProcessTrace] = useState<ProcessTraceState | undefined>();
   const [processTraceDetailOpen, setProcessTraceDetailOpen] = useState(false);
+  // Keep the reading area usable while retaining a full, opt-in timeline.
+  const [workflowDetailsExpanded, setWorkflowDetailsExpanded] = useState(false);
   const [targetSelection, setTargetSelection] = useState<FreeTargetSelection>(() => ({
     targets: [...DEFAULT_FREE_TARGET_PROVIDERS],
     defaultsInitialized: true,
@@ -2389,15 +2391,30 @@ export default function App() {
             </div>
           ) : null}
           {processTrace && (processTrace.currentStatus || processTrace.steps.length > 0) ? (
-            <section aria-label="Workflow progress" className="workbench-run-details mt-3 flex min-h-0 shrink-0 flex-col rounded-xl border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="flex items-center gap-2 text-xs font-semibold">
-                  {isProcessing ? <span className="workbench-live-indicator" aria-hidden="true" /> : null}
-                  Workflow progress
-                </h2>
-                <span className="max-w-full truncate text-xs text-zinc-500 dark:text-zinc-400">{processTrace.currentStatus || translate('processTrace.settled')}</span>
+            <section aria-label="Workflow progress" className="workbench-run-details mt-3 flex min-h-0 shrink-0 flex-col rounded-2xl border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+              <div className="workbench-run-header flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  {processTrace.steps.some((step) => step.status === 'active') ? <span className="workbench-live-indicator" aria-hidden="true" /> : null}
+                  <h2 className="text-xs font-semibold">{translate('workbench.workflowProgress')}</h2>
+                  <span className="workbench-run-count text-xs text-zinc-500 dark:text-zinc-400">
+                    {formatI18n(translate('processTrace.stepsConfirmed'), {
+                      done: processTrace.steps.filter((step) => step.kind !== 'fanout' && step.status === 'done').length,
+                      total: processTrace.steps.filter((step) => step.kind !== 'fanout').length,
+                    })}
+                  </span>
+                </div>
+                <button type="button" className="workbench-progress-toggle inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
+                  aria-expanded={workflowDetailsExpanded} aria-controls="workbench-workflow-timeline"
+                  onClick={() => setWorkflowDetailsExpanded((expanded) => !expanded)}>
+                  {translate(workflowDetailsExpanded ? 'workbench.hideDetails' : 'workbench.showDetails')}
+                  <svg viewBox="0 0 24 24" className={`h-3.5 w-3.5 transition-transform ${workflowDetailsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
               </div>
-              <ProcessTrace trace={processTrace} locale={locale} compact states={states} onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen} />
+              <div id="workbench-workflow-timeline">
+                <ProcessTrace trace={processTrace} locale={locale} compact expanded={workflowDetailsExpanded} states={states} onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen} />
+              </div>
             </section>
           ) : null}
           <div
