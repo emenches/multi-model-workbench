@@ -2369,9 +2369,12 @@ export default function App() {
             </div>
           ) : null}
           {processTrace && (processTrace.currentStatus || processTrace.steps.length > 0) ? (
-            <section aria-label="Workflow progress" className="workbench-run-details mt-3 shrink-0 rounded-xl border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+            <section aria-label="Workflow progress" className="workbench-run-details mt-3 flex min-h-0 shrink-0 flex-col rounded-xl border border-zinc-200 bg-zinc-50/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-xs font-semibold">Workflow progress</h2>
+                <h2 className="flex items-center gap-2 text-xs font-semibold">
+                  {isProcessing ? <span className="workbench-live-indicator" aria-hidden="true" /> : null}
+                  Workflow progress
+                </h2>
                 <span className="max-w-full truncate text-xs text-zinc-500 dark:text-zinc-400">{processTrace.currentStatus || translate('processTrace.settled')}</span>
               </div>
               <ProcessTrace trace={processTrace} locale={locale} compact states={states} onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen} />
@@ -2428,7 +2431,7 @@ export default function App() {
               handleTranscriptScroll();
             }}
           >
-            <ChatArea messages={messages} locale={locale} states={states} />
+            <ChatArea messages={messages} locale={locale} states={states} trace={isProcessing ? processTrace : undefined} />
           </div>
           {import.meta.env.DEV && showDevDiagnostics ? (
             <section
@@ -2556,10 +2559,12 @@ export function ChatArea({
   messages,
   locale,
   states,
+  trace,
 }: {
   messages: Bubble[];
   locale: Locale;
   states: Record<AIProvider, ProviderState>;
+  trace?: ProcessTraceState;
 }) {
   if (messages.length === 0) {
     const providers = Object.values(states);
@@ -2613,6 +2618,29 @@ export function ChatArea({
           </article>
         );
       })}
+      {trace?.steps.some((step) => step.status === 'active' && step.kind !== 'fanout') ? (
+        <div className="workbench-transcript-activity mx-auto max-w-3xl rounded-xl border border-dashed border-sky-200 bg-sky-50/50 px-4 py-4 dark:border-sky-900 dark:bg-sky-950/20">
+          <div className="flex items-center gap-3">
+            <span className="workbench-working-orb flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-sky-200 bg-white text-sky-700 dark:border-sky-800 dark:bg-zinc-900 dark:text-sky-300" aria-hidden="true">
+              <span className="workbench-live-indicator" />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                {translateKey('processTrace.workInProgress', locale)}
+              </div>
+              <div className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+                {trace.steps.filter((step) => step.status === 'active' && step.kind !== 'fanout').map((step) => step.label).join(' · ')}
+              </div>
+              <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                {translateKey('processTrace.progressNote', locale)}
+              </div>
+            </div>
+          </div>
+          <div className="workbench-activity-track mt-3 h-1 overflow-hidden rounded-full bg-sky-100 dark:bg-sky-950" aria-hidden="true">
+            <div className="workbench-activity-sweep h-full w-1/3 rounded-full bg-sky-500/70" />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

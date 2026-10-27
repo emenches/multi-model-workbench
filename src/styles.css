@@ -525,3 +525,36 @@ html.dark .app-shell .workbench-provider-dock {
 .app-shell .ai-sister-conversation-workspace .workbench-mode-select {
   min-height: 36px;
 }
+
+/* Real workflow activity, not an invented percent-complete animation.
+   Respect system reduced-motion preferences. */
+.workbench-live-indicator {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 999px;
+  background: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2,132,199,.12);
+  animation: workbench-live-pulse 1.65s ease-in-out infinite;
+}
+.workbench-activity-sweep {
+  animation: workbench-activity-sweep 1.9s ease-in-out infinite alternate;
+}
+.workbench-working-orb {
+  box-shadow: 0 0 0 5px rgba(2,132,199,.06);
+}
+.workbench-trace-steps {
+  scrollbar-gutter: stable;
+}
+@keyframes workbench-live-pulse {
+  0%, 100% { opacity: .55; transform: scale(.82); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+@keyframes workbench-activity-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workbench-live-indicator, .workbench-activity-sweep { animation: none; }
+}

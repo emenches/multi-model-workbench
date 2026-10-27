@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Locale } from '../i18n/resolve';
 import type { AIProvider, ProviderState } from '../../shared/types';
 import { activeStepActivity } from './activeStepActivity';
-import { t } from '../i18n/t';
+import { formatI18n, t } from '../i18n/t';
 import { AiSisterAvatar } from './AiSisterTheme';
 import { ModalDialog } from './ModalDialog';
 import { MarkdownText } from './MarkdownText';
@@ -25,6 +25,9 @@ export function ProcessTrace({
 }) {
   const [detailStep, setDetailStep] = useState<ProcessTraceStep | undefined>();
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const liveSteps = trace.steps.filter((step) => step.status === 'active' && step.kind !== 'fanout');
+  const confirmedSteps = trace.steps.filter((step) => step.status === 'done' && step.kind !== 'fanout').length;
+  const totalSteps = trace.steps.filter((step) => step.kind !== 'fanout').length;
   const hasActive = trace.steps.some((step) => step.status === 'active');
 
   useEffect(() => {
@@ -45,28 +48,47 @@ export function ProcessTrace({
 
   return (
     <>
-      <section aria-label={t('processTrace.title', locale)} className={`ai-sister-process-trace mt-2 shrink-0 overflow-hidden rounded-lg border ${compact ? 'border-transparent bg-transparent dark:bg-transparent' : 'border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900'}`}>
+      <section aria-label={t('processTrace.title', locale)} className={`ai-sister-process-trace mt-2 min-h-0 overflow-hidden rounded-xl border ${compact ? 'border-transparent bg-transparent dark:bg-transparent' : 'border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900'}`}>
         {!compact ? (
           <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-2.5 py-1.5 dark:border-zinc-800">
             <h2 className="text-[0.6875rem] font-semibold uppercase text-zinc-700 dark:text-zinc-300">{t('processTrace.title', locale)}</h2>
             <div className="min-w-0 truncate text-right text-[0.6875rem] text-sky-700 dark:text-sky-200">{trace.currentStatus || t('processTrace.settled', locale)}</div>
           </div>
         ) : null}
+        {totalSteps > 0 ? (
+          <div className="workbench-trace-overview flex flex-wrap items-center justify-between gap-2 px-2.5 py-2 text-xs">
+            <span className="font-medium text-zinc-700 dark:text-zinc-200">
+              {formatI18n(t('processTrace.stepsConfirmed', locale), { done: confirmedSteps, total: totalSteps })}
+            </span>
+            {liveSteps.length > 0 ? (
+              <span className="inline-flex items-center gap-1.5 font-medium text-sky-700 dark:text-sky-300">
+                <span className="workbench-live-indicator" aria-hidden="true" />
+                {formatI18n(t('processTrace.activeCount', locale), { count: liveSteps.length })}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         {trace.steps.length > 0 ? (
-          <ol className="max-h-56 divide-y divide-zinc-200 overflow-auto dark:divide-zinc-800">
+          <ol className="workbench-trace-steps max-h-[min(44vh,32rem)] space-y-1 overflow-y-auto px-1 pb-1">
             {trace.steps.map((step) => {
               const activity = activeStepActivity(step, Boolean(step.provider && states?.[step.provider]?.thinking), nowMs);
               const phaseText = activity
-                ? activity.phase === 'no-update'
-                  ? `${t('processTrace.noRecentOutput', locale)} · ${activity.secondsWithoutNewText}s`
-                  : `${t(activity.phase === 'generating' ? 'processTrace.generating' : activity.phase === 'receiving' ? 'processTrace.receiving' : 'processTrace.awaiting', locale)} · ${activity.elapsedSeconds}s`
+                ? t(activity.phase === 'no-update'
+                  ? 'processTrace.noRecentOutput'
+                  : activity.phase === 'generating'
+                    ? 'processTrace.generating'
+                    : activity.phase === 'receiving'
+                      ? 'processTrace.receiving'
+                      : 'processTrace.awaiting', locale)
                 : '';
               return (
-              <li key={step.id}>
-                <div className="flex items-center gap-1">
+              <li key={step.id} className={`workbench-trace-step rounded-lg border transition-colors ${activity
+                ? 'workbench-trace-step-active border-sky-200 bg-sky-50/70 dark:border-sky-900/80 dark:bg-sky-950/25'
+                : 'border-transparent hover:border-zinc-200 dark:hover:border-zinc-800'}`}>
+                <div className={`flex items-center gap-1 ${activity ? 'min-h-20' : ''}`}>
                   <button
                     type="button"
-                    className="grid min-w-0 flex-1 grid-cols-[auto_6.5rem_minmax(0,1fr)] items-center gap-2 px-2.5 py-2 text-left text-xs hover:bg-white disabled:cursor-default dark:hover:bg-zinc-950"
+                    className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 px-2.5 py-2.5 text-left text-xs hover:bg-white/50 disabled:cursor-default dark:hover:bg-zinc-950/30 sm:grid-cols-[auto_5.5rem_minmax(0,1fr)] sm:items-center"
                     disabled={!step.content}
                     onClick={() => {
                       if (!step.content) return;
@@ -79,7 +101,7 @@ export function ProcessTrace({
                       <span className={`h-2 w-2 rounded-full ${statusDotClass(step.status)}`} />
                       {step.provider ? <AiSisterAvatar provider={step.provider} size="xs" active={step.status === 'active'} /> : null}
                     </span>
-                    <span className={`flex items-center gap-1 truncate text-[0.6875rem] font-medium uppercase ${statusClass(step.status)}`}>
+                    <span className={`flex items-center gap-1 truncate text-[0.6875rem] font-semibold uppercase tracking-wide ${statusClass(step.status)}`}>
                       {step.status === 'active' ? (
                         <span role="img" aria-label={t('processTrace.active', locale)}
                           className="inline-block h-3 w-3 shrink-0 rounded-full border-2 border-sky-500 border-t-transparent motion-safe:animate-spin"
@@ -87,11 +109,24 @@ export function ProcessTrace({
                       ) : null}
                       {statusLabel(step.status, locale)}
                     </span>
-                    <span className="min-w-0 overflow-hidden text-zinc-800 dark:text-zinc-200">
+                    <span className="col-start-2 min-w-0 overflow-hidden text-zinc-800 dark:text-zinc-200 sm:col-start-3">
                       <span className="block truncate font-medium">{step.label}</span>
                       {activity ? (
-                        <span className="block truncate text-[0.6875rem] text-sky-700 dark:text-sky-300">
+                        <span className="mt-1 block text-[0.75rem] leading-relaxed text-sky-700 dark:text-sky-300">
                           {phaseText}
+                          {activity.phase === 'no-update' ? (
+                            <span className="ml-1 font-normal text-zinc-500 dark:text-zinc-400">
+                              ({activity.secondsWithoutNewText}s)
+                            </span>
+                          ) : null}
+                          <span className="ml-2 text-zinc-500 dark:text-zinc-400">
+                            {formatI18n(t('processTrace.elapsed', locale), { time: formatElapsed(activity.elapsedSeconds) })}
+                          </span>
+                          <span className="ml-2 text-zinc-500 dark:text-zinc-400">
+                            {step.content
+                              ? formatI18n(t('processTrace.characters', locale), { count: step.content.length.toLocaleString() })
+                              : t('processTrace.noOutputYet', locale)}
+                          </span>
                         </span>
                       ) : step.detail ? (
                         <span className="block truncate text-[0.6875rem] text-zinc-500 dark:text-zinc-400">{step.detail}</span>
@@ -100,11 +135,16 @@ export function ProcessTrace({
                   </button>
                   {activity && step.provider && onViewProvider ? (
                     <button type="button"
-                      className="mr-1 shrink-0 rounded-md border border-zinc-200 px-2 py-1.5 text-[0.6875rem] text-sky-700 hover:bg-sky-50 dark:border-zinc-800 dark:text-sky-300 dark:hover:bg-zinc-900"
+                      className="mr-2 shrink-0 rounded-lg border border-sky-200 bg-white px-2.5 py-1.5 text-[0.6875rem] font-medium text-sky-700 hover:bg-sky-100 dark:border-sky-800 dark:bg-zinc-900 dark:text-sky-300 dark:hover:bg-zinc-800"
                       onClick={() => onViewProvider(step.provider!)}
                     >{t('processTrace.viewLive', locale)}</button>
                   ) : null}
                 </div>
+                {activity ? (
+                  <div className="workbench-activity-track mx-2.5 mb-2.5 h-1 overflow-hidden rounded-full bg-sky-100 dark:bg-sky-950/70" aria-hidden="true">
+                    <div className="workbench-activity-sweep h-full w-1/3 rounded-full bg-sky-500/70" />
+                  </div>
+                ) : null}
               </li>
               );
             })}
@@ -139,6 +179,15 @@ export function ProcessTrace({
       ) : null}
     </>
   );
+}
+
+function formatElapsed(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function statusLabel(status: ProcessTraceStepStatus, locale: Locale): string {
