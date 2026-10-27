@@ -1581,7 +1581,7 @@ pub async fn provider_open_window(
     let window = if let Some(existing) = app.get_window(&window_label) {
         existing
     } else {
-        let window = WindowBuilder::new(&app, &window_label)
+        let window = WindowBuilder::new(&app, window_label.clone())
             .title(format!("{} — Multi-Model Workbench", provider.to_uppercase()))
             .inner_size(940.0, 700.0)
             .min_inner_size(520.0, 380.0)
