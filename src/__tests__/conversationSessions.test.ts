@@ -96,6 +96,27 @@ describe('conversation sessions', () => {
     expect(general.sessions).toHaveLength(1);
   });
 
+  it('persists a single-agent workflow with its chosen provider and ignores invalid providers', () => {
+    const saved = createConversationSession({
+      id: 'single-1', presetId: 'single', mode: 'free', singleAgent: 'claude', now: 100,
+      messages: [{ id: 'm1', role: 'user', content: 'Hi Claude' }],
+    });
+    const store = memoryStorage();
+    expect(saveConversationSessions([saved], store)).toBe(true);
+    expect(loadConversationSessions(store)[0]).toMatchObject({
+      id: 'single-1', mode: 'free', presetId: 'single', singleAgent: 'claude',
+    });
+    const invalid = normalizeConversationSession({ ...saved, singleAgent: 'invalid-agent' });
+    expect(invalid?.presetId).toBe('single');
+    expect(invalid?.singleAgent).toBeUndefined();
+    const legacy = normalizeConversationSession({
+      id: 'old-chat', title: 'Old chat', createdAt: 10, updatedAt: 10,
+      mode: 'free', messages: [],
+    });
+    expect(legacy?.presetId).toBeUndefined();
+    expect(legacy?.singleAgent).toBeUndefined();
+  });
+
   it('uses a normalized first user message title and falls back for missing content', () => {
     expect(titleFromFirstUserMessage([{ role: 'user', content: '  Explain\n  this\tcode  ' }])).toBe(
       'Explain this code',

@@ -119,8 +119,7 @@ import {
 import { nextStepTimeoutState } from './ui/stepTimeoutState';
 import {
   defaultTargets,
-  freeModeTargets,
-  hasEffectiveFreeModeTargets,
+  freeTargetsForPreset,
   markFreeTargetsTouched,
   waitForProvidersSendable,
   type FreeTargetSelection,
@@ -444,7 +443,6 @@ export default function App() {
   const pullBridge = useRef(new Map<AIProvider, PullBridgeState>());
   const replayPanelRef = useRef<ReplayPanel | null>(null);
   const targets = targetSelection.targets;
-  const freeDispatchTargets = presetId === 'single' ? [singleAgent] : targets;
   const activeProviders = useMemo(
     () => activeProvidersForStandby(appSettings.standbyProvider),
     [appSettings.standbyProvider],
@@ -466,7 +464,10 @@ export default function App() {
     if (modalHiddenProviders.has(centered)) return [];
     return [centered];
   }, [centerSurface, modalHiddenProviders, presentation, states]);
-  const hasFreeModeTargets = useMemo(() => hasEffectiveFreeModeTargets(freeDispatchTargets, states), [states, freeDispatchTargets]);
+  const hasFreeModeTargets = useMemo(
+    () => freeTargetsForPreset(presetId, targets, singleAgent, states).length > 0,
+    [presetId, targets, singleAgent, states],
+  );
   const anySendableTargets = useMemo(() => defaultTargets(states, activeProviders), [activeProviders, states]);
   const requiredModeProviders = useMemo(() => {
     // Consult can reuse two distinct, signed-in providers for its later,
@@ -1561,7 +1562,7 @@ export default function App() {
     if (!trimmed) return;
     const brainstorm = presetId === 'brainstorm';
     const workflowTargets = mode === 'free' && !brainstorm
-      ? preparedWorkflowTargets ?? freeModeTargets(freeDispatchTargets, statesRef.current)
+      ? preparedWorkflowTargets ?? freeTargetsForPreset(presetId, targets, singleAgent, statesRef.current)
       : undefined;
     if (workflowTargets?.length === 0) return;
     const previousWorkflowExecution = workflowExecutionTailRef.current;
@@ -1652,7 +1653,7 @@ export default function App() {
           : undefined;
     const participants = workflowRoles
       ? [...new Set(Object.values(workflowRoles))]
-      : freeModeTargets(freeDispatchTargets, statesRef.current);
+      : freeTargetsForPreset(presetId, targets, singleAgent, statesRef.current);
 
     const providersToFreshen = pendingProviderSessionResets(
       pendingProviderResetRef.current,
@@ -1722,7 +1723,7 @@ export default function App() {
       }
     }
 
-    const workflowTargets = serialGraph ? undefined : freeModeTargets(freeDispatchTargets, statesRef.current);
+    const workflowTargets = serialGraph ? undefined : freeTargetsForPreset(presetId, targets, singleAgent, statesRef.current);
     if (workflowTargets?.length === 0) {
       setWorkflowStatus(translate('input.sendFailed'));
       setIsProcessing(false);
@@ -2321,7 +2322,7 @@ export default function App() {
                   <label htmlFor="workbench-single-agent-header" className="text-xs text-zinc-500 dark:text-zinc-400">{translate('singleAgent.choose')}</label>
                   <select id="workbench-single-agent-header" className="rounded-lg border border-zinc-200 bg-transparent px-2 py-1.5 text-xs dark:border-zinc-700"
                     value={singleAgent} disabled={isProcessing || messages.length > 0}
-                    title={messages.length > 0 ? translate('sidebar.newChat') : undefined}
+                    title={messages.length > 0 ? translate('conversation.new') : undefined}
                     onChange={(event) => setSingleAgent(event.target.value as AIProvider)}>
                     {activeProviders.map((provider) => <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>)}
                   </select>
