@@ -2,6 +2,7 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "provider_open",
+            "provider_open_window",
             "provider_close",
             "provider_show",
             "provider_hide",

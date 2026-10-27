@@ -55,6 +55,8 @@ export const host = {
   provider: {
     open: (provider: AIProvider, bounds: DOMRectReadOnly): Promise<ProviderState> =>
       invoke('provider_open', { provider, bounds: toBounds(bounds) }),
+    openWindow: (provider: AIProvider, login = false): Promise<void> =>
+      invoke('provider_open_window', { provider, login }),
     close: (provider: AIProvider): Promise<void> => invoke('provider_close', { provider }),
     show: (provider: AIProvider, focus = false): Promise<void> => invoke('provider_show', { provider, focus }),
     hide: (provider: AIProvider): Promise<void> => invoke('provider_hide', { provider }),

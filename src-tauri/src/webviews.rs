@@ -11,6 +11,7 @@ use std::{
 use tauri::{
     utils::config::BackgroundThrottlingPolicy,
     webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder},
+    window::WindowBuilder,
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
 };
 use tauri_plugin_opener::OpenerExt;
@@ -1081,6 +1082,11 @@ pub async fn provider_open(
     settings::ensure_provider_active_locked(&app, &provider)?;
     let label = provider_label(&provider);
     if let Some(webview) = app.get_webview(&label) {
+        // A separately hosted Real page is controlled only by its own native
+        // window, never by the React content-stage positioning loop.
+        if is_provider_detached(&webview, &provider) {
+            return Ok(current_state(&provider));
+        }
         // Place the native child before showing it: otherwise previously parked
         // login content may momentarily cover the HTML toolbar.
         set_webview_bounds(&webview, position, size)?;
@@ -1409,6 +1415,9 @@ fn close_provider(app: &AppHandle, provider: &str) -> Result<(), String> {
     if let Some(webview) = app.get_webview(&label) {
         webview.close().map_err(|error| error.to_string())?;
     }
+    if let Some(window) = app.get_window(&provider_page_window_label(provider)) {
+        let _ = window.hide();
+    }
     if let Ok(mut guard) = runtime().lock() {
         guard.engine_boot.remove(provider);
         guard.bridge_boot.remove(provider);
@@ -1448,6 +1457,9 @@ pub async fn provider_show(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("webview not found: {label}"))?;
+    if is_provider_detached(&webview, &provider) {
+        return Ok(());
+    }
     webview.show().map_err(|error| error.to_string())?;
     if provider_show_should_focus(focus) {
         webview.set_focus().map_err(|error| error.to_string())?;
@@ -1466,6 +1478,10 @@ pub async fn provider_hide(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("webview not found: {label}"))?;
+    if is_provider_detached(&webview, &provider) {
+        // Background parking must not blank a user-opened standalone page.
+        return Ok(());
+    }
     webview.hide().map_err(|error| error.to_string())
 }
 
@@ -1483,6 +1499,10 @@ pub async fn provider_set_bounds(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("webview not found: {label}"))?;
+    if is_provider_detached(&webview, &provider) {
+        // A separate window owns its own bounds and auto-resize.
+        return Ok(());
+    }
     set_webview_bounds(&webview, position, size)
 }
 
@@ -1542,6 +1562,82 @@ async fn eval_provider_with_callback(
         .await
         .map_err(|_| "eval_with_callback timed out".to_string())?
         .map_err(|_| "eval_with_callback response channel closed".to_string())
+}
+
+
+#[tauri::command]
+pub async fn provider_open_window(
+    app: AppHandle,
+    webview: tauri::Webview,
+    provider: String,
+    login: Option<bool>,
+) -> Result<(), String> {
+    ensure_control_webview(&webview)?;
+    settings::ensure_provider_active(&app, &provider)?;
+    let provider_webview = get_provider_webview(&app, &provider)?;
+    let window_label = provider_page_window_label(&provider);
+
+    let window = if let Some(existing) = app.get_window(&window_label) {
+        existing
+    } else {
+        let window = WindowBuilder::new(&app, &window_label)
+            .title(format!("{} — Multi-Model Workbench", provider.to_uppercase()))
+            .inner_size(940.0, 700.0)
+            .min_inner_size(520.0, 380.0)
+            .visible(false)
+            .build()
+            .map_err(|error| error.to_string())?;
+        window
+    };
+
+    if !is_provider_detached(&provider_webview, &provider) {
+        provider_webview.hide().map_err(|error| error.to_string())?;
+        if let Err(error) = provider_webview.reparent(&window) {
+            let _ = window.hide();
+            return Err(format!("Could not move provider page into its own window: {error}"));
+        }
+    }
+    provider_webview.set_auto_resize(false).map_err(|error| error.to_string())?;
+    let size = window.inner_size().map_err(|error| error.to_string())?;
+    set_webview_bounds(&provider_webview, PhysicalPosition::new(0, 0), size)?;
+    provider_webview.set_auto_resize(true).map_err(|error| error.to_string())?;
+
+    if login.unwrap_or(false) {
+        let adapter = adapters::get_adapter(&provider)?;
+        let login_url = tauri::Url::parse(&adapter.urls.login)
+            .map_err(|error| format!("Invalid provider login URL: {error}"))?;
+        provider_webview.navigate(login_url).map_err(|error| error.to_string())?;
+    }
+
+    // A normal macOS close button hides the provider page and returns the
+    // *same* browser instance to the invisible main-window parking area.
+    // Reopening Real page moves that same session back without new cookies.
+    let app_for_close = app.clone();
+    let view_for_close = provider_webview.clone();
+    let window_for_close = window.clone();
+    let provider_for_close = provider.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = view_for_close.hide();
+            let _ = view_for_close.set_auto_resize(false);
+            if let Some(main) = app_for_close.get_window("main") {
+                let _ = view_for_close.reparent(&main);
+                let _ = set_webview_bounds(
+                    &view_for_close,
+                    PhysicalPosition::new(0, 0),
+                    PhysicalSize::new(1, 1),
+                );
+            }
+            let _ = window_for_close.hide();
+            let _ = app_for_close.emit_to("main", "provider-window://closed", provider_for_close.clone());
+        }
+    });
+
+    provider_webview.show().map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -2155,6 +2251,15 @@ pub(crate) fn ensure_control_webview(webview: &tauri::Webview) -> Result<(), Str
 fn provider_label(provider: &str) -> String {
     format!("ai-{provider}")
 }
+
+fn provider_page_window_label(provider: &str) -> String {
+    format!("provider-page-{provider}")
+}
+
+fn is_provider_detached(webview: &tauri::Webview, provider: &str) -> bool {
+    webview.window().label() == provider_page_window_label(provider)
+}
+
 
 fn set_webview_bounds<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,

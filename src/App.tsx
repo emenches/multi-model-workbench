@@ -1864,9 +1864,17 @@ export default function App() {
 
   const enlargeCenter = useCallback(() => {
     const provider = centerPresentationProvider(presentationRef.current);
-    setCenterSurfaceMode('native');
-    if (provider) void changeProviderPresentationRef.current(provider, 'center');
-  }, [setCenterSurfaceMode]);
+    if (!provider) return;
+    // A native WKWebView paints above React regardless of CSS z-index.
+    // Real page lives in a separate, movable OS window, while the workbench
+    // stays in the readable text mode with all of its controls accessible.
+    void (async () => {
+      await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
+      await host.provider.openWindow(provider);
+    })().catch((error: unknown) => {
+      console.error('Could not open the provider page:', error);
+    });
+  }, [ensureProviderLoadedHidden]);
 
   const collapseCenter = useCallback(() => {
     const provider = centerPresentationProvider(presentationRef.current);
@@ -1910,21 +1918,14 @@ export default function App() {
         await nextAnimationFrame();
       }
       if (overlayGuardOpenRef.current) throw new Error('Cannot open provider login while an overlay is active');
-      await nextAnimationFrame();
-      await forceProviderNativeCenter(provider);
-      // Native WebViews paint over React, so never open login at unmeasured
-      // fallback coordinates that could cover the provider controls.
-      let stageBounds: DOMRectReadOnly | undefined;
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        stageBounds = usableLoginStageBounds(centerStageRef.current?.getBoundingClientRect());
-        if (stageBounds) break;
-        await nextAnimationFrame();
-      }
-      if (!stageBounds) throw new Error('Login content panel is not positioned yet; retry.');
-      await host.provider.open(provider, stageBounds);
-      await host.provider.openLogin(provider, stageBounds);
+      // Open authentication in a movable, native standalone provider window.
+      // Keep the same browser instance/profile so workflows still see login.
+      await changeProviderPresentationRef.current(provider, 'center');
+      await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
+      await host.provider.openWindow(provider, true);
+      setCenterSurfaceMode('text');
     },
-    [forceProviderNativeCenter],
+    [ensureProviderLoadedHidden, setCenterSurfaceMode],
   );
 
   const openPreflightLogin = useCallback(

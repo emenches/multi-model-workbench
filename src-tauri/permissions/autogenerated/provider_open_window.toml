@@ -1,0 +1,10 @@
+# Tauri-generated permissions for trusted workbench control pane only.
+[[permission]]
+identifier = "allow-provider-open-window"
+description = "Allows the main workbench control pane to move a provider WebView into a native window."
+commands.allow = ["provider_open_window"]
+
+[[permission]]
+identifier = "deny-provider-open-window"
+description = "Denies creating a native provider page window."
+commands.deny = ["provider_open_window"]

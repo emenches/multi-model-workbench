@@ -66,6 +66,9 @@ pub fn run() {
                 if let Some(webview) = app.get_webview(&format!("ai-{provider}")) {
                     let _ = webview.hide();
                 }
+                if let Some(window) = app.get_window(&format!("provider-page-{provider}")) {
+                    let _ = window.hide();
+                }
             }
             // Minimize is non-destructive: it never closes OAuth popups or
             // resets login sessions. The separate emergency return action does.
@@ -84,6 +87,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             webviews::provider_open,
+            webviews::provider_open_window,
             webviews::provider_close,
             webviews::provider_show,
             webviews::provider_hide,
