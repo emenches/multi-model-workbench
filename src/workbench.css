@@ -1586,3 +1586,38 @@ html:not(.ai-sister) .workbench-shell .workbench-trace-step button,
 html:not(.ai-sister) .workbench-shell .workbench-trace-compact-item {
   font-size: .875rem;
 }
+
+
+/* Cogitor brand: approved 03 Modern Sans. Plain static marks everywhere except
+   the in-app thinking indicator; reduced-motion preferences always win. */
+html:not(.ai-sister) .workbench-shell .cogitor-wordmark {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter",
+    "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.825rem;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  line-height: 1.2;
+  color: #EFE6D3;
+  -webkit-font-smoothing: antialiased;
+}
+html:not(.ai-sister) .workbench-shell .cogitor-mark {
+  display: block;
+  flex: none;
+}
+html:not(.ai-sister) .workbench-shell .cogitor-mark__core {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes cogitor-thinking-breathe {
+  0%, 100% { transform: scale(0.985); opacity: 0.94; }
+  50% { transform: scale(1.025); opacity: 1; }
+}
+html:not(.ai-sister) .workbench-shell .cogitor-mark--thinking .cogitor-mark__core {
+  animation: cogitor-thinking-breathe 2.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not(.ai-sister) .workbench-shell .cogitor-mark__core {
+    animation: none !important;
+    transform: none !important;
+  }
+}

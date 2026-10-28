@@ -10,9 +10,8 @@ import { host, type ProviderWindowGeometry } from './host';
 import { ProjectPicker } from './workspace/ProjectPicker';
 import { ProviderModelControls } from './ui/ProviderModelControls';
 import { MIN_CONSULT_PROVIDERS, availableConsultProviders, chooseConsultRoles } from './ui/consultAvailability';
-import { EMPTY_PROJECT_STORE, activeProject, mergeProjectContext, type ProjectStore } from './workspace/model';
+import { EMPTY_PROJECT_STORE, mergeProjectContext, type ProjectStore } from './workspace/model';
 import { useI18n } from './i18n/context';
-import { MODE_NAME_KEYS } from './i18n/modes';
 import type { Locale } from './i18n/resolve';
 import { formatI18n, t as translateKey } from './i18n/t';
 import { mergePullBridgeState, type PullBridgeState } from './appBridgeState';
@@ -2318,6 +2317,7 @@ export default function App() {
         >
           <ConversationSidebar
             width={visibleSidebarWidth}
+            brandActive={isProcessing}
             collapsed={sessionSidebarCollapsed}
             sessions={sessions}
             projects={projectStore.projects}
