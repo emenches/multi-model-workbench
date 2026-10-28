@@ -133,7 +133,7 @@ export function ConversationSidebar({
 
   return (
     <nav aria-label={labels.history}
-      className={`ai-sister-session-sidebar workbench-session-sidebar ${collapsed ? 'w-[60px]' : 'w-full'} flex min-h-0 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 transition-[width] dark:border-zinc-800 dark:bg-zinc-900`}>
+      className={`ai-sister-session-sidebar workbench-session-sidebar ${collapsed ? 'w-[60px] shrink-0' : 'min-w-0 flex-1'} flex min-h-0 flex-col border-r border-zinc-200 bg-zinc-50 transition-[width] dark:border-zinc-800 dark:bg-zinc-900`}>
       <div className="workbench-sidebar-brand flex items-center gap-2 border-b border-zinc-200 px-3 py-3 dark:border-zinc-800">
         <button type="button" className="workbench-brand-button grid h-9 w-9 shrink-0 place-items-center rounded-xl hover:bg-white dark:hover:bg-zinc-800"
           aria-label={labels.toggle} title={labels.toggle} onClick={onToggle}>
@@ -141,7 +141,7 @@ export function ConversationSidebar({
         </button>
         {!collapsed ? (
           <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold tracking-tight">Workbench</span>
+            <span className="block truncate text-sm font-semibold tracking-tight">Cogitor</span>
           </span>
         ) : null}
       </div>

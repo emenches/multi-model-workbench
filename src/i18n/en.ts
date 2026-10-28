@@ -164,6 +164,8 @@ export const en: Record<I18nKey, string> = {
   'composer.multi': 'Multi-agent',
   'composer.workflow': 'Workflow',
   'composer.configureAgents': 'Agents & settings',
+  'composer.clickWorkflowToConfigure': 'Select a workflow card to edit which AI fills each role. You can configure a workflow before every agent is connected.',
+  'conversation.resizeSidebar': 'Resize conversation sidebar',
   'input.stop': 'Stop',
   'input.sendHint': 'Enter to send · Shift+Enter for a new line',
   'input.send': 'Send',
@@ -301,6 +303,8 @@ export const en: Record<I18nKey, string> = {
   'settings.providersSelect': 'Standby provider',
   'settings.providerActive': 'Active',
   'settings.providerStandby': 'Standby',
+  'settings.useReadyAgents': 'Use connected agents',
+  'settings.modeRolesReadyDescription': 'Assign currently Ready agents to these roles. Sequential roles can share an agent; Consult\'s first two answers still need different agents.',
   'settings.modeRoles': 'Collaboration roles',
   'settings.modeRolesDescription':
     'Built-in structured setups assign each of the four active AIs once. You can customize the roles; serial roles may reuse one AI, while roles that run at the same time, such as Consult first/second, must stay distinct.',

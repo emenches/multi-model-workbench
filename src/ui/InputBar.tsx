@@ -254,7 +254,7 @@ export function InputBar({
         </div>
         <textarea
           ref={textareaRef}
-          className="workbench-composer-textarea min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm outline-none disabled:opacity-50"
+          className="workbench-composer-textarea min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-2 text-base outline-none disabled:opacity-50"
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {

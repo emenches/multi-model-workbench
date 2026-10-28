@@ -166,6 +166,8 @@ export const de: Record<I18nKey, string> = {
   'composer.multi': 'Multi-Agent',
   'composer.workflow': 'Ablauf',
   'composer.configureAgents': 'Agenten & Einstellungen',
+  'composer.clickWorkflowToConfigure': 'Wähle einen Workflow, um die KI für jede Rolle festzulegen. Die Einrichtung ist auch ohne alle Verbindungen möglich.',
+  'conversation.resizeSidebar': 'Chat-Seitenleiste anpassen',
   'input.stop': 'Stopp',
   'input.sendHint': 'Enter zum Senden · Shift+Enter für eine neue Zeile',
   'input.send': 'Senden',
@@ -303,6 +305,8 @@ export const de: Record<I18nKey, string> = {
   'settings.providersSelect': 'Anbieter in Reserve',
   'settings.providerActive': 'Aktiv',
   'settings.providerStandby': 'Reserve',
+  'settings.useReadyAgents': 'Verbundene Agenten verwenden',
+  'settings.modeRolesReadyDescription': 'Bereite Agenten den Rollen zuweisen. Nacheinander ausgeführte Rollen können denselben Agenten verwenden; für die ersten beiden Antworten in Beratung sind zwei verschiedene Agenten nötig.',
   'settings.modeRoles': 'Kollaborationsrollen',
   'settings.modeRolesDescription':
     'Die integrierten strukturierten Presets weisen jeder der vier aktiven KIs genau eine Rolle zu. Rollen lassen sich anpassen: Serielle Rollen dürfen dieselbe KI wiederverwenden; gleichzeitig laufende Rollen, etwa die ersten beiden Antworten der Beratung, müssen unterschiedlich bleiben.',

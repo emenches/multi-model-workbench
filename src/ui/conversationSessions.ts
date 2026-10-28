@@ -15,6 +15,8 @@ export interface ConversationSessionMessage {
   provider?: string;
   authorLabel?: string;
   modeRole?: string;
+  /** Milliseconds since Unix epoch, captured when the message first appears. */
+  timestamp?: number;
   final?: boolean;
   truncated?: boolean;
 }
@@ -178,6 +180,8 @@ export function normalizeConversationSessionMessage(value: unknown): Conversatio
   if (provider) message.provider = provider;
   if (authorLabel) message.authorLabel = authorLabel;
   if (modeRole) message.modeRole = modeRole;
+  const timestamp = normalizeTimestamp(value.timestamp);
+  if (timestamp !== undefined && timestamp > 0) message.timestamp = timestamp;
   if (typeof value.final === 'boolean') message.final = value.final;
   if (typeof value.truncated === 'boolean') message.truncated = value.truncated;
   return message;
@@ -250,6 +254,7 @@ function conversationMessageEquals(left: ConversationSessionMessage, right: Conv
     left.provider === right.provider &&
     left.authorLabel === right.authorLabel &&
     left.modeRole === right.modeRole &&
+    left.timestamp === right.timestamp &&
     left.final === right.final &&
     left.truncated === right.truncated
   );

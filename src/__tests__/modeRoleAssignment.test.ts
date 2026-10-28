@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_MODE_ROLE_ASSIGNMENTS,
   assignModeRole,
+  assignReadyModeRoles,
   migrateLegacyModeRoleAssignments,
   normalizeModeRoleAssignments,
   type ModeRoleAssignments,
@@ -60,6 +61,32 @@ describe('normalizeModeRoleAssignments', () => {
       debate: { pro: 'gemini', con: 'claude', judge: 'gemini', summary: 'claude' },
     });
     expect(normalized.debate).toEqual({ pro: 'gemini', con: 'claude', judge: 'gemini', summary: 'claude' });
+  });
+});
+
+describe('assignReadyModeRoles', () => {
+  it('reuses three connected providers for a four-seat serial Coding workflow', () => {
+    const configured = DEFAULT_MODE_ROLE_ASSIGNMENTS;
+    const assigned = assignReadyModeRoles(configured, 'coding', ['chatgpt', 'claude', 'gemini']);
+    expect(Object.values(assigned.coding).every((provider) => provider !== 'grok')).toBe(true);
+    expect(assigned.coding.planner).toBe(configured.coding.planner);
+    expect(assigned.coding.reviewer).toBe(configured.coding.reviewer);
+    expect(assigned.coding.coder).toBe(configured.coding.coder);
+    expect(assigned.coding.tester).not.toBe('grok');
+    expect(configured.coding.tester).toBe('grok');
+  });
+
+  it('allows a single connected provider to cover sequential roles', () => {
+    const updated = assignReadyModeRoles(DEFAULT_MODE_ROLE_ASSIGNMENTS, 'roundtable', ['claude']);
+    expect(Object.values(updated.roundtable)).toEqual(['claude', 'claude', 'claude', 'claude']);
+  });
+
+  it('does not fake a Consult with fewer than two independent initial models', () => {
+    const configured = DEFAULT_MODE_ROLE_ASSIGNMENTS;
+    expect(assignReadyModeRoles(configured, 'consult', ['claude'])).toBe(configured);
+    const updated = assignReadyModeRoles(configured, 'consult', ['gemini', 'claude']);
+    expect(updated.consult.first).not.toBe(updated.consult.second);
+    expect(Object.values(updated.consult).every((provider) => provider === 'gemini' || provider === 'claude')).toBe(true);
   });
 });
 
