@@ -1,3 +1,4 @@
+/* global URL, window, document */
 // Strictly a user-gesture navigation fallback for Claude email magic links.
 // This script runs in the isolated *email* webview (including message frames).
 // It does not read message bodies, cookies, localStorage, or page text; does
@@ -30,7 +31,7 @@
       const wrapped = link.searchParams.get('url') || link.searchParams.get('q');
       if (!wrapped || !isClaude(new URL(wrapped))) return null;
       return link.href;
-    } catch (_) {
+    } catch {
       return null;
     }
   };
@@ -56,7 +57,7 @@
     event.stopImmediatePropagation();
     try {
       window.top.location.assign(destination);
-    } catch (_) {
+    } catch {
       // Cross-origin/sandboxed message frames may forbid access to top.
       window.location.assign(destination);
     }
