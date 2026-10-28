@@ -13,6 +13,44 @@ use tauri::menu::{Menu, MenuItem, Submenu};
 const RETURN_TO_WORKBENCH: &str = "return-to-workbench";
 const MINIMIZE_PROVIDER_PAGE: &str = "minimize-provider-page";
 
+#[cfg(all(target_os = "macos", debug_assertions))]
+const CLAUDE_TEST_DEFAULT: &str = "claude-raw-default";
+#[cfg(all(target_os = "macos", debug_assertions))]
+const CLAUDE_TEST_FRESH: &str = "claude-raw-fresh";
+
+/// Deliberately minimal comparison with the user's working Swift WKWebView probe.
+/// These windows have no Workbench init scripts, navigation callbacks, title
+/// watchers, adapter injection, or page-content access. Only the browser
+/// data store varies. Debug macOS builds only; not available in releases.
+#[cfg(all(target_os = "macos", debug_assertions))]
+fn open_raw_claude_test(app: &tauri::AppHandle, fresh_store: bool) -> tauri::Result<()> {
+    use tauri::WebviewUrl;
+    let label = if fresh_store { CLAUDE_TEST_FRESH } else { CLAUDE_TEST_DEFAULT };
+    if let Some(window) = app.get_webview_window(label) {
+        window.show()?;
+        window.set_focus()?;
+        return Ok(());
+    }
+    let title = if fresh_store {
+        "Claude login test - fresh Tauri WebKit profile"
+    } else {
+        "Claude login test - existing default Tauri WebKit profile"
+    };
+    let url = "https://claude.ai/".parse().expect("fixed Claude HTTPS URL");
+    let builder = tauri::WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
+        .title(title)
+        .inner_size(1100.0, 800.0);
+    // A stable new profile is required so this A/B test is not affected by
+    // cookies and auth challenges left in Workbench's shared default store.
+    let builder = if fresh_store {
+        builder.data_store_identifier(*b"WBClaudeProbe001")
+    } else {
+        builder
+    };
+    let window = builder.build()?;
+    window.set_focus()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProviderMenuAction {
     Minimize,
@@ -42,6 +80,17 @@ pub fn run() {
             menu.append(&Submenu::with_items(
                 app.handle(), "Workbench", true, &[&minimize, &escape],
             )?)?;
+            // Explicit, debug-only controls for an A/B browser-construction test.
+            // The clean windows are never opened or inspected automatically.
+            #[cfg(all(target_os = "macos", debug_assertions))]
+            {
+                let original_store = MenuItem::with_id(app.handle(), CLAUDE_TEST_DEFAULT,
+                    "Claude raw WebKit - default profile", true, None::<&str>)?;
+                let fresh_store = MenuItem::with_id(app.handle(), CLAUDE_TEST_FRESH,
+                    "Claude raw WebKit - fresh profile", true, None::<&str>)?;
+                menu.append(&Submenu::with_items(app.handle(), "Claude Login Tests", true,
+                    &[&original_store, &fresh_store])?)?;
+            }
             app.set_menu(menu)?;
             // SPEC §5 hot-update: refresh adapters at startup and every 6h (best-effort, off the UI thread).
             let handle = app.handle().clone();
@@ -58,6 +107,20 @@ pub fn run() {
             Ok(())
         })
         .on_menu_event(|app, event| {
+            #[cfg(all(target_os = "macos", debug_assertions))]
+            {
+                let raw_claude_test = match event.id().0.as_str() {
+                    CLAUDE_TEST_DEFAULT => Some(false),
+                    CLAUDE_TEST_FRESH => Some(true),
+                    _ => None,
+                };
+                if let Some(fresh_store) = raw_claude_test {
+                    if let Err(error) = open_raw_claude_test(app, fresh_store) {
+                        eprintln!("[Claude raw WebKit test] window creation failed: {error}");
+                    }
+                    return;
+                }
+            }
             let Some(action) = provider_menu_action(event.id().0.as_str()) else {
                 return;
             };
