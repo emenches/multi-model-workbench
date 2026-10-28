@@ -138,6 +138,20 @@ fn guard_claude_automation(js: &str) -> String {
 /// Unlike the document-start bridge, this probe never executes on login or SSO.
 /// A successful clean WKWebView test showed that user authentication is possible without
 /// scripts. Wait for the logged-in composer rather than guessing from the URL alone.
+/// A hidden signed-in Claude tab can finish loading without another document-title
+/// or page-load event. Recover that missing bridge without assuming authentication
+/// from the URL or evaluating JavaScript into login / CAPTCHA documents.
+fn claude_background_recovery_needed(state: &ProviderState, now: u64) -> bool {
+    state.provider == "claude"
+        && state.webview == "loaded"
+        && state.dom != "ready"
+        && !state.thinking
+        && matches!(state.login.as_str(), "unknown" | "logged_in")
+        && state.bridge == "ok"
+        && state.adapter == "ok"
+        && now.saturating_sub(state.last_status_at) >= 5_000
+}
+
 fn schedule_claude_bridge_install(app: &AppHandle, webview: &tauri::Webview) {
     // Both title and load events can fire during SPA navigation. Never launch
     // simultaneous installers or install the engine twice in the same document.
@@ -1409,7 +1423,7 @@ pub async fn provider_open(
             // composer probe, and no script runs on login/account pages.
             if title_provider == "claude"
                 && !title.starts_with("\u{200B}MAC1|")
-                && current_state("claude").login != "logged_in"
+                && current_state("claude").dom != "ready"
                 && webview.url().ok().is_some_and(|url| claude_conversation_url(&url))
             {
                 schedule_claude_bridge_install(&title_app, &webview);
@@ -2921,10 +2935,14 @@ fn run_staleness_check(app: &AppHandle) {
     let mut to_check = Vec::new();
     let mut to_mark_unknown = Vec::new();
     let mut grok_to_drive = Vec::new();
+    let mut claude_to_recover = false;
     let mut state_updates = Vec::new();
     if let Ok(mut guard) = runtime().lock() {
         let providers = guard.states.values().cloned().collect::<Vec<_>>();
         for state in providers {
+            if claude_background_recovery_needed(&state, now) {
+                claude_to_recover = true;
+            }
             let document_epoch = guard
                 .grok_document_epoch
                 .get(&state.provider)
@@ -2970,6 +2988,18 @@ fn run_staleness_check(app: &AppHandle) {
         for (provider, document_epoch) in grok_to_drive {
             if let Some(webview) = app.get_webview(&provider_label(&provider)) {
                 drive_grok_bridge_on_webview(&webview, app, &provider, script, document_epoch);
+            }
+        }
+    }
+    // The deferred Claude bridge is deliberately absent on auth documents. If
+    // the initial load/title signal was missed while the window was hidden,
+    // retry the composer-scoped installer. The installer is single-flight and
+    // checks both the native conversation URL and the live composer before
+    // injecting anything. Never navigate or show the provider window here.
+    if claude_to_recover {
+        if let Some(webview) = app.get_webview(&provider_label("claude")) {
+            if webview.url().ok().is_some_and(|url| claude_conversation_url(&url)) {
+                schedule_claude_bridge_install(app, &webview);
             }
         }
     }
