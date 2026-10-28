@@ -593,14 +593,19 @@ fn cache_path(app: &tauri::AppHandle, provider: &str) -> Result<std::path::PathB
         .join(format!("{provider}.json")))
 }
 
+// Cached remote adapters remain untrusted local input. Enforce the same byte
+// limit as HTTPS downloads and reject symlinks; never delete existing cache
+// files when a read fails.
+fn read_cached_adapter(path: &std::path::Path) -> Option<Adapter> {
+    let text = settings::read_bounded_utf8(path, ADAPTER_FETCH_CAP).ok()?;
+    serde_json::from_str::<Adapter>(&text).ok()
+}
+
 fn hydrate_from_cache(app: &tauri::AppHandle, provider: &str) {
     let Ok(path) = cache_path(app, provider) else {
         return;
     };
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return;
-    };
-    let Ok(adapter) = serde_json::from_str::<Adapter>(&text) else {
+    let Some(adapter) = read_cached_adapter(&path) else {
         return;
     };
     if validate_downloaded_adapter(provider, &adapter).is_err() {
@@ -801,6 +806,37 @@ fn login_url_matches(login: &str, url: &tauri::Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_adapter_read_rejects_oversize_without_deleting_data() {
+        let file = std::env::temp_dir().join(format!(
+            "cogitor-cached-adapter-{}-{}.json",
+            std::process::id(),
+            "oversized"
+        ));
+        let oversized = vec![b'x'; ADAPTER_FETCH_CAP + 1];
+        std::fs::write(&file, &oversized).unwrap();
+        assert!(read_cached_adapter(&file).is_none());
+        assert_eq!(std::fs::read(&file).unwrap(), oversized);
+        std::fs::remove_file(file).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cached_adapter_read_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!(
+            "cogitor-cached-adapter-link-{}", std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("original.json");
+        let link = dir.join("cache.json");
+        std::fs::write(&file, b"{}").unwrap();
+        symlink(&file, &link).unwrap();
+        assert!(read_cached_adapter(&link).is_none());
+        assert_eq!(std::fs::read(&file).unwrap(), b"{}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn adapter_response_size_is_bounded_as_chunks_arrive() {
