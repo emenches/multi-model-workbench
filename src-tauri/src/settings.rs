@@ -262,23 +262,7 @@ fn write_atomic_before_replace(
         std::process::id(),
         seq
     ));
-    // Create the temporary file exclusively: an existing symlink or file at
-    // the temporary path must never be overwritten. On macOS/Linux, sensitive
-    // settings, snapshots, and Consult checkpoints are owner-readable only
-    // (mode 0600), regardless of the process umask.
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    // An exclusive-open failure means this process never owned the path. In
-    // particular, never unlink a colliding file or symlink created elsewhere.
-    let mut file = options.open(&tmp_path).map_err(|error| error.to_string())?;
-    if let Err(error) = file.write_all(bytes) {
-        drop(file);
-        let _ = std::fs::remove_file(&tmp_path);
-        return Err(error.to_string());
-    }
-    drop(file);
+    write_exclusive_temp_file(&tmp_path, bytes)?;
     if let Err(error) = before_replace() {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(error);
@@ -286,6 +270,23 @@ fn write_atomic_before_replace(
     if let Err(error) = replace_file(&tmp_path, path) {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(error);
+    }
+    Ok(())
+}
+
+// Exclusive creation is necessary, but only files opened by this process
+// may be cleaned up after failure. Never unlink an existing collision.
+fn write_exclusive_temp_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    // An exclusive-open failure means this process never owned the path.
+    let mut file = options.open(path).map_err(|error| error.to_string())?;
+    if let Err(error) = file.write_all(bytes) {
+        drop(file);
+        let _ = std::fs::remove_file(path);
+        return Err(error.to_string());
     }
     Ok(())
 }
@@ -457,7 +458,7 @@ mod tests {
     use super::{
         active_providers_for_settings, ensure_provider_active_value, normalize_settings_value,
         read_settings, read_settings_for_provider_guard, write_atomic_before_replace,
-        write_settings, validated_external_url,
+        write_exclusive_temp_file, write_settings, validated_external_url,
     };
     use serde_json::json;
     use std::path::PathBuf;
@@ -540,6 +541,15 @@ mod tests {
         assert!(ensure_provider_active_value(&settings, "meta").is_err());
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn exclusive_temp_collision_preserves_the_existing_file() {
+        let path = unique_path("temp-collision");
+        std::fs::write(&path, b"existing data").expect("make colliding file");
+        assert!(write_exclusive_temp_file(&path, b"replacement").is_err());
+        assert_eq!(std::fs::read(&path).expect("read existing file"), b"existing data");
+        std::fs::remove_file(path).expect("remove test file");
     }
 
     #[cfg(unix)]
