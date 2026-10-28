@@ -21,6 +21,10 @@ const MIN_FOCUS_PANE_WIDTH: f64 = 420.0;
 const MIN_CONTROL_PANE_WIDTH: f64 = 360.0;
 const RESIZER_WIDTH: f64 = 6.0;
 const SETTINGS_NORMALIZATION_CONTAINER_WIDTH: f64 = 1400.0;
+// Settings are small preference records. Cap legacy reads and new writes so
+// malformed or hostile files cannot exhaust memory; never silently replace
+// a settings file that fails validation.
+const MAX_SETTINGS_BYTES: usize = 1024 * 1024;
 const DEFAULT_SNAPSHOT_REDACTION_TIER: &str = "metadata-only";
 const SNAPSHOT_REDACTION_TIERS: &[&str] = &["metadata-only", "hashes", "prompt-text", "full-local"];
 const PROVIDERS: &[&str] = &["chatgpt", "claude", "gemini", "grok", "meta"];
@@ -50,12 +54,20 @@ fn portable_marker_exists() -> bool {
 }
 
 pub fn read_settings(path: &Path) -> Result<Value, String> {
-    match std::fs::read_to_string(path) {
+    match read_bounded_utf8(path, MAX_SETTINGS_BYTES) {
         Ok(content) if content.trim().is_empty() => Ok(Value::Object(Map::new())),
         Ok(content) => serde_json::from_str(&content).map_err(|error| error.to_string()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Value::Object(Map::new())),
         Err(error) => Err(error.to_string()),
     }
+}
+
+// Provider guards and initial Settings rendering deliberately tolerate a
+// damaged file, but a Settings save must not overwrite that original data.
+fn settings_before_write(path: &Path) -> Result<Value, String> {
+    read_settings(path).map_err(|error| {
+        format!("existing settings cannot be safely read; refusing to overwrite: {error}")
+    })
 }
 
 #[cfg(test)]
@@ -70,7 +82,11 @@ fn serialized_settings(settings: &Value) -> Result<Vec<u8>, String> {
         map.remove("portable");
     }
 
-    serde_json::to_vec_pretty(&persisted).map_err(|error| error.to_string())
+    let bytes = serde_json::to_vec_pretty(&persisted).map_err(|error| error.to_string())?;
+    if bytes.len() > MAX_SETTINGS_BYTES {
+        return Err("settings exceed the size limit; existing data was not replaced".into());
+    }
+    Ok(bytes)
 }
 
 pub fn normalize_settings_value(settings: Value) -> Value {
@@ -390,7 +406,7 @@ pub async fn settings_set(
     crate::webviews::ensure_control_webview(&webview)?;
     let _lifecycle_guard = lock_provider_lifecycle()?;
     let path = settings_path(&app)?;
-    let previous = read_settings(&path).unwrap_or_else(|_| Value::Object(Map::new()));
+    let previous = settings_before_write(&path)?;
     let settings = normalize_settings_value(settings);
     let standby_provider = settings
         .get("standbyProvider")
@@ -444,6 +460,21 @@ pub(crate) fn adapter_base_url(app: &AppHandle) -> Result<Option<String>, String
         .map(str::to_string))
 }
 
+// Exported conversations may contain sensitive account or chat details.
+// Use owner-only atomic writes rather than the OS default (often 0644 on Unix).
+// Do not follow an existing symlink selected by the save dialog.
+fn write_markdown_export(path: &Path, content: &str) -> Result<(), String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err("markdown export target must be a regular file".into());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    write_atomic(path, content.as_bytes())
+}
+
 #[tauri::command]
 pub async fn export_markdown(
     app: AppHandle,
@@ -467,7 +498,7 @@ pub async fn export_markdown(
     match rx.await.map_err(|error| error.to_string())? {
         Some(file_path) => {
             let path = file_path.into_path().map_err(|error| error.to_string())?;
-            std::fs::write(&path, content).map_err(|error| error.to_string())?;
+            write_markdown_export(&path, &content)?;
             Ok(Some(path.to_string_lossy().into_owned()))
         }
         None => Ok(None),
@@ -515,8 +546,9 @@ pub async fn open_external_url(
 mod tests {
     use super::{
         active_providers_for_settings, ensure_provider_active_value, normalize_settings_value,
-        read_settings, read_settings_for_provider_guard, write_atomic_before_replace,
-        write_exclusive_temp_file, write_settings, validated_external_url,
+        read_settings, read_settings_for_provider_guard, settings_before_write,
+        write_atomic_before_replace, write_exclusive_temp_file, write_markdown_export,
+        write_settings, validated_external_url, MAX_SETTINGS_BYTES,
     };
     use serde_json::json;
     use std::path::PathBuf;
@@ -570,6 +602,84 @@ mod tests {
         std::fs::remove_file(link).expect("unlink");
         assert_eq!(std::fs::read(&target).expect("target intact"), b"secret");
         std::fs::remove_file(target).expect("remove target");
+    }
+
+    #[test]
+    fn oversized_settings_are_rejected_without_losing_the_original() {
+        let path = unique_path("oversized-settings");
+        let original = vec![b'x'; MAX_SETTINGS_BYTES + 1];
+        std::fs::write(&path, &original).expect("write legacy settings");
+        assert!(read_settings(&path).is_err());
+        let error = settings_before_write(&path).expect_err("must reject unsafe overwrite");
+        assert!(error.contains("refusing to overwrite"));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_settings_are_rejected_without_modifying_target() {
+        use std::os::unix::fs::symlink;
+        let target = unique_path("settings-link-target");
+        let link = unique_path("settings-link");
+        std::fs::write(&target, br#"{"language":"en"}"#).unwrap();
+        symlink(&target, &link).unwrap();
+        assert!(read_settings(&link).is_err());
+        assert!(settings_before_write(&link).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), br#"{"language":"en"}"#);
+        std::fs::remove_file(link).unwrap();
+        std::fs::remove_file(target).unwrap();
+    }
+
+    #[test]
+    fn malformed_settings_keep_provider_defaults_but_block_overwrite() {
+        let path = unique_path("broken-settings-write");
+        let original = b"{not-json";
+        std::fs::write(&path, original).unwrap();
+        assert!(read_settings(&path).is_err());
+        assert_eq!(read_settings_for_provider_guard(&path), json!({}));
+        assert!(settings_before_write(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn oversized_new_settings_cannot_be_written() {
+        let path = unique_path("oversized-new-settings");
+        let value = json!({ "unknownFutureField": "x".repeat(MAX_SETTINGS_BYTES) });
+        assert!(write_settings(&path, &value).is_err());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn markdown_export_round_trips_as_atomic_private_file() {
+        let path = unique_path("private-markdown-export");
+        write_markdown_export(&path, "# Private conversation").expect("new export");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# Private conversation");
+        write_markdown_export(&path, "# Updated conversation").expect("replace export");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# Updated conversation");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "exports should be owner-only by default");
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn markdown_export_does_not_follow_existing_symlink() {
+        use std::os::unix::fs::symlink;
+        let target = unique_path("export-link-target");
+        let link = unique_path("export-link");
+        std::fs::write(&target, b"original").unwrap();
+        symlink(&target, &link).unwrap();
+        assert!(write_markdown_export(&link, "secret").is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"original");
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        std::fs::remove_file(link).unwrap();
+        std::fs::remove_file(target).unwrap();
     }
 
     #[test]
