@@ -1772,3 +1772,79 @@ html:not(.ai-sister) .workbench-shell .workbench-message-content pre {
   margin-block: .9em;
   line-height: 1.45;
 }
+
+
+/* WCAG 2.2 AA dark theme contrast pass.
+   Decorative separators remain quiet, but text, input boundaries, destructive
+   actions and keyboard focus must have readable/non-text contrast. */
+html.dark:not(.ai-sister) .workbench-shell,
+html.dark:not(.ai-sister) .workbench-dialog-backdrop {
+  --wb-accessible-focus: #79b3ff;
+  --wb-accessible-field-border: #7b8fa8;
+  --wb-accessible-danger-text: #ff6877;
+  --wb-accessible-muted-text: #a1aab9;
+}
+
+/* Tailwind's zinc-500/600 are too dark for 12–14px content on charcoal.
+   Include dark variants and modal portals without affecting provider pages. */
+html.dark:not(.ai-sister) .workbench-shell :is(
+  .text-zinc-500,
+  .text-zinc-600,
+  .dark\:text-zinc-500,
+  .dark\:text-zinc-600
+),
+html.dark:not(.ai-sister) .workbench-dialog-backdrop :is(
+  .text-zinc-500,
+  .text-zinc-600,
+  .dark\:text-zinc-500,
+  .dark\:text-zinc-600
+) {
+  color: var(--wb-accessible-muted-text);
+}
+
+/* Danger text must pass the normal text threshold even on a hovered tile. */
+html.dark:not(.ai-sister) .workbench-shell :is(.text-red-500, .dark\:text-red-500),
+html.dark:not(.ai-sister) .workbench-dialog-backdrop :is(.text-red-500, .dark\:text-red-500) {
+  color: var(--wb-accessible-danger-text);
+}
+
+/* Visible form boundaries are functional, unlike low-key ornamental dividers. */
+html.dark:not(.ai-sister) .workbench-shell :is(
+  .workbench-simple-agent-select,
+  .workbench-multi-select,
+  .workbench-mode-select,
+  .workbench-project-picker input,
+  .workbench-project-picker select,
+  .workbench-project-picker textarea
+),
+html.dark:not(.ai-sister) .workbench-dialog-backdrop :is(
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select
+) {
+  border-color: var(--wb-accessible-field-border);
+}
+
+/* Keyboard focus rings must stand out from both the base and hover surface. */
+html.dark:not(.ai-sister) .workbench-shell :is(
+  button, input, textarea, select, [role="button"], [role="tab"],
+  [role="menuitem"], [role="separator"]
+):focus-visible,
+html.dark:not(.ai-sister) .workbench-dialog-backdrop :is(
+  button, input, textarea, select, [role="button"], [role="tab"],
+  [role="menuitem"]
+):focus-visible {
+  outline: 2px solid var(--wb-accessible-focus);
+  outline-offset: 2px;
+}
+html.dark:not(.ai-sister) .workbench-shell .workbench-composer:focus-within {
+  outline: 2px solid var(--wb-accessible-focus);
+  outline-offset: 2px;
+}
+html.dark:not(.ai-sister) .workbench-shell .workbench-session-delete {
+  opacity: .82;
+}
+html.dark:not(.ai-sister) .workbench-shell .workbench-session-delete:focus-visible,
+html.dark:not(.ai-sister) .workbench-shell .workbench-session-delete:hover {
+  opacity: 1;
+}
