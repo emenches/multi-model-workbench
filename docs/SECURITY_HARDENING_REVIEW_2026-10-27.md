@@ -55,7 +55,7 @@ claims that the app is technically *incapable* of reading those credentials.
 | S2 | High | `adapters.rs` auto-fetches JSON from a mutable upstream `main` branch, using version precedence and bounded scope validation. This is a supply-chain/data-capture surface: remote selector changes may affect which DOM nodes are read on provider pages. | **Open:** propose a separately reviewed change to bundled-only updates by default, or pinned/signature-verified manifests with explicit consent. Do **not** remove update behavior in the same PR as the storage fix. |
 | S3 | High | `webviews.rs` exports native `provider_eval` / `provider_eval_with_callback` with arbitrary JS supplied by the trusted main control pane. Guarding the caller and page origin reduces the risk, but compromised main UI code would have powerful provider-page access. | **Open:** move to a small set of typed actions (send, status, snapshot, stop), then remove generic arbitrary-JS IPC after a Consult regression suite. |
 | S4 | Medium | `settings_get` and `settings_set` relied on Tauri's main-WebView capability for authorization but lacked the explicit `ensure_control_webview` check used elsewhere. | **Fixed in this PR:** explicit trusted main-webview checks without changing frontend command names. |
-| S5 | Medium | `settings::open_external_url` and `adapters::build_source_url` previously accepted any string with an HTTPS prefix; userinfo, ports and URL normalization can conceal unintended destinations. | **Fixed in this PR:** structural URL validation and negative tests. |
+| S5 | Medium | `settings::open_external_url` and `adapters::build_source_url` previously accepted any string with an HTTPS prefix; userinfo, ports and URL normalization can conceal unintended destinations. An initially valid adapter source could also redirect to HTTP or another host via the HTTP client's default redirect behavior. | **Fixed in this PR:** structural URL validation, negative tests, and a redirect policy that permits only bounded redirects on the original HTTPS host without credentials or custom ports. |
 | S6 | Medium | The email WebView permits general HTTPS browsing and opener-linked popups; links to Claude are routed to the existing Claude WebView. This is required for the working magic-link flow, but popup-origin and user-gesture boundaries deserve dedicated tests. | **Open:** preserve working right-click path while testing left-click and malicious redirects with synthetic, non-secret URLs. Never add mailbox DOM-reading scripts as a workaround. |
 | S7 | Medium | `session_checkpoint.rs` persists a JSON string locally with no explicit size limit; snapshots have a count cap but no per-file byte cap; stored data may be plaintext. | **Open:** document retention and redaction, add generous file bounds, assess macOS Keychain-backed encryption at rest and recovery behavior. Avoid deleting user data during upgrade. |
 | S8 | Medium | macOS `data_directory` is unsupported for WKWebView; all provider pages may use the default native website data store, though websites still have ordinary origin-based cookie separation. | **Open:** define stable `data_store_identifier` values, separately test migration and SSO, avoid silently signing users out. |
@@ -76,7 +76,7 @@ pinned by commit SHA. Retain these protections.
 ### Phase A — Safe hardening (this PR)
 - [x] Owner-only atomic local file creation on Unix/macOS
 - [x] Explicit trusted-webview authorization for settings commands
-- [x] Strict external and adapter-source URL parsing
+- [x] Strict external and adapter-source URL parsing, plus HTTPS same-host redirect policy
 - [x] Toolbar capability regression tests
 - [x] Dependabot for JavaScript and Rust
 - [ ] Existing CI checks green on all three operating systems
@@ -151,6 +151,10 @@ Before merging any security PR, require:
   verification, **not** a green build. Before merging, enable/check repository
   Actions settings and confirm the `CI` pull-request workflow actually runs;
   check Windows, macOS, Linux, frontend and Rust tests.
+- A separate follow-up review found that the HTTP client could follow adapter
+  source redirects outside the initially validated origin. The fetch client now
+  follows at most five redirects, and only to the same HTTPS host without
+  credentials or custom ports. Redirect tests use synthetic, token-free URLs.
 - `cargo` and `pnpm` and the macOS WebKit runtime are not available in this
   editing environment. Source inspection and newly added tests cannot replace
   a compiled matrix or the user's Mac smoke test.
