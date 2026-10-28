@@ -1173,11 +1173,40 @@ fn chatgpt_renderer_replaced_top_level(
         && chatgpt_renderer_auxiliary_url(provider, current_main_url)
 }
 
+const MAX_PROVIDER_POPUPS: usize = 8;
+
+// Popups are *not* trusted just because their first URL was an allowed IdP.
+// Recheck every subsequent navigation to avoid redirecting the native auth
+// browser to arbitrary HTTPS or local pages.
+fn provider_popup_navigation_allowed(provider: &str, url: &tauri::Url) -> bool {
+    if url.scheme() == "about" {
+        return matches!(url.path(), "blank" | "srcdoc");
+    }
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+    {
+        return false;
+    }
+    challenge_auxiliary_navigation_allowed(provider, url)
+        || adapters::url_allowed_for_provider(provider, url).unwrap_or(false)
+        || adapters::url_allowed_for_sso(provider, url).unwrap_or(false)
+}
+
 fn decide_new_window_action(url: &tauri::Url, allowlisted: bool) -> NewWindowAction {
     if url.host_str() == Some("mac-bridge.invalid") {
         return NewWindowAction::DenySilent;
     }
-    if allowlisted {
+    // Never let a caller's allowlisted hint bypass URL scheme/authority checks.
+    if allowlisted
+        && url.scheme() == "https"
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+    {
         return NewWindowAction::AllowPopup;
     }
     if url.scheme() == "https" || url.scheme() == "http" {
@@ -1604,6 +1633,13 @@ pub async fn provider_open(
                 // (WebView2) is undecorated, so it can't be dragged off the page it covers.
                 // window_features() wires the opener environment, so OAuth flows keep working.
                 NewWindowAction::AllowPopup => {
+                    // An untrusted page could otherwise flood native popup windows.
+                    let open_popups = popup_app.webview_windows().keys()
+                        .filter(|label| label.starts_with("provider-popup-"))
+                        .count();
+                    if open_popups >= MAX_PROVIDER_POPUPS {
+                        return NewWindowResponse::Deny;
+                    }
                     let recovery_epoch = grok_auth_popup_may_complete_login(&popup_provider, &url)
                         .then(|| current_grok_document_epoch(&popup_provider));
                     static POPUP_SEQ: AtomicUsize = AtomicUsize::new(0);
@@ -1611,12 +1647,19 @@ pub async fn provider_open(
                         "provider-popup-{}",
                         POPUP_SEQ.fetch_add(1, Ordering::Relaxed)
                     );
+                    let popup_nav_provider = popup_provider.clone();
                     let builder = tauri::WebviewWindowBuilder::new(
                         &popup_app,
                         &label,
                         WebviewUrl::External("about:blank".parse().expect("static url")),
                     )
                     .window_features(features)
+                    .on_navigation(move |next| {
+                        provider_popup_navigation_allowed(&popup_nav_provider, next)
+                    })
+                    // Additional OAuth windows require a separately reviewed
+                    // workflow rather than unmanaged nested browser windows.
+                    .on_new_window(|_, _| NewWindowResponse::Deny)
                     // Keep auth popups decorated and initially bounded.
                     .decorations(true)
                     .inner_size(760.0, 640.0)
