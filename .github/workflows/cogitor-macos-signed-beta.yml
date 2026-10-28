@@ -1,0 +1,139 @@
+name: Cogitor signed and notarized macOS beta (manual)
+
+# Security: never run on pull requests or unapproved pushes. Private
+# signing material is supplied only by the manually protected environment.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cogitor-signed-macos-beta
+  cancel-in-progress: false
+
+jobs:
+  signed-macos-universal:
+    name: Developer ID sign, Apple notarize, staple and verify
+    runs-on: macos-latest
+    environment: cogitor-release
+    timeout-minutes: 120
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+    steps:
+      - name: Refuse builds without all required signing and notarization secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error title=Missing release secret::Configure $name in the protected cogitor-release environment."
+              exit 1
+            fi
+          done
+          if [[ "$APPLE_SIGNING_IDENTITY" != "Developer ID Application:"* ]]; then
+            echo "::error title=Wrong certificate::A Developer ID Application identity is required."
+            exit 1
+          fi
+
+      - name: Checkout verified preview commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prevent signing unreviewed history
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A run must be dispatched against the tested preview branch, not main or a PR.
+          [[ "$GITHUB_REF" == "refs/heads/preview/cogitor-unified-macos" ]] || {
+            echo "::error::Sign only the tested preview branch."
+            exit 1
+          }
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Materialize private Apple notarization key and release configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/cogitor-apple"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$RUNNER_TEMP/cogitor-apple/AuthKey.p8"
+          test -s "$RUNNER_TEMP/cogitor-apple/AuthKey.p8"
+          # Official Tauri v2 notarization via App Store Connect API credentials.
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/cogitor-apple/AuthKey.p8" >> "$GITHUB_ENV"
+          # Override the preview's intentional ad-hoc signing only for this job.
+          # Preserve the existing Tauri bundle identifier to avoid erasing user profiles.
+          node -e 'const fs=require("fs");const c={version:"0.1.0",bundle:{macOS:{signingIdentity:process.env.APPLE_SIGNING_IDENTITY}}};fs.writeFileSync("src-tauri/tauri.signed-beta.ci.conf.json",JSON.stringify(c));'
+
+      - name: Developer ID sign, notarize and staple universal macOS bundle
+        # The build must fail closed on missing/invalid Apple credentials or
+        # failed notarization; it does NOT fall back to ad-hoc signing.
+        run: pnpm tauri build --bundles dmg --target universal-apple-darwin --config src-tauri/tauri.signed-beta.ci.conf.json
+
+      - name: Validate certificate identity, notarization ticket and both architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' -type f -print -quit)"
+          test -n "$dmg"
+          mount_dir="$(mktemp -d)"
+          cleanup() {
+            hdiutil detach "$mount_dir" -quiet >/dev/null 2>&1 || true
+            rmdir "$mount_dir" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          hdiutil attach "$dmg" -mountpoint "$mount_dir" -nobrowse -quiet
+          app="$(find "$mount_dir" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          signature="$(codesign -dv --verbose=4 "$app" 2>&1)"
+          printf '%s\n' "$signature" | grep '^Authority=Developer ID Application:'
+          printf '%s\n' "$signature" | grep '^TeamIdentifier='
+          if grep -q 'Signature=adhoc' <<< "$signature"; then
+            echo "::error::Ad-hoc signature is not a signed release"; exit 1
+          fi
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          binary="$(find "$app/Contents/MacOS" -maxdepth 1 -type f -print -quit)"
+          test -n "$binary"
+          arches="$(lipo -archs "$binary")"
+          echo "Architectures: $arches"
+          [[ " $arches " == *" arm64 "* && " $arches " == *" x86_64 "* ]] || {
+            echo "::error::Not a universal binary"; exit 1;
+          }
+          mkdir -p dist-signed
+          cp "$dmg" dist-signed/Cogitor-0.1.0-beta-universal-notarized.dmg
+          (cd dist-signed && shasum -a 256 Cogitor-0.1.0-beta-universal-notarized.dmg > SHA256SUMS.txt)
+
+      - name: Upload verified test artifact (not a GitHub Release)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cogitor-0.1.0-beta-universal-notarized
+          path: dist-signed/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Remove temporary notarization credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/cogitor-apple"
+          rm -f src-tauri/tauri.signed-beta.ci.conf.json
