@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "identifier": "com.tedh.multiaichat",
   "build": {
-    "beforeDevCommand": "pnpm build:injected && pnpm dev",
-    "beforeBuildCommand": "pnpm build:injected && pnpm build",
+    "beforeDevCommand": "pnpm brand:icons && pnpm build:injected && pnpm dev",
+    "beforeBuildCommand": "pnpm brand:icons && pnpm build:injected && pnpm build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
