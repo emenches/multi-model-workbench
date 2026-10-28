@@ -1,9 +1,11 @@
 //! Claude login tab strip (macOS).
 //!
 //! The toolbar is a local WebView with ONLY three dedicated native commands.
-//! The email view has no Tauri IPC permissions, initialization scripts, or
-//! DOM inspection. Navigation to Claude is handed to the original provider
-//! view without reading or logging URLs (magic links may contain secrets).
+//! The email view has no Tauri IPC permissions or message-content
+//! inspection. Its only initialization script listens for a trusted click on
+//! an exact-origin Claude link and navigates normally. The native callback
+//! then hands that navigation to the original provider view without logging
+//! or emitting the URL (magic links may contain secrets).
 //! Mac WKWebViews created without data_store_identifier share the app's
 //! default persistent website store. Both the original Claude child view and
 //! this email view intentionally use that store: NO cookie copying.
