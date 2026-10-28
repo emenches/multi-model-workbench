@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude sign-in tabs</title>
+    <style>
+      :root { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color-scheme: dark; background:#17191e; color:#e6e6e8; }
+      * {box-sizing:border-box}
+      body {margin:0; padding:0; overflow:hidden; font-size:12px}
+      #bar {height:48px; display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid #2c2e35; background:#1c1e24}
+      button {font:inherit; cursor:pointer; color:#aeb1bc; border:0; border-radius:8px; padding:7px 12px; background:transparent; white-space:nowrap}
+      button.active {background:#343740; color:#fff}
+      button:hover {background:#30333c;color:white}
+      button:focus-visible,input:focus-visible {outline:2px solid #91b2ff;outline-offset:1px}
+      #go {background:#424751;color:white}
+      #address {background:#111318;color:#f4f4f5;border:1px solid #41444d;border-radius:7px;min-width:100px;flex:1;padding:7px 10px;font:inherit}
+      #address:disabled {opacity:0.35}
+      #status {min-width:100px;max-width:245px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d5a2a2}
+      #close-email {font-size:16px;padding:5px 9px}
+      .hidden {display:none !important}
+    </style>
+    <script type="module" src="/src/claudeLoginTabs.ts"></script>
+  </head>
+  <body>
+    <div id="bar" role="toolbar" aria-label="Claude login tabs">
+      <button type="button" id="claude" class="active" aria-label="Claude tab">Claude</button>
+      <button type="button" id="email" aria-label="Open email tab">+ Email</button>
+      <form id="navigation" class="hidden" style="display:flex;align-items:center;gap:6px;flex:1;min-width:0">
+        <input id="address" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="mail.google.com or your email website" aria-label="Email website address" />
+        <button type="submit" id="go">Go</button>
+        <button type="button" id="close-email" title="Close email tab" aria-label="Close email tab">×</button>
+      </form>
+      <span id="status" role="status" aria-live="polite"></span>
+    </div>
+  </body>
+</html>
