@@ -2,6 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- The privileged local toolbar never needs frames, plugins, or remote form submissions. -->
+    <meta http-equiv="Content-Security-Policy" content="frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Claude sign-in tabs</title>
     <style>
