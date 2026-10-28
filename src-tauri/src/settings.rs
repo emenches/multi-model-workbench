@@ -260,6 +260,18 @@ pub(crate) fn read_bounded_utf8(path: &Path, max_bytes: usize) -> std::io::Resul
         return Err(Error::new(ErrorKind::InvalidData, "saved file exceeds the size limit"));
     }
     let file = std::fs::File::open(path)?;
+    let opened = file.metadata()?;
+    if !opened.is_file() || opened.len() > max_bytes as u64 {
+        return Err(Error::new(ErrorKind::InvalidData, "saved file is not a bounded regular file"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        // Detect symlink substitution between the initial lstat and open.
+        if opened.dev() != metadata.dev() || opened.ino() != metadata.ino() {
+            return Err(Error::new(ErrorKind::InvalidData, "saved file changed during read"));
+        }
+    }
     let mut bytes = Vec::new();
     file.take(max_bytes as u64 + 1).read_to_end(&mut bytes)?;
     if bytes.len() > max_bytes {
