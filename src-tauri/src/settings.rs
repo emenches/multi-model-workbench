@@ -270,12 +270,15 @@ fn write_atomic_before_replace(
     options.write(true).create_new(true);
     #[cfg(unix)]
     options.mode(0o600);
-    let write_result = options.open(&tmp_path)
-        .and_then(|mut file| file.write_all(bytes));
-    if let Err(error) = write_result {
+    // An exclusive-open failure means this process never owned the path. In
+    // particular, never unlink a colliding file or symlink created elsewhere.
+    let mut file = options.open(&tmp_path).map_err(|error| error.to_string())?;
+    if let Err(error) = file.write_all(bytes) {
+        drop(file);
         let _ = std::fs::remove_file(&tmp_path);
         return Err(error.to_string());
     }
+    drop(file);
     if let Err(error) = before_replace() {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(error);
