@@ -149,7 +149,7 @@ export function SettingsModal({
     // Move into the relevant expanded role editor just once, not every time
     // the user changes a select field.
     const frame = window.requestAnimationFrame(() => {
-      document.getElementById('settings-collaboration-roles')?.scrollIntoView({ block: 'start' });
+      document.getElementById('settings-collaboration-roles')?.scrollIntoView?.({ block: 'start' });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [open, activeModeRoleSettings, draft]);
