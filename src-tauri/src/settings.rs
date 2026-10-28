@@ -1,4 +1,7 @@
 use std::path::{Path, PathBuf};
+use std::io::Write as _;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -259,7 +262,17 @@ fn write_atomic_before_replace(
         std::process::id(),
         seq
     ));
-    if let Err(error) = std::fs::write(&tmp_path, bytes) {
+    // Create the temporary file exclusively: an existing symlink or file at
+    // the temporary path must never be overwritten. On macOS/Linux, sensitive
+    // settings, snapshots, and Consult checkpoints are owner-readable only
+    // (mode 0600), regardless of the process umask.
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let write_result = options.open(&tmp_path)
+        .and_then(|mut file| file.write_all(bytes));
+    if let Err(error) = write_result {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(error.to_string());
     }
@@ -308,7 +321,8 @@ fn replace_file(tmp_path: &Path, path: &Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn settings_get(app: AppHandle) -> Result<serde_json::Value, String> {
+pub async fn settings_get(app: AppHandle, webview: tauri::Webview) -> Result<serde_json::Value, String> {
+    crate::webviews::ensure_control_webview(&webview)?;
     let _lifecycle_guard = lock_provider_lifecycle()?;
     let path = settings_path(&app)?;
     let mut settings = normalize_settings_value(read_settings_for_provider_guard(&path));
@@ -327,7 +341,10 @@ pub async fn settings_get(app: AppHandle) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn settings_set(app: AppHandle, settings: serde_json::Value) -> Result<(), String> {
+pub async fn settings_set(
+    app: AppHandle, webview: tauri::Webview, settings: serde_json::Value,
+) -> Result<(), String> {
+    crate::webviews::ensure_control_webview(&webview)?;
     let _lifecycle_guard = lock_provider_lifecycle()?;
     let path = settings_path(&app)?;
     let previous = read_settings(&path).unwrap_or_else(|_| Value::Object(Map::new()));
@@ -480,6 +497,26 @@ mod tests {
         }
         assert!(ensure_provider_active_value(&settings, "meta").is_err());
 
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_writes_are_private_even_with_a_permissive_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = unique_path("permissions");
+        write_settings(&path, &json!({ "sensitive": "local-only" }))
+            .expect("private settings write");
+        let mode = std::fs::metadata(&path)
+            .expect("written settings file metadata")
+            .permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "sensitive files must be owner-only");
+        write_settings(&path, &json!({ "sensitive": "updated" }))
+            .expect("private replace");
+        let replaced_mode = std::fs::metadata(&path)
+            .expect("replaced settings metadata")
+            .permissions().mode() & 0o777;
+        assert_eq!(replaced_mode, 0o600, "replacement must remain private");
         let _ = std::fs::remove_file(path);
     }
 
