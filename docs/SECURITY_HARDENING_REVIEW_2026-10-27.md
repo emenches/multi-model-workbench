@@ -51,7 +51,7 @@ claims that the app is technically *incapable* of reading those credentials.
 
 | ID | Priority | Evidence / risk | State |
 | --- | --- | --- | --- |
-| S1 | High | `settings::write_atomic_before_replace` used `std::fs::write` for temp files. On a typical Unix umask of 022, new local JSON files can have 0644 permissions; snapshots and resume data can contain user conversations. | **Fixed in this PR for newly written/replaced files:** exclusive `create_new` plus 0600 mode on Unix, with tests. Existing files need a later permission migration after backup/rollback design. |
+| S1 | High | `settings::write_atomic_before_replace` used `std::fs::write` for temp files. On a typical Unix umask of 022, new local JSON files can have 0644 permissions; snapshots and resume data can contain user conversations. | **Fixed in this PR for newly written/replaced files:** exclusive `create_new` plus 0600 mode on Unix, with tests. Follow-up review fixed an exclusive-create collision error path that could unlink a preexisting temp file; a regression test preserves that file. Existing files need a later permission migration after backup/rollback design. |
 | S2 | High | `adapters.rs` auto-fetches JSON from a mutable upstream `main` branch, using version precedence and bounded scope validation. This is a supply-chain/data-capture surface: remote selector changes may affect which DOM nodes are read on provider pages. | **Open:** propose a separately reviewed change to bundled-only updates by default, or pinned/signature-verified manifests with explicit consent. Do **not** remove update behavior in the same PR as the storage fix. |
 | S3 | High | `webviews.rs` exports native `provider_eval` / `provider_eval_with_callback` with arbitrary JS supplied by the trusted main control pane. Guarding the caller and page origin reduces the risk, but compromised main UI code would have powerful provider-page access. | **Open:** move to a small set of typed actions (send, status, snapshot, stop), then remove generic arbitrary-JS IPC after a Consult regression suite. |
 | S4 | Medium | `settings_get` and `settings_set` relied on Tauri's main-WebView capability for authorization but lacked the explicit `ensure_control_webview` check used elsewhere. | **Fixed in this PR:** explicit trusted main-webview checks without changing frontend command names. |
@@ -138,6 +138,24 @@ Before merging any security PR, require:
    magic-link paths/query strings or user transcripts.
 5. A rollback path (revert the unmerged PR and relaunch) with browser
    sessions/data left intact unless the user explicitly clears them.
+
+## Verification status (follow-up)
+
+- Additional source review on this draft identified and fixed an exclusive-temp-file
+  failure path: when `create_new` failed because the path already existed, the
+  original cleanup tried to remove that path even though this process had not
+  created it. File creation and post-creation write failures now have separate
+  cleanup behavior, with a collision regression test.
+- The connected GitHub Actions API currently reports **zero workflow runs and
+  zero check runs** for this repository/PR commit. This is an absence of
+  verification, **not** a green build. Before merging, enable/check repository
+  Actions settings and confirm the `CI` pull-request workflow actually runs;
+  check Windows, macOS, Linux, frontend and Rust tests.
+- `cargo` and `pnpm` and the macOS WebKit runtime are not available in this
+  editing environment. Source inspection and newly added tests cannot replace
+  a compiled matrix or the user's Mac smoke test.
+- This is stacked as PR #44 onto PR #43, itself dependent on the Claude login
+  fixes. Do not merge out of order or claim this is already deployed to `main`.
 
 ## Validation boundaries
 
