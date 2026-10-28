@@ -1574,10 +1574,8 @@ html:not(.ai-sister) .workbench-shell .workbench-sidebar-resizer:hover > [role="
 html:not(.ai-sister) .workbench-shell .workbench-sidebar-resizer:focus-within > [role="separator"] {
   background: var(--wb-accent);
 }
-html:not(.ai-sister) .workbench-shell .workbench-session-sidebar:not(.w-\[60px\]) {
-  width: auto;
+html:not(.ai-sister) .workbench-shell .workbench-session-sidebar {
   min-width: 0;
-  flex: 1 1 0%;
 }
 
 html:not(.ai-sister) .workbench-shell .workbench-composer-textarea {
