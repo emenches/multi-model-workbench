@@ -117,6 +117,21 @@ fn is_claude_link(url: &tauri::Url) -> bool {
         && url.password().is_none()
 }
 
+/// Gmail's account switch opens a new window to a mailbox-specific URL.
+/// Keep that navigation within the original Email tab (same WKWebView and
+/// auth data store) instead of leaving it in a detached popup window.
+///
+/// Match only Gmail's mailbox routes, not accounts.google.com or the OAuth
+/// callback pages: those legitimately need their opener-linked popups.
+fn is_gmail_mail_route(url: &tauri::Url) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some("mail.google.com")
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && (url.path() == "/mail" || url.path().starts_with("/mail/"))
+}
+
 fn notify_active(app: &AppHandle, tab: &str) {
     let _ = app.emit_to(TOOLBAR_LABEL, "claude-auth-tab:selected", tab);
 }
@@ -176,6 +191,40 @@ fn send_magic_link_to_claude(app: AppHandle, url: tauri::Url, popup_label: Optio
     });
 }
 
+fn send_gmail_account_to_email(app: AppHandle, url: tauri::Url, popup_label: Option<String>) {
+    if !is_gmail_mail_route(&url) { return; }
+    // No Gmail content, account identifiers, mailbox routes, URL queries,
+    // or credential material are logged or sent to the app UI.
+    eprintln!("[Claude email browser] Gmail account switch detected");
+    tauri::async_runtime::spawn(async move {
+        let navigate_app = app.clone();
+        let result = app.run_on_main_thread(move || {
+            if let Some(mail) = navigate_app.get_webview(MAIL_LABEL) {
+                if mail.navigate(url).is_ok() {
+                    let _ = show_email(&navigate_app);
+                    if let Some(label) = popup_label {
+                        if let Some(popup) = navigate_app.get_webview_window(&label) {
+                            let _ = popup.close();
+                        }
+                    }
+                    let _ = navigate_app.emit_to(
+                        TOOLBAR_LABEL, "claude-auth-tab:handoff",
+                        "Gmail account opened in Email tab",
+                    );
+                    eprintln!("[Claude email browser] Gmail account switch handed to Email tab");
+                } else {
+                    eprintln!("[Claude email browser] Gmail tab navigation failed");
+                }
+            } else {
+                eprintln!("[Claude email browser] Email tab is unavailable");
+            }
+        });
+        if result.is_err() {
+            eprintln!("[Claude email browser] Gmail switch could not be queued");
+        }
+    });
+}
+
 /// A webmail message often opens an initially empty popup, then changes its
 /// location to a tracking URL and finally to the Claude magic link. Denying
 /// the initial about:blank popup prevents ALL later redirects and makes the
@@ -187,6 +236,10 @@ fn create_email_popup(
 ) -> NewWindowResponse<tauri::Wry> {
     if is_claude_link(&target) {
         send_magic_link_to_claude(app.clone(), target, None);
+        return NewWindowResponse::Deny;
+    }
+    if is_gmail_mail_route(&target) {
+        send_gmail_account_to_email(app.clone(), target, None);
         return NewWindowResponse::Deny;
     }
     if !safe_browser_navigation(&target) {
@@ -220,6 +273,14 @@ fn create_email_popup(
     .on_navigation(move |destination| {
         if is_claude_link(destination) {
             send_magic_link_to_claude(
+                nav_app.clone(),
+                destination.clone(),
+                Some(label_for_nav.clone()),
+            );
+            return false;
+        }
+        if is_gmail_mail_route(destination) {
+            send_gmail_account_to_email(
                 nav_app.clone(),
                 destination.clone(),
                 Some(label_for_nav.clone()),
@@ -340,7 +401,7 @@ pub(crate) fn close_tabs(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_claude_link, safe_browser_navigation, safe_webmail_url};
+    use super::{is_claude_link, is_gmail_mail_route, safe_browser_navigation, safe_webmail_url};
 
     #[test]
     fn only_https_no_authority_credentials_or_custom_ports() {
@@ -365,6 +426,30 @@ mod tests {
         assert!(!safe_browser_navigation(&"javascript:alert(1)".parse().unwrap()));
         assert!(!safe_browser_navigation(&"file:///private/secret".parse().unwrap()));
         assert!(!safe_browser_navigation(&"about:config".parse().unwrap()));
+    }
+
+    #[test]
+    fn gmail_account_switch_stays_in_the_email_tab() {
+        for url in [
+            "https://mail.google.com/mail/u/0/",
+            "https://mail.google.com/mail/u/1/#inbox",
+            "https://mail.google.com/mail/u/2/?authuser=2",
+            "https://mail.google.com/mail/",
+        ] {
+            assert!(is_gmail_mail_route(&url.parse().unwrap()), "{url}");
+        }
+        for url in [
+            "https://accounts.google.com/AccountChooser?continue=https://mail.google.com/",
+            "https://mail.google.com.evil.example/mail/u/1/",
+            "https://evil.example/mail/u/1/",
+            "http://mail.google.com/mail/u/1/",
+            "https://mail.google.com:8443/mail/u/1/",
+            "https://name@mail.google.com/mail/u/1/",
+            "https://mail.google.com/calendar/u/1/",
+            "about:blank",
+        ] {
+            assert!(!is_gmail_mail_route(&url.parse().unwrap()), "{url}");
+        }
     }
 
     #[test]
