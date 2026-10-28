@@ -31,7 +31,14 @@ static MAIL_POPUP_SEQUENCE: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
 fn safe_browser_navigation(url: &tauri::Url) -> bool {
-    url.scheme() == "https"
+    // Even zero-Tauri-permission email popups should never navigate to
+    // userinfo, nonstandard ports, or local/non-HTTPS URL schemes. Preserve
+    // about:blank/srcdoc because WebKit uses them to create OAuth popups.
+    (url.scheme() == "https"
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none())
         || (url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc"))
 }
 
@@ -438,6 +445,23 @@ mod tests {
         assert!(!safe_browser_navigation(&"javascript:alert(1)".parse().unwrap()));
         assert!(!safe_browser_navigation(&"file:///private/secret".parse().unwrap()));
         assert!(!safe_browser_navigation(&"about:config".parse().unwrap()));
+        // Adversarial redirects must not route the embedded email window
+        // through hidden credentials, alternate ports, or local schemes.
+        for destination in [
+            "https://user:pass@accounts.google.com/",
+            "https://name@claude.ai/auth/verify",
+            "https://accounts.google.com:8443/o/oauth2/auth",
+            "https://mail.google.com:444/mail/u/1/",
+            "ftp://mail.google.com/",
+            "data:text/html,<script>alert(1)</script>",
+            "http://127.0.0.1:1420/",
+        ] {
+            assert!(
+                !safe_browser_navigation(&destination.parse().unwrap()),
+                "unexpected permitted email navigation: {destination}"
+            );
+        }
+        assert!(safe_browser_navigation(&"https://accounts.google.com/o/oauth2/v2/auth".parse().unwrap()));
     }
 
     #[test]
