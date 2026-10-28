@@ -7,52 +7,84 @@
     <style>
       :root {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color-scheme: dark;
-        background: #17191e;
-        color: #e6e6e8;
+        color-scheme: dark; background: #17191e; color: #e6e6e8;
       }
-      * { box-sizing: border-box; }
-      body { margin: 0; padding: 0; overflow: hidden; font-size: 14px; }
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+      body { font-size: 14px; }
+      /* Fit the *actual* WKWebView viewport, including Mac Retina/text zoom.
+         A fixed 76px CSS row could overflow its 76pt native window and crop
+         tab buttons, as seen in the user's screenshot. */
       #bar {
-        height: 76px;
+        width: 100%;
+        height: 100vh;
+        height: 100dvh;
+        max-height: 100%;
+        min-height: 0;
         display: flex;
+        flex-wrap: nowrap;
         align-items: center;
-        gap: 12px;
-        padding: 13px 16px;
+        gap: 10px;
+        padding: 6px 12px;
+        overflow: hidden;
         background: #1c1e24;
-        box-shadow: 0 4px 14px rgba(0,0,0,.30);
+        box-shadow: inset 0 -1px rgba(255,255,255,.04);
       }
       button {
         font: inherit;
+        font-size: clamp(12px, 20vh, 16px);
         font-weight: 600;
-        min-height: 44px;
+        min-height: 0;
+        max-height: 100%;
+        height: min(44px, calc(100vh - 12px));
+        flex: 0 0 auto;
         cursor: pointer;
         color: #bfc2cb;
         border: 0;
-        border-radius: 12px;
-        padding: 10px 18px;
+        border-radius: 10px;
+        padding: 0 14px;
         background: transparent;
         white-space: nowrap;
       }
-      button.active { background: #393d47; color: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.22); }
-      button:hover { background: #343843; color: #fff; }
-      button:focus-visible,input:focus-visible { outline: 2px solid #91b2ff; outline-offset: 2px; }
-      #navigation { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
-      #go { min-width: 68px; background: #495466; color: #fff; }
-      #address {
-        background: #101217;
-        color: #f4f4f5;
-        min-height: 44px;
-        border: 1px solid #454954;
-        border-radius: 12px;
-        min-width: 100px;
-        flex: 1;
-        padding: 10px 14px;
-        font: inherit;
+      button.active {
+        background: #393d47;
+        color: #fff;
+        box-shadow: 0 2px 6px rgba(0,0,0,.22);
       }
-      #close-email { font-size: 22px; padding: 7px 14px; }
-      #status { max-width: 195px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d4cfb3; font-size: 13px; }
+      button:hover { background: #343843; color: #fff; }
+      button:focus-visible,input:focus-visible { outline: 2px solid #91b2ff; outline-offset: -2px; }
+      #navigation {
+        display: flex; align-items: center; gap: 8px;
+        flex: 1 1 auto; width: 0; min-width: 0; max-height: 100%;
+      }
+      #go { min-width: 50px; background: #495466; color: #fff; }
+      #address {
+        background: #101217; color: #f4f4f5;
+        height: min(44px, calc(100vh - 12px));
+        max-height: 100%;
+        min-height: 0;
+        border: 1px solid #454954;
+        border-radius: 10px;
+        min-width: 50px; width: 0; flex: 1 1 auto;
+        padding: 0 12px;
+        font: inherit; font-size: clamp(12px, 20vh, 16px);
+      }
+      #close-email { font-size: clamp(16px, 30vh, 22px); padding: 0 12px; }
+      #status {
+        max-width: 195px; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; color: #d4cfb3; font-size: 12px;
+      }
+      #status:empty { display: none; }
       .hidden { display: none !important; }
+      @media (max-width: 680px) {
+        #bar { gap: 5px; padding: 4px 6px; }
+        button { padding: 0 8px; border-radius: 7px; height: min(44px, calc(100vh - 8px)); }
+        #navigation { gap: 4px; }
+        #address { padding: 0 7px; height: min(44px, calc(100vh - 8px)); }
+        #go { min-width: 36px; }
+        #close-email { padding: 0 7px; }
+        #status { max-width: 90px; font-size: 11px; }
+      }
     </style>
     <script type="module" src="/src/claudeLoginTabs.ts"></script>
   </head>
