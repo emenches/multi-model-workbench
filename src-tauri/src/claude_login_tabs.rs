@@ -104,6 +104,7 @@ pub(crate) fn ensure_toolbar(app: &AppHandle, window: &tauri::Window) -> Result<
 // tab-control permissions. It must never become a browser for remote HTML.
 // In production Tauri loads bundled pages from tauri://localhost; in Tauri
 // dev mode the configured local Vite server is http://localhost:1420.
+#[cfg(any(target_os = "macos", test))]
 fn toolbar_navigation_allowed(url: &tauri::Url) -> bool {
     let bundled = url.scheme() == "tauri"
         && url.host_str() == Some("localhost")
