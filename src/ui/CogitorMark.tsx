@@ -21,8 +21,10 @@ export function CogitorMark({
         <path d="M 341 392 A 160 160 0 0 1 101 297" />
         <path d="M 101 215 A 160 160 0 0 1 215 101" />
       </g>
-      <circle className="cogitor-mark__core" cx="256" cy="256" r="83" fill="#E38B45" />
-      <circle className="cogitor-mark__highlight" cx="285" cy="217" r="13" fill="#EFE6D3" />
+      <g className="cogitor-mark__core">
+        <circle cx="256" cy="256" r="83" fill="#E38B45" />
+        <circle className="cogitor-mark__highlight" cx="285" cy="217" r="13" fill="#EFE6D3" />
+      </g>
       <circle cx="256" cy="96" r="23" fill="#E38B45" />
       <circle cx="96" cy="256" r="21" fill="#EFE6D3" />
       <circle cx="359" cy="379" r="21" fill="#E38B45" />
