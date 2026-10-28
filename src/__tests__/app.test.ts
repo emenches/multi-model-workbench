@@ -124,6 +124,7 @@ describe('App workflow controls', () => {
     expect(html).toContain('cogitor-wordmark');
     expect(html).toContain('COGITOR');
     expect(html).toContain('cogitor-mark');
+    expect(html).toContain('default-brand-icon h-6 w-6');
     expect(html).toContain('data-active="false"');
     expect(html).not.toContain('ai-sister-brand-mark');
     expect(html).not.toContain('AI-Sister Edition');
