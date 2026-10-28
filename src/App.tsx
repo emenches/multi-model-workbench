@@ -2694,6 +2694,9 @@ export default function App() {
               onSelectPreset={(selected) => {
                 selectPreset(selected);
                 setWorkflowOptionsOpen(false);
+                // Every collaborative workflow remains selectable even when a
+                // default role has no connected agent. Open its editable roles.
+                if (selected !== 'simple' && selected !== 'free') setSettingsOpen(true);
               }}
               locale={locale} states={states} modeRoles={appSettings.modeRoles}
               activeProviders={activeProviders} disabled={isProcessing} layout="dialog"
@@ -2705,7 +2708,8 @@ export default function App() {
               <TargetChips providers={activeProviders} states={states} selected={targets} onChange={handleTargetsChange} disabled={isProcessing} locale={locale}/>
             </div>
           ) : null}
-          <p className="mt-4 text-xs text-zinc-500 dark:text-zinc-400">Connection status and response completion are separate.</p>
+          <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">{translate('composer.clickWorkflowToConfigure')}</p>
+          <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Connection status and response completion are separate.</p>
         </ModalDialog>
       ) : null}
       {preflight ? (
@@ -2832,6 +2836,12 @@ export function ChatArea({
               </div>
             )}
             {message.truncated ? <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">{translateKey('chat.truncated', locale)}</div> : null}
+            {typeof message.timestamp === 'number' && Number.isFinite(message.timestamp) && message.timestamp > 0 ? (
+              <time className="workbench-message-timestamp mt-2 block text-xs text-zinc-500 dark:text-zinc-400"
+                dateTime={new Date(message.timestamp).toISOString()}>
+                {new Date(message.timestamp).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
+              </time>
+            ) : null}
           </article>
         );
       })}
