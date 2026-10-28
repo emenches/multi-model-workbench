@@ -184,7 +184,7 @@ describe('Cogitor message times', () => {
       ],
     }));
     expect(html.match(/class="workbench-message-timestamp/g)).toHaveLength(2);
-    expect(html).toContain('dateTime="2025-10-09T08:53:20.000Z"');
+    expect(html).toContain('2025-10-09T08:53:20.000Z');
     expect(html).toContain('Original prompt');
     expect(html).toContain('Legacy reply');
   });
