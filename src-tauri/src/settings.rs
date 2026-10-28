@@ -743,6 +743,7 @@ mod tests {
                 "layoutMode": "focus",
                 "focusPaneWidth": 620,
                 "snapshotPersistence": false,
+                "adapterUpdatesEnabled": false,
                 "snapshotRedactionTier": "metadata-only",
                 "standbyProvider": "meta",
                 "presentation": {
@@ -771,6 +772,7 @@ mod tests {
                 "layoutMode": "focus",
                 "focusPaneWidth": 620,
                 "snapshotPersistence": true,
+                "adapterUpdatesEnabled": false,
                 "snapshotRedactionTier": "full-local",
                 "standbyProvider": "meta",
                 "presentation": {
@@ -800,6 +802,7 @@ mod tests {
                 "layoutMode": "focus",
                 "focusPaneWidth": 620,
                 "snapshotPersistence": false,
+                "adapterUpdatesEnabled": false,
                 "snapshotRedactionTier": "metadata-only",
                 "standbyProvider": "meta",
                 "presentation": {
