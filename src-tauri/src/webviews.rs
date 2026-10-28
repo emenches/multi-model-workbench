@@ -3005,10 +3005,14 @@ mod tests {
     fn grok_keeps_core_web_apis_unmodified_for_cloudflare_challenges() {
         assert!(!provider_uses_permission_shim("grok"));
         assert!(!provider_uses_document_start_bridge("grok"));
-        for provider in ["chatgpt", "claude", "gemini"] {
+        for provider in ["chatgpt", "gemini"] {
             assert!(provider_uses_permission_shim(provider));
             assert!(provider_uses_document_start_bridge(provider));
         }
+        // Claude's separately verified clean WKWebView login requires the same
+        // no-modification policy until its authenticated chat composer appears.
+        assert!(!provider_uses_permission_shim("claude"));
+        assert!(!provider_uses_document_start_bridge("claude"));
     }
 
     #[test]
