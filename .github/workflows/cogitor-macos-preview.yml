@@ -5,6 +5,19 @@ on:
     branches:
       - preview/cogitor-unified-macos
       - fix/claude-left-click-magic-link
+  # Stage a test installer for this in-repository security PR before merging
+  # or touching the working preview. Forked PRs are deliberately excluded.
+  pull_request:
+    branches:
+      - preview/cogitor-unified-macos
+    paths:
+      - '.github/workflows/cogitor-macos-preview.yml'
+      - 'src-tauri/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'claude-login-tabs.html'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
   workflow_dispatch:
 
 permissions:
@@ -17,6 +30,7 @@ concurrency:
 jobs:
   build-macos-universal:
     name: Test and build Cogitor universal DMG
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'security/cogitor-deep-release-gates')
     runs-on: macos-latest
     timeout-minutes: 120
     steps:
