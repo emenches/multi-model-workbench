@@ -139,3 +139,58 @@ the acceptance/rejection of the email form is the signal of interest.
 
 These scenarios are hypotheses, not proven root causes. No production fix
 is being merged as a result of these diagnostic-only windows.
+
+
+## Results from both child WKWebViews — passed
+
+The user reports that **both** clean child WKWebView variants accepted Claude
+email login: the visible-host and the hidden-first-host test. Combined with
+the two successful bare Tauri WebviewWindows, this confirms neither child
+WebView construction nor initial hidden host visibility is sufficient to
+trigger the browser-verification failure.
+
+### Third experiment: browser options vs. navigation policy
+
+Two additional **debug-only** variants now reproduce one category of
+Workbench's *normal Claude provider settings* at a time. Both use their own
+persistent 16-byte WebKit store, a child WKWebView, a hidden-first host, and
+the same `https://claude.ai/` start URL as the passing tests:
+
+| Menu item | Added over clean hidden-first child | Explicitly omitted |
+| --- | --- | --- |
+| **Claude child - Workbench browser options** | `data_directory`, `auto_resize`, `background_throttling(Disabled)`, exact `additional_browser_args` string | Init scripts, permission shim, title/page-load/navigation/popup callbacks |
+| **Claude child - Workbench navigation policy** | `on_navigation` with the existing Claude adapter allowlists, denying unallowlisted navigation | Extra builder options, init scripts, permission shim, title/page-load/popup callbacks |
+
+The navigation-policy test **does not** log URLs or inspect pages; it simply
+applies the existing yes/no permission decision to native navigation. The
+options test includes `data_directory` even though macOS WKWebView ignores
+this setting; it is a construction comparison, not a recommended profile
+mechanism. Neither test automatically signs in or reads credentials.
+
+Run the latest branch:
+
+```sh
+git fetch origin
+git switch test/claude-untainted-tauri-webview
+git pull --ff-only origin test/claude-untainted-tauri-webview
+pnpm tauri dev
+```
+
+Try **Claude Login Tests → Claude child - Workbench browser options**, and
+then **Claude child - Workbench navigation policy**. Only check whether Claude
+accepts your email and advances to the magic-link step; do not share a
+magic link, OTP, screenshots containing it, or session data.
+
+- **Options fails only:** isolate individual builder settings, especially
+  `background_throttling`, and then confirm without custom flags.
+- **Navigation policy fails only:** inspect legitimate auth/challenge
+  destinations rejected by the existing policy, but do not circumvent the
+  provider's authentication checks.
+- **Both pass:** the remaining differences include title/page-load/popup
+  callbacks, combined settings, `initialization_script` when PR #40 is
+  absent, lifecycle/timing, and other interactions. Continue with a
+  narrower combination test; do not assume the cause.
+- **Both fail:** validate one at a time on a fresh launch and check whether
+  the added callback/settings individually affect the sign-in page.
+
+No production login change is implied by these diagnostic-only tests.
