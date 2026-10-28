@@ -23,7 +23,16 @@ Total = **3 + 5 + 2 + 4 + 1 + 2 = 17**. This is six affected dependency groups, 
 
 ## WebKit / OAuth security validation: exact status
 
-**A full real WKWebView penetration test has NOT been performed.** What has been done:
+**A full packaged Cogitor WKWebView penetration test has NOT been performed**, but real engine-level testing now runs in CI. Additional verified coverage:
+- A real macOS WKWebView executable compiled with Apple's WebKit/AppKit SDK runs on GitHub's macOS runner (macOS 26.6.2). It uses deterministic synthetic local pages; no real accounts, token URLs, or external services.
+- [Live native WebKit run 40649324924](https://github.com/emenches/multi-model-workbench/actions/runs/40649324924) passed all adversarial probes: SOP cross-origin frame DOM reads blocked; native delegate denied untrusted top-level navigation and new windows; different WKWebViews had isolated test message handlers; script-originated MouseEvent could not forge `isTrusted`; injected real Cogitor Claude link script ignored synthetic and host-spoofed clicks.
+- The **real bundled `claude-login-tabs.html`** was loaded in WKWebView and its added `frame-src 'none'` Content Security Policy prevented a hostile iframe from loading. The native toolbar builder also now denies popups and restricts its navigation to the bundled toolbar route; the latter callback is covered by Rust unit tests.
+- A static CI assertion verifies that the `main` control view and `claude-login-toolbar` have their intended distinct native capability grants. This is policy analysis, not a remote webpage invoking Tauri IPC in the built application.
+- The test harness lives at `scripts/security/WKRuntimeProbe.swift` and runs via `.github/workflows/webkit-runtime-security.yml`. Every new browser-boundary code change should rerun this job.
+
+This test suite **does not run Cogitor's packaged Tauri host** and does not exercise real authenticated OAuth flows. It is a substantial engine-level hardening test, not a substitute for end-to-end application penetration testing.
+
+Previous source/unit checks also cover:
 - Rust unit tests for native URL policies, provider origin checks, typed IPC actions, malicious URL patterns, and session lifecycle.
 - Node VM tests run the *actual* injected Gmail/Claude click-activation JavaScript against fake DOM events: scripted, right-click, modifier, host spoofing, credentialed URLs, unsafe schemes and Google redirect wrappers.
 - Source review of Tauri `main`-only permissions and the separate tiny toolbar capability; the real provider and Gmail WebViews have zero Tauri IPC grants.
