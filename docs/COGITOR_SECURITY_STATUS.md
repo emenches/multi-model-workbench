@@ -41,7 +41,11 @@ This document supplements the original security triage in
   bridge recovery, and macOS window/profile persistence.
 - A full Windows/macOS/Linux CI matrix with frontend checks, Rust tests and
   Clippy. Draft PRs remain unmerged if any gate is failing or pending.
-- Popup user-gesture boundaries and normal left-click login link behavior;
+- Draft PR #48 adds a narrowly-scoped fallback for normal left-click
+  activation of exact-origin Claude magic links from webmail. CI and unit
+  tests are not evidence of successful Gmail WebKit login: manual verification
+  of left-click, Gmail account switching and original Claude session remains
+  a mandatory gate before merging or starting code cleanup.
   synthetic OAuth and hostile-redirect browser tests.
 - Migration of permissions for *existing* local files, privacy/deletion
   controls, and whether keychain-backed encryption at rest is feasible.
