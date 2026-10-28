@@ -410,11 +410,16 @@ pub async fn settings_set(
     Ok(())
 }
 
+fn adapter_updates_enabled_value(value: &Value) -> bool {
+    value.get("adapterUpdatesEnabled").and_then(Value::as_bool) == Some(true)
+}
+
 pub(crate) fn adapter_updates_enabled(app: &AppHandle) -> bool {
-    read_settings(&settings_path(app).unwrap_or_default())
+    settings_path(app)
         .ok()
-        .and_then(|value| value.get("adapterUpdatesEnabled").and_then(Value::as_bool))
-        .unwrap_or(false)
+        .and_then(|path| read_settings(&path).ok())
+        .as_ref()
+        .is_some_and(adapter_updates_enabled_value)
 }
 
 pub(crate) fn adapter_base_url(app: &AppHandle) -> Result<Option<String>, String> {
@@ -514,6 +519,45 @@ mod tests {
             NEXT_ID.fetch_add(1, Ordering::SeqCst),
             name
         ))
+    }
+
+    #[test]
+    fn remote_adapter_updates_require_explicit_boolean_opt_in() {
+        for value in [
+            json!({}),
+            json!({ "adapterBaseUrl": "https://example.test/adapters" }),
+            json!({ "adapterUpdatesEnabled": "true" }),
+            json!({ "adapterUpdatesEnabled": false }),
+        ] {
+            let normalized = normalize_settings_value(value);
+            assert!(!super::adapter_updates_enabled_value(&normalized));
+        }
+        let opt_in = normalize_settings_value(json!({ "adapterUpdatesEnabled": true }));
+        assert!(super::adapter_updates_enabled_value(&opt_in));
+    }
+
+    #[test]
+    fn bounded_local_read_refuses_oversize_without_deleting_saved_data() {
+        let path = unique_path("oversize-persist");
+        let content = vec![b'x'; 65];
+        std::fs::write(&path, &content).expect("create oversized file");
+        assert!(super::read_bounded_utf8(&path, 64).is_err());
+        assert_eq!(std::fs::read(&path).expect("existing file intact"), content);
+        std::fs::remove_file(&path).expect("clean file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_local_read_rejects_symlinks() {
+        use std::os::unix::fs::symlink;
+        let target = unique_path("symlink-target");
+        let link = unique_path("symlink-link");
+        std::fs::write(&target, b"secret").expect("create target");
+        symlink(&target, &link).expect("create link");
+        assert!(super::read_bounded_utf8(&link, 1024).is_err());
+        std::fs::remove_file(link).expect("unlink");
+        assert_eq!(std::fs::read(&target).expect("target intact"), b"secret");
+        std::fs::remove_file(target).expect("remove target");
     }
 
     #[test]
