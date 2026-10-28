@@ -3090,7 +3090,7 @@ mod claude_clean_login_tests {
         assert!(claude_conversation_url(&"https://claude.ai/new".parse().unwrap()));
         assert!(claude_conversation_url(&"https://claude.ai/chat/1234".parse().unwrap()));
         let script = guard_claude_automation("window.__SAFE_TEST__ = 1;");
-        assert!(script.contains("CLAUDE_COMPOSER_READY_JS") == false);
+        assert!(!script.contains("CLAUDE_COMPOSER_READY_JS"));
         assert!(script.contains("location.pathname"));
         assert!(script.contains("window.__SAFE_TEST__ = 1;"));
     }
