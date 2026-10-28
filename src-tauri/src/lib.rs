@@ -1,6 +1,5 @@
 mod adapters;
 mod bridge;
-mod claude_companion;
 mod projects;
 mod session_checkpoint;
 mod settings;
@@ -34,7 +33,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // The feature-frozen edition intentionally uses GitHub Releases instead of a self-updater.
         .setup(|app| {
-            claude_companion::start(app.handle().clone());
             // Preserve default Quit/Edit/Window menus, and add an OS-level login escape.
             let menu = Menu::default(app.handle())?;
             let minimize = MenuItem::with_id(app.handle(), MINIMIZE_PROVIDER_PAGE,
@@ -88,10 +86,6 @@ pub fn run() {
             let _ = app.emit_to("main", "workbench://return", ());
         })
         .invoke_handler(tauri::generate_handler![
-            claude_companion::companion_claude_pairing_token,
-            claude_companion::companion_claude_status,
-            claude_companion::companion_claude_send,
-            claude_companion::companion_claude_focus,
             webviews::provider_open,
             webviews::provider_open_window,
             webviews::provider_close,
