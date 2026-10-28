@@ -37,6 +37,7 @@ export interface AppSettings {
   standbyProvider: AIProvider;
   openProviders: AIProvider[];
   adapterBaseUrl: string;
+  adapterUpdatesEnabled: boolean;
   updaterChannel: string;
   portable: boolean;
   telemetry: 'none';
@@ -74,6 +75,7 @@ export function defaultSettings(): AppSettings {
     standbyProvider: DEFAULT_STANDBY_PROVIDER,
     openProviders: [],
     adapterBaseUrl: '',
+    adapterUpdatesEnabled: false,
     updaterChannel: 'stable',
     portable: false,
     telemetry: 'none',
@@ -167,6 +169,7 @@ export function normalizeSettings(value: unknown): AppSettings {
     standbyProvider: normalizedStandbyProvider,
     openProviders: Array.from(new Set(providerList(input.openProviders))).filter((provider) => provider !== normalizedStandbyProvider),
     adapterBaseUrl: stringValue(input.adapterBaseUrl, defaults.adapterBaseUrl),
+    adapterUpdatesEnabled: input.adapterUpdatesEnabled === true,
     updaterChannel: stringValue(input.updaterChannel, defaults.updaterChannel),
     portable: input.portable === true,
     telemetry: 'none',
