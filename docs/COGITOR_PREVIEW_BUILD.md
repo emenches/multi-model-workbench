@@ -26,6 +26,26 @@ are enabled. GitHub may require further approval or an additional push event;
 the tool permissions used to author this branch cannot trigger workflow_dispatch
 or change repository Actions policy.
 
+### Run the very latest source without installing a DMG
+
+From the Cogitor repository, use:
+
+```bash
+git fetch origin
+git switch preview/cogitor-unified-macos
+git pull --ff-only
+pnpm install --frozen-lockfile
+pnpm tauri dev
+```
+
+If the local preview branch does not exist yet, use
+`git switch --track origin/preview/cogitor-unified-macos` instead.
+The `beforeDevCommand` automatically regenerates the native brand icons,
+builds injected scripts and starts Vite. macOS will compile and launch a
+development app without installing a DMG. Stop with Ctrl-C in the terminal.
+The signed-in browser profile and settings use the existing app identifier:
+do not run a release copy and dev copy against the same profile simultaneously.
+
 ### Local build fallback on your Mac
 
 Prerequisites: Xcode Command Line Tools, Rust stable with Cargo, Node.js 22.13+
