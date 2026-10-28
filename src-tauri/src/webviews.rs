@@ -141,10 +141,14 @@ fn guard_claude_automation(js: &str) -> String {
 /// A hidden signed-in Claude tab can finish loading without another document-title
 /// or page-load event. Recover that missing bridge without assuming authentication
 /// from the URL or evaluating JavaScript into login / CAPTCHA documents.
+fn claude_readiness_unconfirmed(state: &ProviderState) -> bool {
+    state.dom != "ready" || state.login != "logged_in"
+}
+
 fn claude_background_recovery_needed(state: &ProviderState, now: u64) -> bool {
     state.provider == "claude"
         && state.webview == "loaded"
-        && state.dom != "ready"
+        && claude_readiness_unconfirmed(state)
         && !state.thinking
         && matches!(state.login.as_str(), "unknown" | "logged_in")
         && state.bridge == "ok"
@@ -1423,7 +1427,7 @@ pub async fn provider_open(
             // composer probe, and no script runs on login/account pages.
             if title_provider == "claude"
                 && !title.starts_with("\u{200B}MAC1|")
-                && current_state("claude").dom != "ready"
+                && claude_readiness_unconfirmed(&current_state("claude"))
                 && webview.url().ok().is_some_and(|url| claude_conversation_url(&url))
             {
                 schedule_claude_bridge_install(&title_app, &webview);
@@ -3053,7 +3057,7 @@ fn now_ms() -> u64 {
 
 #[cfg(test)]
 mod claude_clean_login_tests {
-    use super::{challenge_auxiliary_navigation_allowed, claude_background_recovery_needed, claude_conversation_url, guard_claude_automation, provider_uses_document_start_bridge, provider_uses_permission_shim, state_with};
+    use super::{challenge_auxiliary_navigation_allowed, claude_background_recovery_needed, claude_conversation_url, claude_readiness_unconfirmed, guard_claude_automation, provider_uses_document_start_bridge, provider_uses_permission_shim, state_with};
 
     #[test]
     fn claude_never_modifies_browser_during_login() {
@@ -3077,6 +3081,12 @@ mod claude_clean_login_tests {
         // provider, even when its status timestamp ages out.
         state.dom = "ready".into();
         assert!(!claude_background_recovery_needed(&state, 60_000));
+        // DOM readiness alone is insufficient if authentication status was
+        // never confirmed by the bridge while the Claude window was hidden.
+        state.login = "unknown".into();
+        assert!(claude_readiness_unconfirmed(&state));
+        assert!(claude_background_recovery_needed(&state, 60_000));
+        state.login = "logged_in".into();
         state.dom = "unknown".into();
         state.thinking = true;
         assert!(!claude_background_recovery_needed(&state, 60_000));
