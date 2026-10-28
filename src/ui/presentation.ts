@@ -62,20 +62,27 @@ export function centerPresentationProvider(presentation: PresentationByProvider)
   return PROVIDERS.find((provider) => normalized[provider] === 'center');
 }
 
+function providersInState(
+  presentation: PresentationByProvider,
+  providers: readonly AIProvider[],
+  state: WebviewPresentationState,
+): AIProvider[] {
+  const normalized = normalizePresentation(presentation);
+  return providers.filter((provider) => normalized[provider] === state);
+}
+
 export function chipProviders(
   presentation: PresentationByProvider,
   providers: readonly AIProvider[] = PROVIDERS,
 ): AIProvider[] {
-  const normalized = normalizePresentation(presentation);
-  return providers.filter((provider) => normalized[provider] === 'chip');
+  return providersInState(presentation, providers, 'chip');
 }
 
 export function sideProviders(
   presentation: PresentationByProvider,
   providers: readonly AIProvider[] = PROVIDERS,
 ): AIProvider[] {
-  const normalized = normalizePresentation(presentation);
-  return providers.filter((provider) => normalized[provider] === 'side');
+  return providersInState(presentation, providers, 'side');
 }
 
 export function restorableOpenProviders(openProviders: readonly AIProvider[], presentation: PresentationByProvider): AIProvider[] {
@@ -91,7 +98,7 @@ export function centerHiddenProviders(
   centerTransitionsInFlight: ReadonlySet<AIProvider> = new Set(),
 ): AIProvider[] {
   const normalized = normalizePresentation(presentation);
-  const centered = centerPresentationProvider(normalized);
+  const centered = PROVIDERS.find((provider) => normalized[provider] === 'center');
   if (!centered) return [];
   if (states[centered]?.webview !== 'loaded' && !centerTransitionsInFlight.has(centered)) return [];
 

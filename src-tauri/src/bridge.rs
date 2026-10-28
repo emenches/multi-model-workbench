@@ -74,15 +74,9 @@ pub(crate) fn ingest_title(
 }
 
 fn is_title_action_allowed(msg: &BridgeMessage) -> bool {
-    if msg.action != "STATUS_REPORT" {
-        return false;
-    }
-    if let Some(payload) = msg.payload.as_ref() {
-        if payload.get("bulkReady").is_some() {
-            return true;
-        }
-    }
-    true
+    // The title transport is status-only; payload contents do not grant
+    // additional authority. RESPONSE_DONE and other actions stay disallowed.
+    msg.action == "STATUS_REPORT"
 }
 
 fn accept_seq(state: &mut BridgeState, provider: &str, boot_id: &str, seq: u64) -> bool {
@@ -273,6 +267,27 @@ mod tests {
             mid: None,
         };
         assert!(!is_title_action_allowed(&done));
+    }
+
+    #[test]
+    fn status_report_remains_allowed_independent_of_payload() {
+        let mut report = BridgeMessage {
+            v: 1,
+            action: "STATUS_REPORT".into(),
+            provider: Some("chatgpt".into()),
+            payload: None,
+            transport: Some("title".into()),
+            boot_id: Some("boot1".into()),
+            seq: Some(1),
+            mid: None,
+        };
+        assert!(is_title_action_allowed(&report));
+        report.payload = Some(serde_json::json!({"bulkReady": true}));
+        assert!(is_title_action_allowed(&report));
+        report.payload = Some(serde_json::json!({"unrelated": true}));
+        assert!(is_title_action_allowed(&report));
+        report.action = "RESPONSE_DONE".into();
+        assert!(!is_title_action_allowed(&report));
     }
 
     #[test]
