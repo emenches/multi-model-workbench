@@ -305,6 +305,8 @@ export const de: Record<I18nKey, string> = {
   'settings.providersSelect': 'Anbieter in Reserve',
   'settings.providerActive': 'Aktiv',
   'settings.providerStandby': 'Reserve',
+  'settings.useReadyAgents': 'Verbundene Agenten verwenden',
+  'settings.modeRolesReadyDescription': 'Bereite Agenten den Rollen zuweisen. Nacheinander ausgeführte Rollen können denselben Agenten verwenden; für die ersten beiden Antworten in Beratung sind zwei verschiedene Agenten nötig.',
   'settings.modeRoles': 'Kollaborationsrollen',
   'settings.modeRolesDescription':
     'Die integrierten strukturierten Presets weisen jeder der vier aktiven KIs genau eine Rolle zu. Rollen lassen sich anpassen: Serielle Rollen dürfen dieselbe KI wiederverwenden; gleichzeitig laufende Rollen, etwa die ersten beiden Antworten der Beratung, müssen unterschiedlich bleiben.',
