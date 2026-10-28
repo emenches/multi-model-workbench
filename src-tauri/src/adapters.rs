@@ -635,7 +635,7 @@ async fn fetch_adapter_text(url: &str) -> Result<String, String> {
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|error| error.to_string())?;
-    let response = client
+    let mut response = client
         .get(url)
         .send()
         .await
@@ -653,11 +653,21 @@ async fn fetch_adapter_text(url: &str) -> Result<String, String> {
             return Err(format!("adapter file too large: {len} bytes"));
         }
     }
-    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
-    if bytes.len() > ADAPTER_FETCH_CAP {
-        return Err(format!("adapter file too large: {} bytes", bytes.len()));
+    // Content-Length may be absent or dishonest. Apply the limit *during*
+    // streaming instead of allocating the complete response first.
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+        append_bounded_adapter_chunk(&mut bytes, &chunk)?;
     }
-    String::from_utf8(bytes.to_vec()).map_err(|error| error.to_string())
+    String::from_utf8(bytes).map_err(|error| error.to_string())
+}
+
+fn append_bounded_adapter_chunk(bytes: &mut Vec<u8>, chunk: &[u8]) -> Result<(), String> {
+    if chunk.len() > ADAPTER_FETCH_CAP.saturating_sub(bytes.len()) {
+        return Err(format!("adapter file too large: over {ADAPTER_FETCH_CAP} bytes"));
+    }
+    bytes.extend_from_slice(chunk);
+    Ok(())
 }
 
 fn emit_notice(
@@ -758,6 +768,17 @@ fn login_url_matches(login: &str, url: &tauri::Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adapter_response_size_is_bounded_as_chunks_arrive() {
+        let mut data = Vec::new();
+        append_bounded_adapter_chunk(&mut data, &vec![b'a'; ADAPTER_FETCH_CAP - 1])
+            .expect("chunk below cap");
+        append_bounded_adapter_chunk(&mut data, b"b").expect("exact cap");
+        assert_eq!(data.len(), ADAPTER_FETCH_CAP);
+        assert!(append_bounded_adapter_chunk(&mut data, b"c").is_err());
+        assert_eq!(data.len(), ADAPTER_FETCH_CAP, "reject before growth");
+    }
 
     #[test]
     fn adapter_redirects_stay_on_the_original_https_host() {
