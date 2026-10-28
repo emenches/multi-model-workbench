@@ -417,6 +417,13 @@ pub async fn export_markdown(
 // Parse the *entire* URL, rejecting userinfo and nonstandard ports. String
 // prefix checks alone can accept misleading URLs such as https://user@host.
 fn validated_external_url(value: &str) -> Result<tauri::Url, String> {
+    // WHATWG URL parsing normalizes some malformed authority forms, e.g.
+    // https:///host. Reject them before parsing to avoid surprising links.
+    let authority = value.strip_prefix("https://")
+        .ok_or_else(|| "only HTTPS links may be opened".to_string())?;
+    if authority.starts_with('/') || authority.starts_with('\\') {
+        return Err("invalid HTTPS URL authority".into());
+    }
     let url = tauri::Url::parse(value).map_err(|_| "invalid external URL")?;
     if url.scheme() != "https"
         || url.host_str().is_none()
