@@ -108,7 +108,7 @@ fn claude_conversation_url(url: &tauri::Url) -> bool {
         && url.username().is_empty()
         && url.password().is_none()
         && (url.path() == "/new"
-            || url.path().starts_with("/chat/") && url.path().len() > "/chat/".len())
+            || url.path().strip_prefix("/chat/").is_some_and(|id| !id.is_empty() && !id.contains('/')))
 }
 
 // Read-only. Never inspect an authentication field's contents or any session storage.
@@ -130,12 +130,26 @@ fn guard_claude_automation(js: &str) -> String {
 /// A successful clean WKWebView test showed that user authentication is possible without
 /// scripts. Wait for the logged-in composer rather than guessing from the URL alone.
 fn schedule_claude_bridge_install(app: &AppHandle, webview: &tauri::Webview) {
+    // Both title and load events can fire during SPA navigation. Never launch
+    // simultaneous installers or install the engine twice in the same document.
+    static CLAUDE_INSTALL_INFLIGHT: OnceLock<Mutex<bool>> = OnceLock::new();
+    let lock = CLAUDE_INSTALL_INFLIGHT.get_or_init(|| Mutex::new(false));
+    if let Ok(mut running) = lock.lock() {
+        if *running { return; }
+        *running = true;
+    } else {
+        return;
+    }
     let app = app.clone();
     let webview = webview.clone();
     tauri::async_runtime::spawn(async move {
-        for _ in 0..30 {
+        let _ = async {
+        for _ in 0..60 {
             if !webview.url().ok().is_some_and(|url| claude_conversation_url(&url)) {
-                return;
+                // Navigation can be in progress: do not run scripts, but allow
+                // a successful authentication redirect to finish in this window.
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                continue;
             }
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let sender = std::sync::Arc::new(std::sync::Mutex::new(Some(sender)));
@@ -150,12 +164,15 @@ fn schedule_claude_bridge_install(app: &AppHandle, webview: &tauri::Webview) {
                 if let Ok(Ok(result)) = tokio::time::timeout(Duration::from_secs(2), receiver).await {
                     if result.trim() == "true" {
                         // The bootstrap is also guarded inside WebKit. It does not run on login.
-                        let _ = install_claude_bridge(&app);
-                        return;
+                        if install_claude_bridge(&app).is_ok() { return; }
                     }
                 }
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        }.await;
+        if let Some(lock) = CLAUDE_INSTALL_INFLIGHT.get() {
+            if let Ok(mut running) = lock.lock() { *running = false; }
         }
     });
 }
@@ -1310,6 +1327,15 @@ pub async fn provider_open(
         .on_document_title_changed(move |webview, title| {
             let document_epoch = current_grok_document_epoch(&title_provider);
             handle_provider_document_title(&title_app, &title_provider, &title);
+            // A successful magic-link login can transition to /new via the
+            // site's client-side router without a full page-load callback.
+            // Only a validated conversation route may launch the read-only
+            // composer probe, and no script runs on login/account pages.
+            if title_provider == "claude"
+                && webview.url().ok().is_some_and(|url| claude_conversation_url(&url))
+            {
+                schedule_claude_bridge_install(&title_app, &webview);
+            }
             let Some(title_signal) = webview
                 .url()
                 .ok()
@@ -2892,6 +2918,8 @@ mod claude_clean_login_tests {
             "https://claude.ai/signup",
             "https://claude.ai/auth/callback?code=private",
             "https://claude.ai/settings",
+            "https://claude.ai/chat/123/other",
+            "https://claude.ai/chat/",
             "https://claude.ai/account",
             "https://claude.ai/",
             "https://auth.anthropic.com/login",
