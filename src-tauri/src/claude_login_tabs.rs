@@ -17,8 +17,26 @@ pub(crate) const TOOLBAR_LABEL: &str = "claude-login-toolbar";
 const MAIL_LABEL: &str = "claude-login-mail";
 const CLAUDE_LABEL: &str = "ai-claude";
 const WINDOW_LABEL: &str = "provider-page-claude";
-const TOOLBAR_LOGICAL_HEIGHT: f64 = 48.0;
+const TOOLBAR_LOGICAL_HEIGHT: f64 = 76.0;
 const DEFAULT_WEBMAIL: &str = "https://mail.google.com/";
+const MAIL_POPUP_PREFIX: &str = "claude-email-popup-";
+static MAIL_POPUP_SEQUENCE: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+fn safe_browser_navigation(url: &tauri::Url) -> bool {
+    url.scheme() == "https"
+        || (url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc"))
+}
+
+// Diagnostics deliberately never contain a URL path, query, fragment, or a
+// magic-link token. They can be shared when a clicked email link does nothing.
+fn note_browser_event(event: &str, url: &tauri::Url) {
+    eprintln!(
+        "[Claude email browser] {event} scheme={} host={}",
+        url.scheme(),
+        url.host_str().unwrap_or("(no-host)")
+    );
+}
 
 fn toolbar_height(window: &tauri::Window, total_height: u32) -> u32 {
     let scale = window.scale_factor().unwrap_or(1.0);
@@ -113,21 +131,92 @@ pub(crate) fn show_claude(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn send_magic_link_to_claude(app: AppHandle, url: tauri::Url) {
+fn send_magic_link_to_claude(app: AppHandle, url: tauri::Url, popup_label: Option<String>) {
     if !is_claude_link(&url) { return; }
     // Do not log, serialize, emit or store the URL: it may contain a login
-    // token. Schedule outside the WKNavigationDelegate callback so WebKit
-    // never navigates reentrantly during its own policy decision.
+    // token. Schedule outside WKNavigationDelegate so we do not navigate
+    // reentrantly during the native policy-decision callback.
+    eprintln!("[Claude email browser] Claude link detected; handing to original session");
     tauri::async_runtime::spawn(async move {
         let navigate_app = app.clone();
-        let _ = app.run_on_main_thread(move || {
+        let result = app.run_on_main_thread(move || {
             if let Some(claude) = navigate_app.get_webview(CLAUDE_LABEL) {
                 if claude.navigate(url).is_ok() {
                     let _ = show_claude(&navigate_app);
+                    if let Some(label) = popup_label {
+                        if let Some(popup) = navigate_app.get_webview_window(&label) {
+                            let _ = popup.close();
+                        }
+                    }
+                    eprintln!("[Claude email browser] Handoff requested");
+                } else {
+                    eprintln!("[Claude email browser] Handoff navigation could not start");
                 }
+            } else {
+                eprintln!("[Claude email browser] Original Claude tab is unavailable");
             }
         });
+        if result.is_err() {
+            eprintln!("[Claude email browser] Handoff could not be queued");
+        }
     });
+}
+
+/// A webmail message often opens an initially empty popup, then changes its
+/// location to a tracking URL and finally to the Claude magic link. Denying
+/// the initial about:blank popup prevents ALL later redirects and makes the
+/// click appear dead. Preserve WebKit's opener relationship instead.
+fn create_email_popup(
+    app: &AppHandle,
+    target: tauri::Url,
+    features: tauri::webview::NewWindowFeatures,
+) -> NewWindowResponse {
+    if is_claude_link(&target) {
+        send_magic_link_to_claude(app.clone(), target, None);
+        return NewWindowResponse::Deny;
+    }
+    if !safe_browser_navigation(&target) {
+        note_browser_event("popup refused", &target);
+        return NewWindowResponse::Deny;
+    }
+    // Every popup is its own WebView with ZERO Tauri IPC permissions and no
+    // Workbench JavaScript injection. Only navigation metadata is observed.
+    let index = MAIL_POPUP_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let label = format!("{MAIL_POPUP_PREFIX}{index}");
+    let nav_app = app.clone();
+    let label_for_nav = label.clone();
+    let builder = tauri::WebviewWindowBuilder::new(
+        app,
+        &label,
+        WebviewUrl::External("about:blank".parse().expect("static URL")),
+    )
+    .window_features(features)
+    .decorations(true)
+    .inner_size(850.0, 700.0)
+    .title("Email link")
+    .on_navigation(move |destination| {
+        if is_claude_link(destination) {
+            send_magic_link_to_claude(
+                nav_app.clone(),
+                destination.clone(),
+                Some(label_for_nav.clone()),
+            );
+            return false;
+        }
+        let allowed = safe_browser_navigation(destination);
+        if !allowed { note_browser_event("popup navigation refused", destination); }
+        allowed
+    });
+    match builder.build() {
+        Ok(window) => {
+            note_browser_event("opened browser popup", &target);
+            NewWindowResponse::Create { window }
+        }
+        Err(_) => {
+            eprintln!("[Claude email browser] Could not create link popup");
+            NewWindowResponse::Deny
+        }
+    }
 }
 
 fn ensure_mail(app: &AppHandle, url: tauri::Url) -> Result<tauri::Webview, String> {
@@ -146,32 +235,15 @@ fn ensure_mail(app: &AppHandle, url: tauri::Url) -> Result<tauri::Webview, Strin
             // content capture in this unrelated third-party email view.
             .on_navigation(move |target| {
                 if is_claude_link(target) {
-                    send_magic_link_to_claude(nav_app.clone(), target.clone());
+                    send_magic_link_to_claude(nav_app.clone(), target.clone(), None);
                     return false;
                 }
-                // Email pages may use SSO. No arbitrary local protocols.
-                target.scheme() == "https"
-                    || (target.scheme() == "about"
-                        && matches!(target.path(), "blank" | "srcdoc"))
+                let allowed = safe_browser_navigation(target);
+                if !allowed { note_browser_event("mail navigation refused", target); }
+                allowed
             })
-            .on_new_window(move |target, _features| {
-                if is_claude_link(&target) {
-                    send_magic_link_to_claude(popup_app.clone(), target);
-                } else if target.scheme() == "https" {
-                    // Keep user-initiated links inside the email tab. This
-                    // may not support SSO flows requiring a true popup; that
-                    // case must be tested separately on macOS.
-                    let app = popup_app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let navigate_app = app.clone();
-                        let _ = app.run_on_main_thread(move || {
-                            if let Some(mail) = navigate_app.get_webview(MAIL_LABEL) {
-                                let _ = mail.navigate(target);
-                            }
-                        });
-                    });
-                }
-                NewWindowResponse::Deny
+            .on_new_window(move |target, features| {
+                create_email_popup(&popup_app, target, features)
             }),
         position,
         size,
@@ -240,7 +312,7 @@ pub(crate) fn close_tabs(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_claude_link, safe_webmail_url};
+    use super::{is_claude_link, safe_browser_navigation, safe_webmail_url};
 
     #[test]
     fn only_https_no_authority_credentials_or_custom_ports() {
@@ -255,6 +327,16 @@ mod tests {
             safe_webmail_url("mail.google.com").unwrap().as_str(),
             "https://mail.google.com/"
         );
+    }
+
+    #[test]
+    fn email_popups_may_start_blank_before_redirecting() {
+        assert!(safe_browser_navigation(&"about:blank".parse().unwrap()));
+        assert!(safe_browser_navigation(&"about:srcdoc".parse().unwrap()));
+        assert!(safe_browser_navigation(&"https://mail.google.com/".parse().unwrap()));
+        assert!(!safe_browser_navigation(&"javascript:alert(1)".parse().unwrap()));
+        assert!(!safe_browser_navigation(&"file:///private/secret".parse().unwrap()));
+        assert!(!safe_browser_navigation(&"about:config".parse().unwrap()));
     }
 
     #[test]
