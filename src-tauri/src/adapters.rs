@@ -1099,7 +1099,7 @@ mod tests {
             ("claude", "https://accounts.google.com:8443/o/oauth2/auth"),
             ("grok", "https://user@accounts.google.de/ServiceLogin"),
             ("grok", "https://accounts.google.com.tw:8443/accounts/SetSID"),
-            ("gemini", "https://github.com:443/login"),
+            ("gemini", "https://github.com:8443/login"),
             ("gemini", "https://user@github.com/login"),
             ("grok", "https://accounts.google.evil.com/"),
             ("grok", "https://accounts.google.net/"),
