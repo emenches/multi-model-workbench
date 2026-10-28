@@ -31,7 +31,6 @@ export function ConversationSidebar({
   activeSessionId,
   disabled,
   labels,
-  locale,
   onToggle,
   onNewConversation,
   onSelectSession,
