@@ -194,3 +194,57 @@ magic link, OTP, screenshots containing it, or session data.
   the added callback/settings individually affect the sign-in page.
 
 No production login change is implied by these diagnostic-only tests.
+
+
+## 2026-10-27 — Browser-options passed; navigation allowlist failed
+
+The user confirms that the **Workbench browser-options** test accepts Claude
+login, whereas the **Workbench navigation-policy** test rejects it. Combined
+with the earlier four successful clean WebView tests, this strongly suggests
+that the restrictive `on_navigation` callback is breaking a normal part of
+the provider's authentication flow. The exact denied navigation has **not yet
+been identified**. Do not relax production navigation rules based on an
+unverified guessed URL.
+
+### New privacy-safe audit comparison
+
+Debug-only macOS builds now include:
+
+**Claude Login Tests → Claude child - audit navigation (do not block)**
+
+This uses the **same** navigation allowlist as the failing test but records
+would-be denials *without cancelling navigation*. The local Terminal output
+includes **only** the navigation scheme and hostname, e.g.:
+
+```text
+[Claude navigation A/B] would-block scheme=about host=(no-host)
+```
+
+This example is illustrative; no blocked destination is known yet. The
+diagnostic does **not** log a full URL, path, query, fragment, magic link,
+one-time code, cookie, password, session token, or page content. Nothing is
+sent to Workbench's server or any telemetry endpoint. The same safe logging
+was added to the existing **navigation-policy** diagnostic, where the label
+is `blocked`.
+
+The audit-only test **permits navigation that would normally be blocked**, so
+it must remain debug-only and should be used solely in an isolated Claude
+test window. Do not use it to browse arbitrary links or for regular
+Workbench chat. **No production allowlist is changed.**
+
+To test:
+
+1. Restart `pnpm tauri dev` on the latest
+   `test/claude-untainted-tauri-webview` branch.
+2. Open **Claude Login Tests → Claude child - audit navigation (do not block)**.
+3. Check whether entering your email proceeds to the normal magic-link step.
+4. In the Terminal running Tauri, find any lines that begin
+   `[Claude navigation A/B] would-block`.
+5. Share only those `would-block` lines, **never** credential details or
+   full URLs.
+
+If the audit test succeeds and reports one or more legitimate navigation
+destinations, investigate a **narrowly scoped** change that allows just the
+required browser navigation(s), with tests. If it still fails while the
+callback-free tests succeed, the callback's presence or another WebKit
+interaction must be examined rather than assuming the allowlist is wrong.
