@@ -70,16 +70,30 @@ describe('host snapshot bindings', () => {
     invokeMock.mockResolvedValueOnce(undefined);
     await host.provider.fill('grok', 'draft text');
 
-    expect(invokeMock).toHaveBeenLastCalledWith('provider_eval', {
-      provider: 'grok',
-      js: `window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.dispatch(${JSON.stringify({
-        v: 1,
-        action: 'FILL_DRAFT',
-        provider: 'grok',
-        payload: { text: 'draft text' },
-      })});`,
+    expect(invokeMock).toHaveBeenLastCalledWith('provider_control_action', {
+      provider: 'grok', action: 'fill', text: 'draft text',
     });
-    expect(String(invokeMock.mock.calls.at(-1)?.[1]?.js)).not.toContain('SEND_MESSAGE');
+    expect(invokeMock.mock.calls.at(-1)?.[1]).not.toHaveProperty('js');
+  });
+
+  it('sends user prompts through semantic IPC instead of arbitrary JS', async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+    await host.provider.send('claude', '</script>;alert("test")');
+    expect(invokeMock).toHaveBeenLastCalledWith('provider_control_action', {
+      provider: 'claude', action: 'send', text: '</script>;alert("test")',
+    });
+    expect(invokeMock.mock.calls.at(-1)?.[1]).not.toHaveProperty('js');
+  });
+
+  it('rejects arbitrary JavaScript from legacy bridge helpers before native IPC', async () => {
+    await expect(host.provider.eval('chatgpt', 'window.location.href')).rejects.toThrow('Arbitrary provider JavaScript');
+    await expect(host.provider.evalWithCallback('chatgpt', 'document.cookie')).rejects.toThrow('Arbitrary provider JavaScript');
+    expect(invokeMock).not.toHaveBeenCalled();
+    invokeMock.mockResolvedValue(undefined);
+    await host.provider.eval('chatgpt', 'window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.ackBulk(11);');
+    expect(invokeMock).toHaveBeenLastCalledWith('provider_control_action', {
+      provider: 'chatgpt', action: 'ack', mid: 11,
+    });
   });
 
   it('starts a fresh provider conversation through the dedicated host command', async () => {
@@ -106,9 +120,8 @@ describe('host snapshot bindings', () => {
 
     await host.provider.stop('chatgpt');
 
-    expect(invokeMock).toHaveBeenLastCalledWith('provider_eval', {
-      provider: 'chatgpt',
-      js: "window.__MAC_ENGINE__ && typeof window.__MAC_ENGINE__.stop === 'function' && window.__MAC_ENGINE__.stop();",
+    expect(invokeMock).toHaveBeenLastCalledWith('provider_control_action', {
+      provider: 'chatgpt', action: 'stop',
     });
   });
 

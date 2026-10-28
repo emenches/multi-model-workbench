@@ -5,6 +5,7 @@ import { listen } from '@tauri-apps/api/event';
 import { onBridgeMessage } from '../bridge/bus';
 import type { AdapterNotice } from '../ui/reportBroken';
 import type { ProjectStore } from '../workspace/model';
+import { CHATGPT_BRIDGE_HEALTH_JS, CHATGPT_BRIDGE_PEEK_JS } from '../bridge/nativeBridgeScripts';
 
 /** Native window and attached provider WebView client geometry, in physical pixels. */
 export interface ProviderWindowGeometry {
@@ -79,34 +80,27 @@ export const host = {
       await invoke('provider_hide', { provider });
       await invoke('provider_set_bounds', { provider, bounds: toBounds(bounds) });
     },
-    eval: (provider: AIProvider, js: string): Promise<void> => invoke('provider_eval', { provider, js }),
-    evalWithCallback: (provider: AIProvider, js: string): Promise<string> =>
-      invoke('provider_eval_with_callback', { provider, js }),
+    // Keep a small compatibility surface for the existing recovery tests,
+    // but never forward JavaScript supplied by the frontend to native IPC.
+    eval: (provider: AIProvider, js: string): Promise<void> => {
+      const match = /^window\.__MAC_BRIDGE__ && window\.__MAC_BRIDGE__\.ackBulk\(([1-9][0-9]*)\);$/.exec(js);
+      const mid = match ? Number(match[1]) : NaN;
+      if (!Number.isSafeInteger(mid) || mid <= 0) {
+        return Promise.reject(new Error('Arbitrary provider JavaScript is not allowed'));
+      }
+      return invoke('provider_control_action', { provider, action: 'ack', mid });
+    },
+    evalWithCallback: (provider: AIProvider, js: string): Promise<string> => {
+      const kind = js === CHATGPT_BRIDGE_PEEK_JS ? 'peek' : js === CHATGPT_BRIDGE_HEALTH_JS ? 'health' : null;
+      if (!kind) return Promise.reject(new Error('Arbitrary provider JavaScript is not allowed'));
+      return invoke('provider_bridge_read', { provider, kind });
+    },
     send: (provider: AIProvider, text: string): Promise<void> =>
-      invoke('provider_eval', {
-        provider,
-        js: `window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.dispatch(${JSON.stringify({
-          v: 1,
-          action: 'SEND_MESSAGE',
-          provider,
-          payload: { text },
-        })});`,
-      }),
+      invoke('provider_control_action', { provider, action: 'send', text }),
     fill: (provider: AIProvider, text: string): Promise<void> =>
-      invoke('provider_eval', {
-        provider,
-        js: `window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.dispatch(${JSON.stringify({
-          v: 1,
-          action: 'FILL_DRAFT',
-          provider,
-          payload: { text },
-        })});`,
-      }),
+      invoke('provider_control_action', { provider, action: 'fill', text }),
     stop: (provider: AIProvider): Promise<void> =>
-      invoke('provider_eval', {
-        provider,
-        js: "window.__MAC_ENGINE__ && typeof window.__MAC_ENGINE__.stop === 'function' && window.__MAC_ENGINE__.stop();",
-      }),
+      invoke('provider_control_action', { provider, action: 'stop' }),
     openLogin: (provider: AIProvider, bounds: DOMRectReadOnly): Promise<void> =>
       invoke('provider_open_login', { provider, bounds: toBounds(bounds) }),
     openLoginExternal: (provider: AIProvider): Promise<void> => invoke('provider_open_login_external', { provider }),

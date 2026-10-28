@@ -1,9 +1,11 @@
 //! Claude login tab strip (macOS).
 //!
 //! The toolbar is a local WebView with ONLY three dedicated native commands.
-//! The email view has no Tauri IPC permissions, initialization scripts, or
-//! DOM inspection. Navigation to Claude is handed to the original provider
-//! view without reading or logging URLs (magic links may contain secrets).
+//! The email view has no Tauri IPC permissions or message-content
+//! inspection. Its only initialization script listens for a trusted click on
+//! an exact-origin Claude link and navigates normally. The native callback
+//! then hands that navigation to the original provider view without logging
+//! or emitting the URL (magic links may contain secrets).
 //! Mac WKWebViews created without data_store_identifier share the app's
 //! default persistent website store. Both the original Claude child view and
 //! this email view intentionally use that store: NO cookie copying.
@@ -21,6 +23,10 @@ const TOOLBAR_LOGICAL_HEIGHT: f64 = 76.0;
 const DEFAULT_WEBMAIL: &str = "https://mail.google.com/";
 const MAIL_POPUP_PREFIX: &str = "claude-email-popup-";
 const MAX_EMAIL_POPUPS: usize = 6;
+// A navigation-only click fallback is necessary because Gmail can swallow
+// ordinary left-clicks before WKWebView emits a navigation/new-window event.
+// It is scoped to an exact Claude destination and has no IPC or DOM scraping.
+const EMAIL_CLICK_ACTIVATION_JS: &str = include_str!("claude_email_link_activation.js");
 static MAIL_POPUP_SEQUENCE: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
@@ -55,6 +61,7 @@ pub(crate) fn content_bounds(
     ))
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn layout(app: &AppHandle, window: &tauri::Window) {
     let Ok(size) = window.inner_size() else { return; };
     let height = toolbar_height(window, size.height);
@@ -71,6 +78,7 @@ pub(crate) fn layout(app: &AppHandle, window: &tauri::Window) {
     }
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn ensure_toolbar(app: &AppHandle, window: &tauri::Window) -> Result<(), String> {
     if app.get_webview(TOOLBAR_LABEL).is_some() { return Ok(()); }
     let total = window.inner_size().map_err(|e| e.to_string())?;
@@ -254,8 +262,9 @@ fn create_email_popup(
         eprintln!("[Claude email browser] Popup limit reached");
         return NewWindowResponse::Deny;
     }
-    // Every popup is its own WebView with ZERO Tauri IPC permissions and no
-    // Workbench JavaScript injection. Only navigation metadata is observed.
+    // Every popup is its own WebView with ZERO Tauri IPC permissions.
+    // Its only initialization script checks trusted clicks on Claude links;
+    // it never reads email content or sends data to native IPC.
     let index = MAIL_POPUP_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let label = format!("{MAIL_POPUP_PREFIX}{index}");
     let nav_app = app.clone();
@@ -267,6 +276,7 @@ fn create_email_popup(
         WebviewUrl::External("about:blank".parse().expect("static URL")),
     )
     .window_features(features)
+    .initialization_script_for_all_frames(EMAIL_CLICK_ACTIVATION_JS)
     .decorations(true)
     .inner_size(850.0, 700.0)
     .title("Email link")
@@ -320,8 +330,9 @@ fn ensure_mail(app: &AppHandle, url: tauri::Url) -> Result<tauri::Webview, Strin
     let popup_app = app.clone();
     let view = window.add_child(
         WebviewBuilder::new(MAIL_LABEL, WebviewUrl::External(url))
-            // No Workbench scripts, DOM probes, cookies/storage reads, or
-            // content capture in this unrelated third-party email view.
+            // Navigation-only click fallback; no DOM text, cookies, storage,
+            // content capture or privileged Tauri IPC in the email view.
+            .initialization_script_for_all_frames(EMAIL_CLICK_ACTIVATION_JS)
             .on_navigation(move |target| {
                 if is_claude_link(target) {
                     send_magic_link_to_claude(nav_app.clone(), target.clone(), None);
@@ -391,6 +402,7 @@ pub(crate) async fn claude_auth_tab_close_email(
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn close_tabs(app: &AppHandle) {
     for label in [MAIL_LABEL, TOOLBAR_LABEL] {
         if let Some(view) = app.get_webview(label) {

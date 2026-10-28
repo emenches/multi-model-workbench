@@ -341,6 +341,8 @@ export const ja: Record<I18nKey, string> = {
   'theme.aiSister.badge': 'AI-Sister 最終記念版',
   'theme.aiSister.title': 'AI-Sister 記念版',
   'theme.aiSister.subtitle': '4人の声で、最後のラウンドへ。',
+  'settings.adapterUpdatesEnabled': 'リモートアダプター更新を有効にする（任意）',
+  'settings.adapterUpdatesDescription': '安全のため初期状態では無効です。有効にすると、Cogitor が外部から定期的に選択子を取得します。AI ページから読み取る範囲が変わる可能性があります。信頼できる取得元のみ使用してください。',
   'settings.adapterBaseUrl': 'アダプターのベースURL',
   'settings.durableSnapshots': '永続スナップショット',
   'settings.durableSnapshotsDescription':

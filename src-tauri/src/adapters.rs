@@ -694,6 +694,11 @@ fn emit_notice(
 }
 
 async fn refresh_one(app: &tauri::AppHandle, provider: &str, allow_downgrade: bool) {
+    // Consent may have been revoked during a previous provider's HTTP request.
+    // Never reactivate cached overrides for another provider after revocation.
+    if !settings::adapter_updates_enabled(app) {
+        return;
+    }
     let before_cache_version = overlay_version(provider);
     hydrate_from_cache(app, provider);
     if overlay_version(provider) > before_cache_version {
@@ -745,6 +750,11 @@ async fn refresh_one(app: &tauri::AppHandle, provider: &str, allow_downgrade: bo
         return;
     };
 
+    // A settings change can happen while an HTTPS request is in flight.
+    // Refuse the downloaded selector even if it passed validation earlier.
+    if !settings::adapter_updates_enabled(app) {
+        return;
+    }
     let version = adapter.adapter_version;
     if let Ok(path) = cache_path(app, provider) {
         let _ = settings::write_atomic(&path, text.as_bytes());
@@ -756,6 +766,22 @@ async fn refresh_one(app: &tauri::AppHandle, provider: &str, allow_downgrade: bo
 
 pub async fn refresh_all_adapters(app: tauri::AppHandle, allow_downgrade: bool) {
     let _guard = refresh_lock().lock().await;
+    if !settings::adapter_updates_enabled(&app) {
+        // No network, and no cached remote selector overrides by default.
+        // Keep cache files for reversibility; reinstall bundled adapters in
+        // already-open provider pages when the user turns updates off.
+        let cleared = if let Ok(mut map) = overrides().write() {
+            let providers = map.keys().cloned().collect::<Vec<_>>();
+            map.clear();
+            providers
+        } else {
+            Vec::new()
+        };
+        for provider in cleared {
+            let _ = crate::webviews::push_engine_and_adapter(&app, &provider);
+        }
+        return;
+    }
     for provider in all_provider_states() {
         refresh_one(&app, &provider, allow_downgrade).await;
     }

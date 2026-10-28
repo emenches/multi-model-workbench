@@ -329,6 +329,8 @@ export const zhTW: Record<I18nKey, string> = {
   'theme.aiSister.badge': 'AI-Sister 最終紀念版',
   'theme.aiSister.title': 'AI-Sister 紀念版',
   'theme.aiSister.subtitle': '四位角色，一起完成最後一輪。',
+  'settings.adapterUpdatesEnabled': '啟用遠端介面卡更新（選用）',
+  'settings.adapterUpdatesDescription': '基於安全考量預設關閉。啟用後，Cogitor 會定期從遠端下載選取器，可能改變程式讀取 AI 網頁內容的範圍。請只使用可信任的來源。',
   'settings.adapterBaseUrl': 'Adapter base URL',
   'settings.durableSnapshots': '持久化 snapshots',
   'settings.durableSnapshotsDescription': '預設關閉。經過遮蔽後存放於本機 app data；不會儲存 cookies 或 provider storage。',

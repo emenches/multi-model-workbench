@@ -662,6 +662,19 @@ export function SettingsModal({
               </summary>
               <div className="mt-3 space-y-4 border-l-2 border-zinc-200 pl-4 dark:border-zinc-800">
                 <section>
+                  <label className="flex items-start gap-2.5 text-sm text-zinc-700 dark:text-zinc-300">
+                    <input type="checkbox" className="mt-0.5 h-4 w-4 accent-sky-700"
+                      checked={draft.adapterUpdatesEnabled}
+                      onChange={(event) => updateDraft({ adapterUpdatesEnabled: event.target.checked })}/>
+                    <span>
+                      <span className="block font-semibold">{t('settings.adapterUpdatesEnabled')}</span>
+                      <span className="mt-1 block text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                        {t('settings.adapterUpdatesDescription')}
+                      </span>
+                    </span>
+                  </label>
+                </section>
+                <section>
                   <label className="block text-xs text-zinc-600 dark:text-zinc-400">
                     <span className="mb-1 block">{t('settings.adapterBaseUrl')}</span>
                     <input

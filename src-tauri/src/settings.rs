@@ -126,6 +126,13 @@ pub fn normalize_settings_value(settings: Value) -> Value {
             "snapshotPersistence".to_string(),
             Value::Bool(snapshot_persistence),
         );
+        let updates_enabled = map.get("adapterUpdatesEnabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        map.insert(
+            "adapterUpdatesEnabled".to_string(),
+            Value::Bool(updates_enabled),
+        );
 
         let tier = map
             .get("snapshotRedactionTier")
@@ -239,6 +246,38 @@ fn normalize_presentation_value(value: Option<&Value>, standby_provider: &str) -
     }
 
     Value::Object(map)
+}
+
+// Bound reads of user-content persistence files before allocating their
+// contents. Reject symlinks and do not truncate, delete, or rewrite older data.
+pub(crate) fn read_bounded_utf8(path: &Path, max_bytes: usize) -> std::io::Result<String> {
+    use std::io::{Error, ErrorKind, Read};
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file() {
+        return Err(Error::new(ErrorKind::InvalidData, "persisted data path must be a regular file"));
+    }
+    if metadata.len() > max_bytes as u64 {
+        return Err(Error::new(ErrorKind::InvalidData, "saved file exceeds the size limit"));
+    }
+    let file = std::fs::File::open(path)?;
+    let opened = file.metadata()?;
+    if !opened.is_file() || opened.len() > max_bytes as u64 {
+        return Err(Error::new(ErrorKind::InvalidData, "saved file is not a bounded regular file"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        // Detect symlink substitution between the initial lstat and open.
+        if opened.dev() != metadata.dev() || opened.ino() != metadata.ino() {
+            return Err(Error::new(ErrorKind::InvalidData, "saved file changed during read"));
+        }
+    }
+    let mut bytes = Vec::new();
+    file.take(max_bytes as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > max_bytes {
+        return Err(Error::new(ErrorKind::InvalidData, "saved file exceeds the size limit"));
+    }
+    String::from_utf8(bytes).map_err(|error| Error::new(ErrorKind::InvalidData, error))
 }
 
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -367,13 +406,32 @@ pub async fn settings_set(
         previous.get(key).and_then(|value| value.as_str())
             != settings.get(key).and_then(|value| value.as_str())
     };
-    if changed("adapterBaseUrl") || changed("adapterChannel") {
+    let enabled_before = previous.get("adapterUpdatesEnabled")
+        .and_then(Value::as_bool) == Some(true);
+    let enabled_after = settings.get("adapterUpdatesEnabled")
+        .and_then(Value::as_bool) == Some(true);
+    if enabled_before != enabled_after
+        || (enabled_after && (changed("adapterBaseUrl") || changed("adapterChannel")))
+    {
         let handle = app.clone();
         tauri::async_runtime::spawn(async move {
+            // The native refresh gate also checks the saved opt-in.
             crate::adapters::refresh_all_adapters(handle, true).await;
         });
     }
     Ok(())
+}
+
+fn adapter_updates_enabled_value(value: &Value) -> bool {
+    value.get("adapterUpdatesEnabled").and_then(Value::as_bool) == Some(true)
+}
+
+pub(crate) fn adapter_updates_enabled(app: &AppHandle) -> bool {
+    settings_path(app)
+        .ok()
+        .and_then(|path| read_settings(&path).ok())
+        .as_ref()
+        .is_some_and(adapter_updates_enabled_value)
 }
 
 pub(crate) fn adapter_base_url(app: &AppHandle) -> Result<Option<String>, String> {
@@ -473,6 +531,45 @@ mod tests {
             NEXT_ID.fetch_add(1, Ordering::SeqCst),
             name
         ))
+    }
+
+    #[test]
+    fn remote_adapter_updates_require_explicit_boolean_opt_in() {
+        for value in [
+            json!({}),
+            json!({ "adapterBaseUrl": "https://example.test/adapters" }),
+            json!({ "adapterUpdatesEnabled": "true" }),
+            json!({ "adapterUpdatesEnabled": false }),
+        ] {
+            let normalized = normalize_settings_value(value);
+            assert!(!super::adapter_updates_enabled_value(&normalized));
+        }
+        let opt_in = normalize_settings_value(json!({ "adapterUpdatesEnabled": true }));
+        assert!(super::adapter_updates_enabled_value(&opt_in));
+    }
+
+    #[test]
+    fn bounded_local_read_refuses_oversize_without_deleting_saved_data() {
+        let path = unique_path("oversize-persist");
+        let content = vec![b'x'; 65];
+        std::fs::write(&path, &content).expect("create oversized file");
+        assert!(super::read_bounded_utf8(&path, 64).is_err());
+        assert_eq!(std::fs::read(&path).expect("existing file intact"), content);
+        std::fs::remove_file(&path).expect("clean file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_local_read_rejects_symlinks() {
+        use std::os::unix::fs::symlink;
+        let target = unique_path("symlink-target");
+        let link = unique_path("symlink-link");
+        std::fs::write(&target, b"secret").expect("create target");
+        symlink(&target, &link).expect("create link");
+        assert!(super::read_bounded_utf8(&link, 1024).is_err());
+        std::fs::remove_file(link).expect("unlink");
+        assert_eq!(std::fs::read(&target).expect("target intact"), b"secret");
+        std::fs::remove_file(target).expect("remove target");
     }
 
     #[test]
@@ -646,6 +743,7 @@ mod tests {
                 "layoutMode": "focus",
                 "focusPaneWidth": 620,
                 "snapshotPersistence": false,
+                "adapterUpdatesEnabled": false,
                 "snapshotRedactionTier": "metadata-only",
                 "standbyProvider": "meta",
                 "presentation": {
@@ -674,6 +772,7 @@ mod tests {
                 "layoutMode": "focus",
                 "focusPaneWidth": 620,
                 "snapshotPersistence": true,
+                "adapterUpdatesEnabled": false,
                 "snapshotRedactionTier": "full-local",
                 "standbyProvider": "meta",
                 "presentation": {
@@ -703,6 +802,7 @@ mod tests {
                 "layoutMode": "focus",
                 "focusPaneWidth": 620,
                 "snapshotPersistence": false,
+                "adapterUpdatesEnabled": false,
                 "snapshotRedactionTier": "metadata-only",
                 "standbyProvider": "meta",
                 "presentation": {
