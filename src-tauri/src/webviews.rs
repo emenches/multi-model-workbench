@@ -3053,7 +3053,7 @@ fn now_ms() -> u64 {
 
 #[cfg(test)]
 mod claude_clean_login_tests {
-    use super::{challenge_auxiliary_navigation_allowed, claude_conversation_url, guard_claude_automation, provider_uses_document_start_bridge, provider_uses_permission_shim};
+    use super::{challenge_auxiliary_navigation_allowed, claude_background_recovery_needed, claude_conversation_url, guard_claude_automation, provider_uses_document_start_bridge, provider_uses_permission_shim, state_with};
 
     #[test]
     fn claude_never_modifies_browser_during_login() {
@@ -3061,6 +3061,47 @@ mod claude_clean_login_tests {
         assert!(!provider_uses_permission_shim("claude"));
         assert!(provider_uses_document_start_bridge("chatgpt"));
         assert!(provider_uses_permission_shim("gemini"));
+    }
+
+    #[test]
+    fn claude_readiness_watchdog_recovers_only_unready_background_sessions() {
+        let mut state = state_with("claude", "loaded", "unknown", "logged_in", false);
+        state.last_status_at = 10_000;
+
+        // This is the reported post-relaunch/second-Consult failure: authenticated
+        // but no usable bridge until the user foregrounds Claude's window.
+        assert!(claude_background_recovery_needed(&state, 15_001));
+        assert!(!claude_background_recovery_needed(&state, 15_000 - 1));
+
+        // Don't repeatedly probe a confirmed-ready, responding, or unavailable
+        // provider, even when its status timestamp ages out.
+        state.dom = "ready".into();
+        assert!(!claude_background_recovery_needed(&state, 60_000));
+        state.dom = "unknown".into();
+        state.thinking = true;
+        assert!(!claude_background_recovery_needed(&state, 60_000));
+        state.thinking = false;
+        state.webview = "creating".into();
+        assert!(!claude_background_recovery_needed(&state, 60_000));
+        state.webview = "loaded".into();
+
+        // Auth and challenge pages must retain stock WKWebView behavior. The
+        // native caller additionally checks claude_conversation_url before eval.
+        for login in ["logged_out", "blocked"] {
+            state.login = login.into();
+            assert!(!claude_background_recovery_needed(&state, 60_000));
+        }
+        state.login = "unknown".into();
+        assert!(claude_background_recovery_needed(&state, 60_000));
+
+        state.bridge = "degraded".into();
+        assert!(!claude_background_recovery_needed(&state, 60_000));
+        state.bridge = "ok".into();
+        state.adapter = "broken".into();
+        assert!(!claude_background_recovery_needed(&state, 60_000));
+        state.adapter = "ok".into();
+        state.provider = "gemini".into();
+        assert!(!claude_background_recovery_needed(&state, 60_000));
     }
 
     #[test]
