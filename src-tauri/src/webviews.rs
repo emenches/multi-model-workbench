@@ -1815,38 +1815,83 @@ pub async fn provider_set_bounds(
     set_webview_bounds(&webview, position, size)
 }
 
+// Native scripts are fixed by Cogitor, never supplied by frontend IPC.
+// The control pane may select semantic actions and pass plain user text or
+// a numeric acknowledgement ID, but cannot supply JavaScript source.
+fn build_provider_control_script(
+    provider: &str,
+    action: &str,
+    text: Option<&str>,
+    mid: Option<u64>,
+) -> Result<String, String> {
+    match action {
+        "send" | "fill" => {
+            if mid.is_some() {
+                return Err("message actions must not include an acknowledgement".into());
+            }
+            let body = text.ok_or_else(|| "message text is required".to_string())?;
+            if body.len() > 1024 * 1024 {
+                return Err("message text exceeds the 1 MiB native IPC limit".into());
+            }
+            let command = if action == "send" { "SEND_MESSAGE" } else { "FILL_DRAFT" };
+            let data = serde_json::json!({
+                "v": 1,
+                "action": command,
+                "provider": provider,
+                "payload": { "text": body },
+            });
+            Ok(format!("window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.dispatch({data});"))
+        }
+        "stop" if text.is_none() && mid.is_none() => Ok(
+            "window.__MAC_ENGINE__ && typeof window.__MAC_ENGINE__.stop === 'function' && window.__MAC_ENGINE__.stop();".into()
+        ),
+        "ack" if text.is_none() => {
+            let value = mid.ok_or_else(|| "acknowledgement ID required".to_string())?;
+            if value == 0 || value > 9_007_199_254_740_991 {
+                return Err("invalid acknowledgement ID".into());
+            }
+            Ok(format!("{CHATGPT_BRIDGE_ACK_PREFIX}{value});"))
+        }
+        _ => Err("unsupported provider control action".into()),
+    }
+}
+
+fn provider_bridge_read_script(kind: &str) -> Result<&'static str, String> {
+    match kind {
+        "peek" => Ok(CHATGPT_BRIDGE_PEEK_JS),
+        "health" => Ok(CHATGPT_BRIDGE_HEALTH_JS),
+        _ => Err("unsupported bridge read".into()),
+    }
+}
+
 #[tauri::command]
-pub async fn provider_eval(
+pub async fn provider_control_action(
     app: AppHandle,
     webview: tauri::Webview,
     provider: String,
-    js: String,
+    action: String,
+    text: Option<String>,
+    mid: Option<u64>,
 ) -> Result<(), String> {
     ensure_control_webview(&webview)?;
     settings::ensure_provider_active(&app, &provider)?;
+    let js = build_provider_control_script(&provider, &action, text.as_deref(), mid)?;
     ensure_provider_control_eval_allowed(&provider, &js, false)?;
     eval_provider(&app, &provider, &js)
 }
 
 #[tauri::command]
-pub async fn provider_eval_with_callback(
+pub async fn provider_bridge_read(
     app: AppHandle,
     webview: tauri::Webview,
     provider: String,
-    js: String,
+    kind: String,
 ) -> Result<String, String> {
     ensure_control_webview(&webview)?;
-    eval_provider_with_callback_from_control(&app, &provider, &js).await
-}
-
-pub(crate) async fn eval_provider_with_callback_from_control(
-    app: &AppHandle,
-    provider: &str,
-    js: &str,
-) -> Result<String, String> {
-    settings::ensure_provider_active(app, provider)?;
-    ensure_provider_control_eval_allowed(provider, js, true)?;
-    eval_provider_with_callback(app, provider, js).await
+    settings::ensure_provider_active(&app, &provider)?;
+    let js = provider_bridge_read_script(&kind)?;
+    ensure_provider_control_eval_allowed(&provider, js, true)?;
+    eval_provider_with_callback(&app, &provider, js).await
 }
 
 async fn eval_provider_with_callback(
