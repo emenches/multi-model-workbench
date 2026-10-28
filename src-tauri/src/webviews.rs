@@ -1894,6 +1894,18 @@ pub async fn provider_bridge_read(
     eval_provider_with_callback(&app, &provider, js).await
 }
 
+// Native-only helper for the fixed, JSON-serialized broken-adapter report.
+// This is NOT a Tauri command and is not reachable through frontend IPC.
+pub(crate) async fn eval_provider_with_callback_from_control(
+    app: &AppHandle,
+    provider: &str,
+    js: &str,
+) -> Result<String, String> {
+    settings::ensure_provider_active(app, provider)?;
+    ensure_provider_control_eval_allowed(provider, js, true)?;
+    eval_provider_with_callback(app, provider, js).await
+}
+
 async fn eval_provider_with_callback(
     app: &AppHandle,
     provider: &str,
