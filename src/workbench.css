@@ -1716,3 +1716,15 @@ html:not(.ai-sister) .workbench-dialog-backdrop :is(button, input, select, texta
     min-width: 0;
   }
 }
+
+/* Standard macOS-style sidebar identity: compact 24px icon in a generous
+   36px button target, with the header no taller than necessary. */
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-brand {
+  min-height: 48px;
+  padding-block: 6px;
+  gap: 6px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-brand .cogitor-mark {
+  width: 24px;
+  height: 24px;
+}
