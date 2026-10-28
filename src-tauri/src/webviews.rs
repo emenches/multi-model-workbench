@@ -286,8 +286,30 @@ fn gemini_sorry_navigation_active(provider: &str, url: &tauri::Url) -> bool {
         && (url.path() == "/sorry" || url.path().starts_with("/sorry/"))
 }
 
+/// Tauri's macOS on_navigation hook is also invoked for auxiliary challenge
+/// frame navigations, not just top-level provider changes. Claude's *working*
+/// nonblocking login audit showed about: documents and newassets.hcaptcha.com
+/// were denied; hCaptcha documents that this is one of its real asset hosts.
+///
+/// Keep this exception exact and Claude-only. Do not relax the general
+/// cross-provider navigation policy or allow all external websites.
 fn challenge_auxiliary_navigation_allowed(provider: &str, url: &tauri::Url) -> bool {
-    provider == "grok" && url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc")
+    if provider == "grok" {
+        return url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc");
+    }
+    if provider != "claude" {
+        return false;
+    }
+    if url.scheme() == "about" {
+        return url.host_str().is_none()
+            && url.query().is_none()
+            && matches!(url.path(), "blank" | "srcdoc");
+    }
+    url.scheme() == "https"
+        && url.host_str() == Some("newassets.hcaptcha.com")
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
 }
 
 fn grok_external_auth_handoff_needs_app_return(provider: &str, url: &tauri::Url) -> bool {
@@ -2908,7 +2930,7 @@ fn now_ms() -> u64 {
 
 #[cfg(test)]
 mod claude_clean_login_tests {
-    use super::{claude_conversation_url, guard_claude_automation, provider_uses_document_start_bridge, provider_uses_permission_shim};
+    use super::{challenge_auxiliary_navigation_allowed, claude_conversation_url, guard_claude_automation, provider_uses_document_start_bridge, provider_uses_permission_shim};
 
     #[test]
     fn claude_never_modifies_browser_during_login() {
@@ -2916,6 +2938,38 @@ mod claude_clean_login_tests {
         assert!(!provider_uses_permission_shim("claude"));
         assert!(provider_uses_document_start_bridge("chatgpt"));
         assert!(provider_uses_permission_shim("gemini"));
+    }
+
+    #[test]
+    fn claude_auth_allows_only_observed_captcha_navigation_targets() {
+        let allow = |provider: &str, value: &str| {
+            challenge_auxiliary_navigation_allowed(provider, &value.parse().unwrap())
+        };
+        // These were the only blocked destinations in the user-controlled
+        // successful audit window. Neither is permitted for other providers.
+        assert!(allow("claude", "about:blank"));
+        assert!(allow("claude", "about:srcdoc"));
+        assert!(allow("claude", "https://newassets.hcaptcha.com/captcha/v1/test/hcaptcha.html"));
+        assert!(!allow("chatgpt", "about:blank"));
+        assert!(!allow("gemini", "https://newassets.hcaptcha.com/captcha/v1/test/hcaptcha.html"));
+        for target in [
+            "about:config",
+            "about:blank?token=should-not-be-here",
+            "data:text/html,hello",
+            "javascript:alert(1)",
+            "http://newassets.hcaptcha.com/captcha",
+            "https://newassets.hcaptcha.com:8443/captcha",
+            "https://newassets.hcaptcha.com.evil.example/captcha",
+            "https://evil.example/newassets.hcaptcha.com",
+            "https://newassets-hcaptcha.com/captcha",
+            "https://hcaptcha.com/captcha",
+            "https://newassets.hcaptcha.com@evil.example/captcha",
+        ] {
+            assert!(!allow("claude", target), "unexpected allow: {target}");
+        }
+        // Existing Grok challenge behavior remains unchanged.
+        assert!(allow("grok", "about:blank"));
+        assert!(!allow("grok", "https://newassets.hcaptcha.com/captcha"));
     }
 
     #[test]
