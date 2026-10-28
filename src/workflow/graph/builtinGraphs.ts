@@ -8,6 +8,8 @@ import { roundtableGraph } from './roundtableGraph';
 import type { WorkflowGraph } from './types';
 
 export const workflowGraphs: Record<WorkflowPresetId, WorkflowGraph> = {
+  // Simple Chat sends to exactly one selected provider through Free's graph.
+  simple: freeGraph,
   brainstorm: brainstormGraph,
   free: freeGraph,
   debate: debateGraph,
