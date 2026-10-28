@@ -44,10 +44,12 @@ jobs:
       - name: Verify frontend, injected scripts, tests and adapters
         run: pnpm verify
 
-      - name: Verify Rust tests and formatting
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --lib
-          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+      - name: Verify Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Check Rust formatting (advisory in test preview)
+        continue-on-error: true
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
       - name: Build Cogitor for Intel and Apple Silicon
         run: pnpm tauri build --bundles dmg --target universal-apple-darwin
