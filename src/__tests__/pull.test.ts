@@ -615,8 +615,8 @@ describe('bootstrap outbox helpers', () => {
 
   it('does not monkey-patch Grok history during authentication', () => {
     expect(shouldPatchHistory('grok')).toBe(false);
-    expect(shouldPatchHistory('chatgpt')).toBe(true);
-    expect(shouldPatchHistory('claude')).toBe(true);
+    expect(shouldPatchHistory('chatgpt')).toBe(false);
+    expect(shouldPatchHistory('claude')).toBe(false);
     expect(shouldPatchHistory('gemini')).toBe(true);
   });
 
