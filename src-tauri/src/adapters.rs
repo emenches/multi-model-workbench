@@ -745,6 +745,11 @@ async fn refresh_one(app: &tauri::AppHandle, provider: &str, allow_downgrade: bo
         return;
     };
 
+    // A settings change can happen while an HTTPS request is in flight.
+    // Refuse the downloaded selector even if it passed validation earlier.
+    if !settings::adapter_updates_enabled(app) {
+        return;
+    }
     let version = adapter.adapter_version;
     if let Ok(path) = cache_path(app, provider) {
         let _ = settings::write_atomic(&path, text.as_bytes());
