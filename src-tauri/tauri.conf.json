@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Multi-AI Chat Desktop",
+  "productName": "Cogitor",
   "version": "0.0.0",
   "identifier": "com.tedh.multiaichat",
   "build": {
-    "beforeDevCommand": "pnpm build:injected && pnpm dev",
-    "beforeBuildCommand": "pnpm build:injected && pnpm build",
+    "beforeDevCommand": "pnpm brand:icons && pnpm build:injected && pnpm dev",
+    "beforeBuildCommand": "pnpm brand:icons && pnpm build:injected && pnpm build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Multi-AI Chat Desktop",
+        "title": "Cogitor",
         "theme": "Dark",
         "backgroundColor": "#1b2028",
         "width": 1480,

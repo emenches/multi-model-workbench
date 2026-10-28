@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import appIconUrl from '../assets/app-icon.svg';
+import { CogitorMark } from './CogitorMark';
 import type { WorkbenchProject } from '../workspace/model';
 import { DEFAULT_CONVERSATION_SESSION_TITLE, type ConversationSession } from './conversationSessions';
 
@@ -25,12 +25,13 @@ export interface ConversationSidebarLabels {
 
 export function ConversationSidebar({
   collapsed,
+  width = 304,
+  brandActive = false,
   sessions,
   projects,
   activeSessionId,
   disabled,
   labels,
-  locale,
   onToggle,
   onNewConversation,
   onSelectSession,
@@ -40,6 +41,8 @@ export function ConversationSidebar({
   onOpenProjectSettings,
 }: {
   collapsed: boolean;
+  width?: number;
+  brandActive?: boolean;
   sessions: readonly ConversationSession[];
   projects: readonly WorkbenchProject[];
   activeSessionId: string;
@@ -133,15 +136,16 @@ export function ConversationSidebar({
 
   return (
     <nav aria-label={labels.history}
-      className={`ai-sister-session-sidebar workbench-session-sidebar ${collapsed ? 'w-[60px]' : 'w-full'} flex min-h-0 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 transition-[width] dark:border-zinc-800 dark:bg-zinc-900`}>
+      className={`ai-sister-session-sidebar workbench-session-sidebar ${collapsed ? 'w-[60px]' : 'min-w-0'} flex min-h-0 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 transition-[width] dark:border-zinc-800 dark:bg-zinc-900`}
+      style={{ width: collapsed ? 60 : width, flex: 'none' }}>
       <div className="workbench-sidebar-brand flex items-center gap-2 border-b border-zinc-200 px-3 py-3 dark:border-zinc-800">
         <button type="button" className="workbench-brand-button grid h-9 w-9 shrink-0 place-items-center rounded-xl hover:bg-white dark:hover:bg-zinc-800"
           aria-label={labels.toggle} title={labels.toggle} onClick={onToggle}>
-          <img src={appIconUrl} alt="" className="default-brand-icon h-8 w-8" />
+          <CogitorMark active={brandActive} className="default-brand-icon h-6 w-6" />
         </button>
         {!collapsed ? (
           <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold tracking-tight">Workbench</span>
+            <span className="cogitor-wordmark block truncate">COGITOR</span>
           </span>
         ) : null}
       </div>

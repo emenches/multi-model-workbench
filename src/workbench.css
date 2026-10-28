@@ -1311,15 +1311,8 @@ html:not(.ai-sister) .workbench-shell [role="menuitem"]:focus-visible {
   html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflow { transition: none; }
 }
 
-/* Allow a little more room for project names and conversation titles.
-   The same token sizes both the nav and its matching CSS-grid track. */
-.workbench-shell { --wb-sidebar-width: 252px; }
-@media (max-width: 1090px) {
-  .workbench-shell { --wb-sidebar-width: 220px; }
-}
-@media (max-width: 760px) {
-  .workbench-shell { --wb-sidebar-width: 200px; }
-}
+/* Conversation sidebar width is now user-controlled by the shared
+   grid track and the drag separator. The collapsed rail remains 60px. */
 html:not(.ai-sister) .workbench-shell .workbench-agent-pill {
   gap: 6px;
   white-space: nowrap;
@@ -1542,4 +1535,100 @@ html:not(.ai-sister) .workbench-shell .workbench-new-chat-composer {
   html:not(.ai-sister) .workbench-shell .workbench-experience-selected {
     transform: none;
   }
+}
+
+/* Cogitor readability pass: use ChatGPT-scale conversation text while
+   respecting the existing root font-size setting. */
+html:not(.ai-sister) .workbench-shell .workbench-message-content {
+  font-size: 1rem;
+  line-height: 1.65;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-header .uppercase {
+  font-size: .8125rem;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-timestamp {
+  font-size: .75rem;
+  color: var(--wb-secondary);
+  line-height: 1.4;
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-row .workbench-session-item,
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-project button {
+  font-size: .875rem;
+}
+html:not(.ai-sister) .workbench-shell .workbench-simple-agent-select,
+html:not(.ai-sister) .workbench-shell .workbench-multi-select {
+  font-size: .875rem;
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer,
+html:not(.ai-sister) .workbench-shell .workbench-process-trace {
+  font-size: .875rem;
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-resizer {
+  touch-action: none;
+  position: relative;
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-resizer > [role="separator"] {
+  background: transparent;
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-resizer:hover > [role="separator"],
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-resizer:focus-within > [role="separator"] {
+  background: var(--wb-accent);
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-sidebar {
+  min-width: 0;
+}
+
+html:not(.ai-sister) .workbench-shell .workbench-composer-textarea {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+html:not(.ai-sister) .workbench-shell .workbench-trace-step button,
+html:not(.ai-sister) .workbench-shell .workbench-trace-compact-item {
+  font-size: .875rem;
+}
+
+
+/* Cogitor brand: approved 03 Modern Sans. Plain static marks everywhere except
+   the in-app thinking indicator; reduced-motion preferences always win. */
+html:not(.ai-sister) .workbench-shell .cogitor-wordmark {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter",
+    "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.825rem;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  line-height: 1.2;
+  color: #EFE6D3;
+  -webkit-font-smoothing: antialiased;
+}
+html:not(.ai-sister) .workbench-shell .cogitor-mark {
+  display: block;
+  flex: none;
+}
+html:not(.ai-sister) .workbench-shell .cogitor-mark__core {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes cogitor-thinking-breathe {
+  0%, 100% { transform: scale(0.985); opacity: 0.94; }
+  50% { transform: scale(1.025); opacity: 1; }
+}
+html:not(.ai-sister) .workbench-shell .cogitor-mark--thinking .cogitor-mark__core {
+  animation: cogitor-thinking-breathe 2.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not(.ai-sister) .workbench-shell .cogitor-mark__core {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+/* Compact standard macOS-style brand row, independent of Dock icon scale. */
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-brand {
+  min-height: 48px;
+  padding-block: 6px;
+  gap: 6px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-brand .cogitor-mark {
+  width: 24px;
+  height: 24px;
 }

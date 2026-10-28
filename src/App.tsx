@@ -10,9 +10,8 @@ import { host, type ProviderWindowGeometry } from './host';
 import { ProjectPicker } from './workspace/ProjectPicker';
 import { ProviderModelControls } from './ui/ProviderModelControls';
 import { MIN_CONSULT_PROVIDERS, availableConsultProviders, chooseConsultRoles } from './ui/consultAvailability';
-import { EMPTY_PROJECT_STORE, activeProject, mergeProjectContext, type ProjectStore } from './workspace/model';
+import { EMPTY_PROJECT_STORE, mergeProjectContext, type ProjectStore } from './workspace/model';
 import { useI18n } from './i18n/context';
-import { MODE_NAME_KEYS } from './i18n/modes';
 import type { Locale } from './i18n/resolve';
 import { formatI18n, t as translateKey } from './i18n/t';
 import { mergePullBridgeState, type PullBridgeState } from './appBridgeState';
@@ -67,6 +66,7 @@ import { ProcessTrace } from './ui/ProcessTrace';
 import { ReplayPanel, type ReplaySource } from './ui/ReplayPanel';
 import { SessionCheckpointNotice } from './ui/SessionCheckpointNotice';
 import { loadSessionSidebarCollapsed, saveSessionSidebarCollapsed } from './ui/sessionSidebarPreference';
+import { clampSidebarWidth, DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, loadSidebarWidth, saveSidebarWidth } from './ui/sidebarWidthPreference';
 import { StepTimeoutDialog, type StepTimeoutDialogState } from './ui/StepTimeoutDialog';
 import { TargetChips } from './ui/TargetChips';
 import { findScrollActiveProvider, isTranscriptNearEnd, scrollTranscriptToEnd, scrollTranscriptToProviderMessage } from './ui/transcriptScroll';
@@ -153,6 +153,7 @@ interface Bubble {
   final?: boolean;
   truncated?: boolean;
   modeRole?: string;
+  timestamp?: number;
 }
 
 const PROVIDERS = Object.keys(AI_PROVIDERS) as AIProvider[];
@@ -171,6 +172,7 @@ function conversationMessages(messages: readonly Bubble[]): ConversationSessionM
     ...(message.provider ? { provider: message.provider } : {}),
     ...(message.authorLabel ? { authorLabel: message.authorLabel } : {}),
     ...(message.modeRole ? { modeRole: message.modeRole } : {}),
+    ...(typeof message.timestamp === 'number' ? { timestamp: message.timestamp } : {}),
     ...(typeof message.final === 'boolean' ? { final: message.final } : {}),
     ...(typeof message.truncated === 'boolean' ? { truncated: message.truncated } : {}),
   }));
@@ -204,6 +206,7 @@ function bubblesFromSession(session: ConversationSession): Bubble[] {
     ...(message.provider ? { provider: message.provider } : {}),
     ...(message.authorLabel ? { authorLabel: message.authorLabel } : {}),
     ...(message.modeRole ? { modeRole: message.modeRole } : {}),
+    ...(typeof message.timestamp === 'number' ? { timestamp: message.timestamp } : {}),
     ...(typeof message.final === 'boolean' ? { final: message.final } : {}),
     ...(typeof message.truncated === 'boolean' ? { truncated: message.truncated } : {}),
   }));
@@ -318,6 +321,7 @@ export default function App() {
   const [sessions, setSessions] = useState<ConversationSession[]>(initialConversation.sessions);
   const [activeSessionId, setActiveSessionId] = useState(initialConversation.active.id);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(loadSessionSidebarCollapsed);
+  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [messages, setMessages] = useState<Bubble[]>(() => bubblesFromSession(initialConversation.active));
   const [workflowStatus, setWorkflowStatus] = useState('');
   const [mode, setMode] = useState<ChatMode>(initialConversation.active.mode);
@@ -410,7 +414,7 @@ export default function App() {
   const [messagesMaximized, setMessagesMaximized] = useState(false);
   const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
   const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
-  const [activityPanelOpen, setActivityPanelOpen] = useState(false);
+  const [activityPanelOpen, setActivityPanelOpen] = useState(true);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [headerMoreOpen, setHeaderMoreOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
@@ -453,6 +457,7 @@ export default function App() {
   const pendingRestore = useRef<Set<AIProvider>>(new Set());
   const restoringProviders = useRef<Set<AIProvider>>(new Set());
   const dragStartFocusPaneWidth = useRef(defaultSettings().focusPaneWidth);
+  const dragStartSidebarWidth = useRef(DEFAULT_SIDEBAR_WIDTH);
   const activeResponses = useRef(new Map<AIProvider, ActiveProviderResponse>());
   const replayContextSessionRef = useRef<string | undefined>(
     initialConversation.active.messages.length > 0 ? initialConversation.active.id : undefined,
@@ -912,6 +917,7 @@ export default function App() {
             provider: message.provider,
             modeRole: active.label,
             content,
+            timestamp: Date.now(),
             truncated,
             final: message.action === 'RESPONSE_DONE',
           },
@@ -1615,7 +1621,7 @@ export default function App() {
         replayContextSessionRef.current === activeSessionId ? buildConversationReplayContext(messages) : undefined;
       setMessages((current) => [
         ...current,
-        { id: createConversationMessageId('user'), role: 'user', content: trimmed, final: true },
+        { id: createConversationMessageId('user'), role: 'user', content: trimmed, timestamp: Date.now(), final: true },
       ]);
       setIsProcessing(processingAfterSend());
       setProcessTrace(createProcessTrace(mode, workflowTargets ?? [], localeRef.current, presetId));
@@ -1995,6 +2001,18 @@ export default function App() {
     if (phase === 'end') void persistSettingsPatch({ focusPaneWidth: nextWidth });
   };
 
+  const dragSidebar = (deltaX: number, phase: 'start' | 'move' | 'end') => {
+    if (phase === 'start') {
+      dragStartSidebarWidth.current = sidebarWidth;
+      return;
+    }
+    const containerWidth = gridRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+    const maxWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, containerWidth - 520));
+    const nextWidth = clampSidebarWidth(Math.min(maxWidth, dragStartSidebarWidth.current + deltaX));
+    setSidebarWidth(nextWidth);
+    if (phase === 'end') saveSidebarWidth(nextWidth);
+  };
+
   const enlargeCenter = useCallback(() => {
     const provider = centerPresentationProvider(presentationRef.current);
     if (!provider) return;
@@ -2199,6 +2217,12 @@ export default function App() {
     DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.minFocusPaneWidth,
     layoutWidth - DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.minCenterWidth - DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.resizerWidth,
   );
+  const sidebarMaxWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, layoutWidth - 520));
+  const visibleSidebarWidth = Math.min(sidebarWidth, sidebarMaxWidth);
+  const effectiveFocusWidth = clampFocusPaneWidth(
+    Math.max(focusPaneWidth, sessionSidebarCollapsed ? 420 : visibleSidebarWidth + 180),
+    layoutWidth,
+  );
   const modeBlockedMessage = modeSendBlocked
     ? formatI18n(translate('input.modeNotReady'), { remaining: missingModeProviderCount })
     : undefined;
@@ -2263,7 +2287,7 @@ export default function App() {
         ))}
       </select>
       <button type="button" className="workbench-multi-config rounded-lg px-2.5 py-1.5 font-medium" disabled={isProcessing}
-        onClick={() => setWorkflowOptionsOpen(true)}>{translate('composer.configureAgents')}</button>
+        onClick={() => (presetId === 'free' ? setWorkflowOptionsOpen(true) : setSettingsOpen(true))}>{translate('composer.configureAgents')}</button>
       <span className="ml-auto text-zinc-500 dark:text-zinc-400">{formatI18n(translate('preset.readinessAny'), { ready: anySendableTargets.length })}</span>
     </div>
   ) : null;
@@ -2282,8 +2306,8 @@ export default function App() {
         style={{ gridTemplateColumns: messagesMaximized
           ? '0px 0px minmax(0,1fr)'
           : providerInspectorOpen
-            ? focusGridTemplateColumns(focusPaneWidth)
-            : `${sessionSidebarCollapsed ? '60px' : 'var(--wb-sidebar-width, 252px)'} 0px minmax(0,1fr)` }}
+            ? focusGridTemplateColumns(effectiveFocusWidth)
+            : `${sessionSidebarCollapsed ? '60px' : `${visibleSidebarWidth + 6}px`} 0px minmax(0,1fr)` }}
       >
         <div
           aria-hidden={messagesMaximized || undefined}
@@ -2292,6 +2316,8 @@ export default function App() {
           }`}
         >
           <ConversationSidebar
+            width={visibleSidebarWidth}
+            brandActive={isProcessing}
             collapsed={sessionSidebarCollapsed}
             sessions={sessions}
             projects={projectStore.projects}
@@ -2325,6 +2351,12 @@ export default function App() {
             onCreateProject={createSidebarProject}
             onOpenProjectSettings={() => setProjectSettingsOpen(true)}
           />
+          {!sessionSidebarCollapsed && !messagesMaximized ? (
+            <div className="workbench-sidebar-resizer w-[6px] shrink-0">
+              <Resizer label={translate('conversation.resizeSidebar')} onDrag={dragSidebar}
+                value={visibleSidebarWidth} min={MIN_SIDEBAR_WIDTH} max={sidebarMaxWidth} />
+            </div>
+          ) : null}
           {providerInspectorOpen && !messagesMaximized ? (
             <div className="workbench-inspector-workspace flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -2524,7 +2556,10 @@ export default function App() {
                 {processTrace && (processTrace.steps.length > 0 || processTrace.currentStatus)
                   ? <ProcessTrace trace={processTrace} locale={locale} expanded compact={false} states={states}
                       onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen}/>
-                  : <p className="p-3 text-xs text-zinc-500 dark:text-zinc-400">{translate('workbench.noActiveRun')}</p>}
+                  : <div className="space-y-2 p-3 text-sm text-zinc-500 dark:text-zinc-400" role="status">
+                       <p>{translate('workbench.activityHint')}</p>
+                       <p className="text-xs">{translate('workbench.noActiveRun')}</p>
+                     </div>}
               </div>
             </aside>
           ) : null}
@@ -2663,6 +2698,9 @@ export default function App() {
               onSelectPreset={(selected) => {
                 selectPreset(selected);
                 setWorkflowOptionsOpen(false);
+                // Every collaborative workflow remains selectable even when a
+                // default role has no connected agent. Open its editable roles.
+                if (selected !== 'simple' && selected !== 'free') setSettingsOpen(true);
               }}
               locale={locale} states={states} modeRoles={appSettings.modeRoles}
               activeProviders={activeProviders} disabled={isProcessing} layout="dialog"
@@ -2674,7 +2712,8 @@ export default function App() {
               <TargetChips providers={activeProviders} states={states} selected={targets} onChange={handleTargetsChange} disabled={isProcessing} locale={locale}/>
             </div>
           ) : null}
-          <p className="mt-4 text-xs text-zinc-500 dark:text-zinc-400">Connection status and response completion are separate.</p>
+          <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">{translate('composer.clickWorkflowToConfigure')}</p>
+          <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Connection status and response completion are separate.</p>
         </ModalDialog>
       ) : null}
       {preflight ? (
@@ -2801,6 +2840,12 @@ export function ChatArea({
               </div>
             )}
             {message.truncated ? <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">{translateKey('chat.truncated', locale)}</div> : null}
+            {typeof message.timestamp === 'number' && Number.isFinite(message.timestamp) && message.timestamp > 0 && message.timestamp <= 8_640_000_000_000_000 ? (
+              <time className="workbench-message-timestamp mt-2 block text-xs text-zinc-500 dark:text-zinc-400"
+                dateTime={new Date(message.timestamp).toISOString()}>
+                {new Date(message.timestamp).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
+              </time>
+            ) : null}
           </article>
         );
       })}

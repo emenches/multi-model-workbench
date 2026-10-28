@@ -95,7 +95,9 @@ describe('App workflow controls', () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, { language: 'en', children: createElement(App) }));
 
     expect(html).toContain('workbench-connected-agent-strip');
-    expect(html).toContain('var(--wb-sidebar-width, 252px)');
+    expect(html).toContain('workbench-sidebar-resizer');
+    expect(html).toContain('aria-label="Resize conversation sidebar"');
+    expect(html).toContain('id="workbench-activity-drawer"');
     expect(html).toContain('Checking agent connections');
     expect(html).toContain('workbench-new-chat-screen');
     expect(html).toContain('What would you like to chat about?');
@@ -116,9 +118,14 @@ describe('App workflow controls', () => {
     expect(html).not.toContain('workbench-provider-dock');
   });
 
-  it('renders only Workbench branding, without the former alternate theme', () => {
+  it('renders Cogitor branding without the former alternate theme', () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, { language: 'en', children: createElement(App) }));
     expect(html).toContain('app-shell');
+    expect(html).toContain('cogitor-wordmark');
+    expect(html).toContain('COGITOR');
+    expect(html).toContain('cogitor-mark');
+    expect(html).toContain('default-brand-icon h-6 w-6');
+    expect(html).toContain('data-active="false"');
     expect(html).not.toContain('ai-sister-brand-mark');
     expect(html).not.toContain('AI-Sister Edition');
     expect(html).not.toContain('ai-sister-avatar');
@@ -168,6 +175,23 @@ describe('Workbench reading surfaces', () => {
     expect(html).toContain('workbench-experience-switch');
     expect(html).toContain('workbench-new-chat-composer');
     expect(html).toContain('workbench-composer-plus');
+  });
+});
+
+describe('Cogitor message times', () => {
+  it('shows original local times for questions and replies, without inventing times for old chats', () => {
+    const html = renderToStaticMarkup(createElement(ChatArea, {
+      locale: 'en', states: states(),
+      messages: [
+        { id: 'q', role: 'user', content: 'Original prompt', timestamp: 1_760_000_000_000, final: true },
+        { id: 'a', role: 'ai', provider: 'claude', content: 'Saved reply', timestamp: 1_760_000_010_000, final: true },
+        { id: 'older', role: 'ai', provider: 'chatgpt', content: 'Legacy reply', final: true },
+      ],
+    }));
+    expect(html.match(/class="workbench-message-timestamp/g)).toHaveLength(2);
+    expect(html).toContain('2025-10-09T08:53:20.000Z');
+    expect(html).toContain('Original prompt');
+    expect(html).toContain('Legacy reply');
   });
 });
 
@@ -229,7 +253,7 @@ describe('ChatArea thinking indicator', () => {
 
     expect(html).toContain('Thinking…');
     expect(html).toContain('data-provider="chatgpt"');
-    expect(html).toContain('data-active="true"');
+    // The current text-only waiting bubble shows Thinking without a separate active attribute.
     expect(html).not.toContain('provider reasoning scrape');
     expect(html).not.toContain('streaming');
   });

@@ -70,6 +70,23 @@ describe('conversation sessions', () => {
     expect(created.messages[1]).toMatchObject({ authorLabel: 'You' });
   });
 
+  it('persists per-message timestamps and preserves legacy messages without invented dates', () => {
+    const original = createConversationSession({
+      id: 'dated', now: 1234,
+      messages: [
+        { id: 'question', role: 'user', content: 'Question', timestamp: 1_760_000_000_000 },
+        { id: 'answer', role: 'ai', content: 'Reply', timestamp: 1_760_000_010_000 },
+        { id: 'legacy', role: 'ai', content: 'Undated' },
+      ],
+    });
+    const storage = memoryStorage();
+    expect(saveConversationSessions([original], storage)).toBe(true);
+    const messages = loadConversationSessions(storage)[0].messages;
+    expect(messages.map((message) => message.timestamp)).toEqual([1_760_000_000_000, 1_760_000_010_000, undefined]);
+    expect(sessionContentChanged(original, messages, 'free')).toBe(false);
+    expect(sessionContentChanged(original, [{ ...messages[0], timestamp: 3 }, ...messages.slice(1)], 'free')).toBe(true);
+  });
+
   it('roundtrips a simple chat agent without changing legacy Free chats', () => {
     const simple = createConversationSession({
       id: 'simple-chat', mode: 'free', presetId: 'simple',

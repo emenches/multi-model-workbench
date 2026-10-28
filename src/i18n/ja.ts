@@ -166,6 +166,8 @@ export const ja: Record<I18nKey, string> = {
   'composer.multi': '複数エージェント',
   'composer.workflow': 'ワークフロー',
   'composer.configureAgents': 'エージェントと設定',
+  'composer.clickWorkflowToConfigure': 'ワークフローを選択すると、各役割のAIを設定できます。すべてのAIを接続する前でも設定できます。',
+  'conversation.resizeSidebar': 'チャットのサイドバー幅を変更',
   'input.stop': '停止',
   'input.sendHint': 'Enter で送信 · Shift+Enter で改行',
   'input.send': '送信',
@@ -303,6 +305,8 @@ export const ja: Record<I18nKey, string> = {
   'settings.providersSelect': '予備のAI',
   'settings.providerActive': '有効',
   'settings.providerStandby': '予備',
+  'settings.useReadyAgents': '接続済みのAIを使う',
+  'settings.modeRolesReadyDescription': '現在応答可能なAIを役割に割り当てます。順番に実行する役割では同じAIを再利用できます。Consultの最初の2回答には別々のAIが必要です。',
   'settings.modeRoles': 'コラボレーションの役割',
   'settings.modeRolesDescription':
     '組み込みの構造化プリセットでは、現在有効な 4 つの AI を各 1 役に割り当てます。役割はカスタマイズでき、直列の役割では同じ AI を再利用できますが、同時に実行される役割（例：コンサルの最初の回答者 2 名）は重複させないでください。',

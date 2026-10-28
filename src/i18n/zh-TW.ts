@@ -154,6 +154,8 @@ export const zhTW: Record<I18nKey, string> = {
   'composer.multi': '多代理程式',
   'composer.workflow': '工作流程',
   'composer.configureAgents': '代理程式與設定',
+  'composer.clickWorkflowToConfigure': '選擇工作流程即可設定各角色使用的 AI；不必先連線所有 AI 就能設定。',
+  'conversation.resizeSidebar': '調整對話側邊欄寬度',
   'input.stop': '停止',
   'input.sendHint': 'Enter 傳送 · Shift+Enter 換行',
   'input.send': '送出',
@@ -291,6 +293,8 @@ export const zhTW: Record<I18nKey, string> = {
   'settings.providersSelect': '備用 AI',
   'settings.providerActive': '已啟用',
   'settings.providerStandby': '備用',
+  'settings.useReadyAgents': '使用已連線的 AI',
+  'settings.modeRolesReadyDescription': '將目前可用的 AI 指派到角色。依序執行的角色可重複使用同一個 AI，但 Consult 前兩個平行回答仍須使用不同 AI。',
   'settings.modeRoles': '協作角色',
   'settings.modeRolesDescription':
     '內建結構化預設會讓目前啟用的四家 AI 各擔任一個角色。你仍可自訂角色；依序執行的角色可重複使用同一家，只有同時執行的角色（例如諮詢的前兩位回答者）必須各不相同。',
