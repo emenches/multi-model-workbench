@@ -2477,6 +2477,11 @@ fn get_provider_webview_for_generic_eval(
 ) -> Result<tauri::Webview, String> {
     let webview = get_provider_webview(app, provider)?;
     let url = webview.url().map_err(|error| error.to_string())?;
+    // Even if the site uses a same-document SPA route transition, disallow any
+    // trusted host command (read, fill, send, poll) on Claude login/account pages.
+    if provider == "claude" && !claude_conversation_url(&url) {
+        return Err("Claude automation is disabled outside its conversation pages".into());
+    }
     let url_matches_app = adapters::url_matches_provider_app(provider, &url)?;
     let allowed = if provider == "grok" {
         let guard = runtime()
