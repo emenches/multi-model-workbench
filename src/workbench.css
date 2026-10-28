@@ -1835,7 +1835,8 @@ html.dark:not(.ai-sister) .workbench-dialog-backdrop :is(
 }
 /* Typing is continuous focus: avoid a second blue ring around the input.
    Other buttons and fields retain their visible keyboard focus indicators. */
-html:not(.ai-sister) .workbench-shell .workbench-composer-textarea:focus-visible {
+html:not(.ai-sister) .workbench-shell .workbench-composer-textarea:focus-visible,
+html.dark:not(.ai-sister) .workbench-shell .workbench-composer-textarea:focus-visible {
   outline: none;
   box-shadow: none;
 }
