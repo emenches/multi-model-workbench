@@ -18,15 +18,17 @@ jobs:
     runs-on: macos-latest
     environment: cogitor-release
     timeout-minutes: 120
-    env:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-      APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
     steps:
       - name: Refuse builds without all required signing and notarization secrets
+        # Only this preflight command sees all secrets. Never expose signing
+        # material to dependency installers, frontend tests or JS build hooks.
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -69,7 +71,16 @@ jobs:
       - run: pnpm verify
       - run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
+      - name: Prepare unsigned frontend assets before any signing credentials are used
+        run: |
+          pnpm brand:icons
+          pnpm build:injected
+          pnpm build
+
       - name: Materialize private Apple notarization key and release configuration
+        env:
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -81,11 +92,18 @@ jobs:
           echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/cogitor-apple/AuthKey.p8" >> "$GITHUB_ENV"
           # Override the preview's intentional ad-hoc signing only for this job.
           # Preserve the existing Tauri bundle identifier to avoid erasing user profiles.
-          node -e 'const fs=require("fs");const c={version:"0.1.0",bundle:{macOS:{signingIdentity:process.env.APPLE_SIGNING_IDENTITY}}};fs.writeFileSync("src-tauri/tauri.signed-beta.ci.conf.json",JSON.stringify(c));'
+          node -e 'const fs=require("fs");const c={version:"0.1.0",build:{beforeBuildCommand:"",beforeBundleCommand:""},bundle:{macOS:{signingIdentity:process.env.APPLE_SIGNING_IDENTITY}}};fs.writeFileSync("src-tauri/tauri.signed-beta.ci.conf.json",JSON.stringify(c));'
 
       - name: Developer ID sign, notarize and staple universal macOS bundle
-        # The build must fail closed on missing/invalid Apple credentials or
-        # failed notarization; it does NOT fall back to ad-hoc signing.
+        # Private credentials are scoped ONLY to this signing step; beforeBuild
+        # hooks are disabled because the frontend was already compiled above.
+        # A failed notarization must fail this build (no ad-hoc fallback).
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: pnpm tauri build --bundles dmg --target universal-apple-darwin --config src-tauri/tauri.signed-beta.ci.conf.json
 
       - name: Validate certificate identity, notarization ticket and both architectures
