@@ -34,28 +34,56 @@ This document supplements the original security triage in
 - Existing main-webview, provider-activity, page-origin and readiness checks
   remain in force.
 
-## Still open (do not claim resolved)
+## Verification evidence and scope
 
-- Human test of Claude Gmail account switching, right-click magic-link login,
-  multi-provider Consult and response capture, Retry and Stop, stale ChatGPT
-  bridge recovery, and macOS window/profile persistence.
-- A full Windows/macOS/Linux CI matrix with frontend checks, Rust tests and
-  Clippy. Draft PRs remain unmerged if any gate is failing or pending.
-- Draft PR #48 adds a narrowly-scoped fallback for normal left-click
-  activation of exact-origin Claude magic links from webmail. CI and unit
-  tests are not evidence of successful Gmail WebKit login: manual verification
-  of left-click, Gmail account switching and original Claude session remains
-  a mandatory gate before merging or starting code cleanup.
-  synthetic OAuth and hostile-redirect browser tests.
-- Migration of permissions for *existing* local files, privacy/deletion
-  controls, and whether keychain-backed encryption at rest is feasible.
-- Mac WebKit per-provider data-store isolation cannot be changed without an
-  explicit, rollback-safe migration for signed-in profiles.
-- Dependency vulnerability review, removal of unused native permissions,
-  modular refactor and cross-platform end-to-end accessibility tests.
-- Existing app/browser history remains locally accessible to the signed-in
-  desktop user. Never claim full device credential isolation, zero-data-risk
-  security or end-to-end encryption.
+**Automated CI completed (last full green baseline):**
+- [CI run 40637580555](https://github.com/emenches/multi-model-workbench/actions/runs/40637580555)
+  passed frontend verification (79 Vitest files, **910 tests**), build, types, lint,
+  injected scripts, agent tests, and adapter checks.
+- The same run passed native Rust library tests and strict Clippy (`-D warnings`)
+  on **macOS, Windows, and Linux**. All three original security PRs (#46–#48)
+  also passed their earlier platform CI runs.
+- Additional composer keyboard-focus CSS regression tests were added after the
+  above baseline; check CI at the final PR #48 head before merging.
+
+**Actual macOS user acceptance, on the hardened preview line:**
+- Claude Gmail account switching followed by an ordinary **left-click**
+  magic-link handoff worked.
+- A full **three-agent Consult** completed successfully.
+- Opening an existing conversation, starting another chat, and **Stop** worked.
+- Authentication remained active following a Cogitor restart.
+
+**Automated-only edge cases, deliberately not induced on a healthy Mac:**
+- Retry after a simulated provider-send failure, timeout, or degraded bridge,
+  including stop-before-resend, reserved-turn continuity, and cancellation.
+  Covered by `workflow.test.ts` and recovery-dialog tests in `m4a-ui.test.ts`.
+- ChatGPT stale-status read/health/ack whitelist in Rust, plus transient
+  stale/degraded transport recovery, non-duplication, and no forged responses
+  in `pull.test.ts`. Not equivalent to observing a real stale ChatGPT document.
+- Claude link filters reject off-origin/unsafe URLs and synthetic/right clicks;
+  the browser script does not inspect Gmail page content, based on source and
+  unit checks. Not equivalent to a full native synthetic-OAuth/WebKit pentest.
+
+## Remaining limitations and follow-up work
+
+- **Not manually verified on this build:** a real Retry modal opened by a
+  provider failure; right-click `Open` after the left-click patch (previously
+  working, and protected by a non-interception test); a real stale ChatGPT
+  recovery event; synthetic hostile redirects across nested WebKit popups.
+  These are explicit edge-case coverage gaps, not failed normal-use tests.
+- Existing local file permission migration, sensitive-data retention and
+  deletion controls, and potential Keychain encryption need separate design,
+  rollback, and explicit user-data preservation work.
+- Per-provider WebKit data-store isolation requires migration research and
+  cannot be silently introduced without risking existing sign-ins.
+- Complete dependency advisory review, minimization of residual native
+  permissions, and a broader independent penetration assessment remain future
+  security tasks. No standalone security certification is claimed.
+- Current security branches are stacked and may have diverged histories:
+  reconcile ancestry before merges; do not force-push or merge out of order.
+- The application has no ability to isolate secrets from a compromised
+  native host. Do not claim zero risk, end-to-end encryption, or credential
+  isolation beyond ordinary browser origin separation.
 
 ## Release procedure
 
