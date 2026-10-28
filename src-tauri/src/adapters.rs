@@ -519,8 +519,16 @@ fn build_source_url(base: Option<&str>, provider: &str) -> Result<String, String
         Some(base) => format!("{}/{provider}.json", base.trim_end_matches('/')),
         None => format!("{DEFAULT_ADAPTER_BASE}/{provider}.json"),
     };
-    if !url.starts_with("https://") {
-        return Err(format!("adapter base URL must be https: {url}"));
+    let parsed = tauri::Url::parse(&url)
+        .map_err(|_| "invalid adapter source URL".to_string())?;
+    if !plain_https_url(&parsed)
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        // Refuse URLs carrying userinfo, custom ports, queries or fragments.
+        // Those are not necessary for a JSON adapter source and can conceal
+        // the actual remote host or leak tokens in error messages.
+        return Err("adapter source must use standard HTTPS without credentials or URL parameters".into());
     }
     Ok(url)
 }
@@ -726,6 +734,25 @@ fn login_url_matches(login: &str, url: &tauri::Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adapter_source_urls_are_plain_https_without_hidden_authorities() {
+        assert_eq!(
+            build_source_url(Some("https://example.com/adapters/"), "claude").unwrap(),
+            "https://example.com/adapters/claude.json",
+        );
+        for base in [
+            "http://example.com/adapters",
+            "https://user:pass@example.com/adapters",
+            "https://user@example.com/adapters",
+            "https://example.com:8443/adapters",
+            "https://example.com/adapters?token=private",
+            "https://example.com/adapters#fragment",
+            "https://example.com.evil.test@evil.test/adapters",
+        ] {
+            assert!(build_source_url(Some(base), "claude").is_err(), "{base}");
+        }
+    }
 
     #[test]
     fn bundled_adapters_validate() {
