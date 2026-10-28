@@ -303,6 +303,8 @@ export const en: Record<I18nKey, string> = {
   'settings.providersSelect': 'Standby provider',
   'settings.providerActive': 'Active',
   'settings.providerStandby': 'Standby',
+  'settings.useReadyAgents': 'Use connected agents',
+  'settings.modeRolesReadyDescription': 'Assign currently Ready agents to these roles. Sequential roles can share an agent; Consult\'s first two answers still need different agents.',
   'settings.modeRoles': 'Collaboration roles',
   'settings.modeRolesDescription':
     'Built-in structured setups assign each of the four active AIs once. You can customize the roles; serial roles may reuse one AI, while roles that run at the same time, such as Consult first/second, must stay distinct.',
