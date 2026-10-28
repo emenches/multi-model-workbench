@@ -56,9 +56,11 @@
     event.preventDefault();
     event.stopImmediatePropagation();
     try {
-      window.top.location.assign(destination);
+      // Cross-origin frames can usually WRITE top.location.href after a real
+      // user gesture even though reading it or calling .assign is forbidden.
+      window.top.location.href = destination;
     } catch {
-      // Cross-origin/sandboxed message frames may forbid access to top.
+      // A sandboxed frame may reject top-level navigation altogether.
       window.location.assign(destination);
     }
   }, true);

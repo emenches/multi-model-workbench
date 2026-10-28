@@ -35,7 +35,12 @@ function browser(allowTopNavigation = true) {
     }),
   };
   const frameLocation = { href: document.baseURI, assign: frameNavigate };
-  const topLocation = { assign: allowTopNavigation ? topNavigate : vi.fn(() => { throw Error('cross-origin frame'); }) };
+  const topLocation = Object.defineProperty({}, 'href', {
+    set(value: string) {
+      if (!allowTopNavigation) throw Error('sandboxed frame');
+      topNavigate(value);
+    },
+  });
   const window = { location: frameLocation, top: { location: topLocation } };
   vm.runInNewContext(script, { document, window, URL }, { timeout: 1000 });
   const click = (href: string, options: Partial<Click> = {}) => {
