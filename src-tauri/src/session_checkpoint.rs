@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 const SESSION_CHECKPOINT_FILE: &str = "session-checkpoint.json";
+const MAX_SESSION_CHECKPOINT_BYTES: usize = 8 * 1024 * 1024;
 
 pub(crate) fn session_checkpoint_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(session_checkpoint_path_in_dir(
@@ -45,11 +46,14 @@ fn session_checkpoint_path_in_dir(app_data_dir: &Path) -> PathBuf {
 }
 
 fn save_session_checkpoint_to_path(path: &Path, json: &str) -> Result<(), String> {
+    if json.len() > MAX_SESSION_CHECKPOINT_BYTES {
+        return Err("session checkpoint exceeds the size limit".into());
+    }
     crate::settings::write_atomic(path, json.as_bytes())
 }
 
 fn load_session_checkpoint_from_path(path: &Path) -> Result<Option<String>, String> {
-    match std::fs::read_to_string(path) {
+    match crate::settings::read_bounded_utf8(path, MAX_SESSION_CHECKPOINT_BYTES) {
         Ok(text) => Ok(Some(text)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.to_string()),
