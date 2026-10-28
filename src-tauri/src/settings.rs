@@ -126,6 +126,13 @@ pub fn normalize_settings_value(settings: Value) -> Value {
             "snapshotPersistence".to_string(),
             Value::Bool(snapshot_persistence),
         );
+        let updates_enabled = map.get("adapterUpdatesEnabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        map.insert(
+            "adapterUpdatesEnabled".to_string(),
+            Value::Bool(updates_enabled),
+        );
 
         let tier = map
             .get("snapshotRedactionTier")
@@ -387,13 +394,27 @@ pub async fn settings_set(
         previous.get(key).and_then(|value| value.as_str())
             != settings.get(key).and_then(|value| value.as_str())
     };
-    if changed("adapterBaseUrl") || changed("adapterChannel") {
+    let enabled_before = previous.get("adapterUpdatesEnabled")
+        .and_then(Value::as_bool) == Some(true);
+    let enabled_after = settings.get("adapterUpdatesEnabled")
+        .and_then(Value::as_bool) == Some(true);
+    if enabled_before != enabled_after
+        || (enabled_after && (changed("adapterBaseUrl") || changed("adapterChannel")))
+    {
         let handle = app.clone();
         tauri::async_runtime::spawn(async move {
+            // The native refresh gate also checks the saved opt-in.
             crate::adapters::refresh_all_adapters(handle, true).await;
         });
     }
     Ok(())
+}
+
+pub(crate) fn adapter_updates_enabled(app: &AppHandle) -> bool {
+    read_settings(&settings_path(app).unwrap_or_default())
+        .ok()
+        .and_then(|value| value.get("adapterUpdatesEnabled").and_then(Value::as_bool))
+        .unwrap_or(false)
 }
 
 pub(crate) fn adapter_base_url(app: &AppHandle) -> Result<Option<String>, String> {
