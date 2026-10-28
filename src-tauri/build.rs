@@ -1,6 +1,9 @@
 fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
+            "claude_auth_tab_open_email",
+            "claude_auth_tab_switch",
+            "claude_auth_tab_close_email",
             "provider_open",
             "provider_open_window",
             "provider_close",

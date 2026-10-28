@@ -1,4 +1,5 @@
 mod adapters;
+mod claude_login_tabs;
 mod bridge;
 mod projects;
 mod session_checkpoint;
@@ -86,6 +87,9 @@ pub fn run() {
             let _ = app.emit_to("main", "workbench://return", ());
         })
         .invoke_handler(tauri::generate_handler![
+            claude_login_tabs::claude_auth_tab_open_email,
+            claude_login_tabs::claude_auth_tab_switch,
+            claude_login_tabs::claude_auth_tab_close_email,
             webviews::provider_open,
             webviews::provider_open_window,
             webviews::provider_close,

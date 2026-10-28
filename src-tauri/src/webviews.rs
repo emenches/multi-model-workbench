@@ -17,6 +17,8 @@ use tauri::{
 use tauri_plugin_opener::OpenerExt;
 
 use crate::{adapters, bridge::BridgeMessage, settings};
+#[cfg(target_os = "macos")]
+use crate::claude_login_tabs;
 
 const BOOTSTRAP_JS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -1238,6 +1240,10 @@ fn ensure_provider_page_window(
     let close_provider = provider.to_string();
     let close_window = window.clone();
     window.on_window_event(move |event| {
+        #[cfg(target_os = "macos")]
+        if close_provider == "claude" && matches!(event, tauri::WindowEvent::Resized(_)) {
+            claude_login_tabs::layout(&close_app, &close_window);
+        }
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             // Do not destroy and recreate the authenticated WebView. Hiding its
             // host preserves the existing bridge/session for future workflows.
@@ -1285,6 +1291,10 @@ pub async fn provider_open(
     // WebView ownership is established once, here. No reparenting to/from
     // the workbench: the provider runs in this native window even when hidden.
     let window = ensure_provider_page_window(&app, &provider)?;
+    #[cfg(target_os = "macos")]
+    if provider == "claude" {
+        claude_login_tabs::ensure_toolbar(&app, &window)?;
+    }
     let app_data = app
         .path()
         .app_data_dir()
@@ -1341,10 +1351,14 @@ pub async fn provider_open(
     };
     // Every provider is parked offscreen outside its active pane. Preserve the shipped liveness
     // tuning so provider timers and renderers keep running while hidden.
-    let builder = builder
-        .data_directory(profile_dir)
-        .auto_resize()
-        .background_throttling(BackgroundThrottlingPolicy::Disabled)
+    let builder = builder.data_directory(profile_dir);
+    // macOS Claude uses a 48pt local tab strip above the provider child.
+    // Auto-resize otherwise stretches the provider across that strip.
+    #[cfg(target_os = "macos")]
+    let builder = if provider == "claude" { builder } else { builder.auto_resize() };
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.auto_resize();
+    let builder = builder.background_throttling(BackgroundThrottlingPolicy::Disabled)
         .additional_browser_args(PROVIDER_BROWSER_ARGS)
         .on_document_title_changed(move |webview, title| {
             let document_epoch = current_grok_document_epoch(&title_provider);
@@ -1653,10 +1667,18 @@ pub async fn provider_open(
 
     let prepared_epoch = prepare_grok_navigation(&provider)?;
     let client_size = window.inner_size().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    let (child_position, child_size) = if provider == "claude" {
+        claude_login_tabs::content_bounds(&window)?
+    } else {
+        (PhysicalPosition::new(0, 0), client_size)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let (child_position, child_size) = (PhysicalPosition::new(0, 0), client_size);
     let webview = match window.add_child(
         builder,
-        PhysicalPosition::new(0, 0),
-        client_size,
+        child_position,
+        child_size,
     ) {
         Ok(webview) => webview,
         Err(error) => {
@@ -1667,6 +1689,10 @@ pub async fn provider_open(
     if let Err(error) = webview.show() {
         cancel_grok_navigation(&provider, prepared_epoch);
         return Err(error.to_string());
+    }
+    #[cfg(target_os = "macos")]
+    if provider == "claude" {
+        claude_login_tabs::layout(&app, &window);
     }
     schedule_grok_navigation_start_lease(&provider, prepared_epoch, GrokNavigationOwner::Lifecycle);
     let current = current_state(&provider);
@@ -1696,6 +1722,8 @@ fn close_provider(app: &AppHandle, provider: &str) -> Result<(), String> {
     if let Some(webview) = app.get_webview(&label) {
         webview.close().map_err(|error| error.to_string())?;
     }
+    #[cfg(target_os = "macos")]
+    if provider == "claude" { claude_login_tabs::close_tabs(app); }
     if let Some(window) = app.get_window(&provider_page_window_label(provider)) {
         let _ = window.hide();
     }
@@ -1855,8 +1883,16 @@ fn fit_detached_provider_to_window(
     parent_window: &tauri::Window,
 ) -> Result<(), String> {
     let size = parent_window.inner_size().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    let (position, size) = if provider_view.label() == "ai-claude" {
+        claude_login_tabs::content_bounds(parent_window)?
+    } else {
+        (PhysicalPosition::new(0, 0), size)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let position = PhysicalPosition::new(0, 0);
     provider_view
-        .set_position(tauri::Position::Physical(PhysicalPosition::new(0, 0)))
+        .set_position(tauri::Position::Physical(position))
         .map_err(|error| error.to_string())?;
     provider_view
         .set_size(tauri::Size::Physical(size))
@@ -1928,6 +1964,8 @@ pub async fn provider_open_window(
     // the host, without any transfer between windows.
     window.show().map_err(|error| error.to_string())?;
     provider_webview.show().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    if provider == "claude" { claude_login_tabs::show_claude(&app)?; }
     fit_detached_provider_to_window(&provider_webview, &window)?;
     window.set_focus().map_err(|error| error.to_string())?;
     let geometry = detached_provider_geometry(&provider_webview, &window)?;
@@ -1958,6 +1996,8 @@ pub async fn provider_open_login(
         provider_webview.navigate(login_url).map_err(|error| error.to_string())?;
         window.show().map_err(|error| error.to_string())?;
         provider_webview.show().map_err(|error| error.to_string())?;
+        #[cfg(target_os = "macos")]
+        if provider == "claude" { claude_login_tabs::show_claude(&app)?; }
         fit_detached_provider_to_window(&provider_webview, &window)?;
         window.set_focus().map_err(|error| error.to_string())?;
         return Ok(());
