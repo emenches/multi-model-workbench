@@ -21,6 +21,23 @@
 6. Verify Gmail account switching and Claude right-click **Open** magic-link handoff remain as previously accepted. Do not share tokens/screenshots of email content.
 7. Check minimum window (900px) and larger screens, window resize while Activity is open, and pointer/keyboard sidebar adjustments.
 
+## Color contrast and keyboard accessibility
+
+- WCAG 2.2 AA palette audit: confirm ordinary text and status labels retain
+  at least **4.5:1** against sidebar, surface, hover and soft backgrounds.
+  For functional input boundaries and focus rings, use at least **3:1**.
+- Check all keyboard focus indicators (sidebar controls, resize separator,
+  input composer, Settings controls, workflow cards), including dark hover states.
+- Verify muted text in the Settings modal is legible: original zinc-500/600
+  grays were below AA; default dark palette overrides now use a measured
+  accessible secondary tone. Status color must not be the only readiness cue.
+- Inspect disabled controls separately (WCAG exemptions do not mean an enabled
+  control should appear disabled). Check destructive action icons in the
+  conversation sidebar at rest, hover and keyboard focus.
+- These automated checks cover known theme-color pairs, **not** a full
+  browser-computed contrast audit of every dynamic overlay, toast, hover state,
+  screen reader flow or native provider website. Retest actual macOS rendering.
+
 ## Automated checks
 ```bash
 pnpm install --frozen-lockfile
