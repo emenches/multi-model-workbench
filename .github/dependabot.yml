@@ -13,3 +13,32 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+
+  # Review JavaScript and Rust dependencies independently from GitHub Actions.
+  # Lockfiles are committed; each update PR must pass the existing
+  # Windows/macOS/Linux CI matrix before a maintainer merges it.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      javascript-dependencies:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      rust-dependencies:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: chore
+      include: scope
