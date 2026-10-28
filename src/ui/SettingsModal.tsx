@@ -128,6 +128,7 @@ export function SettingsModal({
   const fontSizeUpdateSeqRef = useRef(0);
   const liveRef = useRef({ openProviders, focusPaneWidth, presentation });
   const saveInFlightRef = useRef(false);
+  const lastFocusedRoleModeRef = useRef<string>();
   liveRef.current = { openProviders, focusPaneWidth, presentation };
 
   useEffect(() => {
@@ -136,9 +137,15 @@ export function SettingsModal({
   }, [activeModeRoleSettings, open]);
 
   useEffect(() => {
-    if (!open || !activeModeRoleSettings) return;
-    // Card clicks lead straight to the relevant editor, not the top of
-    // unrelated general preferences. Wait for the modal and details to mount.
+    if (!open) {
+      lastFocusedRoleModeRef.current = undefined;
+      return;
+    }
+    if (!draft || !activeModeRoleSettings) return;
+    if (lastFocusedRoleModeRef.current === activeModeRoleSettings) return;
+    lastFocusedRoleModeRef.current = activeModeRoleSettings;
+    // Move into the relevant expanded role editor just once, not every time
+    // the user changes a select field.
     const frame = window.requestAnimationFrame(() => {
       document.getElementById('settings-collaboration-roles')?.scrollIntoView({ block: 'start' });
     });
