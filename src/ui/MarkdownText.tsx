@@ -520,6 +520,19 @@ function renderBlocks(text: string): ReactNode[] {
           cursor += 1;
           continue;
         }
+
+        // Providers often separate numbered recommendations with a blank
+        // line. Keep those entries in one semantic list, without swallowing
+        // the paragraph that follows the final list item.
+        if (currentItem && lines[cursor].trim() === '') {
+          let nextCursor = cursor + 1;
+          while (nextCursor < lines.length && lines[nextCursor].trim() === '') nextCursor += 1;
+          const nextItem = matchListItem(lines[nextCursor] ?? '');
+          if (nextItem && nextItem.ordered === firstListItem.ordered) {
+            cursor = nextCursor;
+            continue;
+          }
+        }
         break;
       }
 
