@@ -293,6 +293,8 @@ export const zhTW: Record<I18nKey, string> = {
   'settings.providersSelect': '備用 AI',
   'settings.providerActive': '已啟用',
   'settings.providerStandby': '備用',
+  'settings.useReadyAgents': '使用已連線的 AI',
+  'settings.modeRolesReadyDescription': '將目前可用的 AI 指派到角色。依序執行的角色可重複使用同一個 AI，但 Consult 前兩個平行回答仍須使用不同 AI。',
   'settings.modeRoles': '協作角色',
   'settings.modeRolesDescription':
     '內建結構化預設會讓目前啟用的四家 AI 各擔任一個角色。你仍可自訂角色；依序執行的角色可重複使用同一家，只有同時執行的角色（例如諮詢的前兩位回答者）必須各不相同。',
