@@ -1,6 +1,6 @@
 # Cogitor brand direction (working design brief)
 
-**Status:** Proposed visual direction; not a finalized logo, trademark clearance, or release claim.
+**Status:** Approved icon and 03 Modern Sans identity now implemented in the Cogitor preview. See [the selected production spec](COGITOR_BRAND_SELECTED.md). Trademark clearance and final public release remain separate.
 
 ## Name and literary reference
 
