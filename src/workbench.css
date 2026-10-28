@@ -1708,3 +1708,67 @@ html:not(.ai-sister) .workbench-shell .workbench-sidebar-brand .cogitor-mark {
   width: 24px;
   height: 24px;
 }
+
+/* Cogitor transcript editorial rhythm: modest body size, compact paragraphs
+   and clear structure without changing original provider response content. */
+html:not(.ai-sister) .workbench-shell .workbench-message-content {
+  font-size: .9375rem; /* 15px reading text; composer remains at 16px */
+  line-height: 1.52;
+  letter-spacing: 0;
+}
+html:not(.ai-sister) .workbench-shell .workbench-reading-area {
+  line-height: 1.52;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-other {
+  padding-block: 8px 10px;
+  margin-block: 2px 8px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content p {
+  margin-block: .35em .65em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content > div > p:first-child {
+  margin-top: 0;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content > div > :last-child {
+  margin-bottom: 0;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content :is(ul, ol) {
+  margin-block: .55em .75em;
+  padding-inline-start: 1.65em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content li {
+  line-height: 1.5;
+  padding-left: .15em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content li + li {
+  margin-top: .3em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content :is(h1, h2, h3, h4, h5, h6) {
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -.012em;
+  margin-block: 1em .4em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content h1 {
+  font-size: 1.3em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content h2 {
+  font-size: 1.17em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content :is(h3, h4, h5, h6) {
+  font-size: 1.06em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content :is(strong, b) {
+  font-weight: 700;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content :is(em, i) {
+  font-style: italic;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content blockquote {
+  margin-block: .8em;
+  padding-left: .9em;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-content pre {
+  margin-block: .9em;
+  line-height: 1.45;
+}
