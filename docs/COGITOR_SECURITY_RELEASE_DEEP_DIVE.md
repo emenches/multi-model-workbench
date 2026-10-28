@@ -10,6 +10,14 @@
 ## New automatic dependency review
 `.github/workflows/dependency-security.yml` runs `pnpm audit --audit-level high` against direct and transitive frontend/build dependencies, and RustSec `cargo audit --file src-tauri/Cargo.lock`. It runs on lockfile changes and can be manually dispatched; a weekly schedule becomes active when the workflow exists on the default branch. A passing npm test suite or Rust Clippy check is NOT an advisory scan. Audit results must be reviewed at the recorded commit, and high/critical findings must be triaged before a public beta.
 
+### Advisory findings and remediations (2026-10-27 PT)
+- Initial npm scan: **12 advisories (2 high, 7 moderate, 3 low)**. The old graph used Vite 6.4.3 and Zod 4.4.3 (high); the first upgrade resolved to Vite 6.4.5 and Zod 4.6.6. The remaining lower-severity advisory inventory narrowed to `@vitest/mocker` (moderate) and `fast-uri` (moderate/low). A follow-up lock refresh resolved to Vitest/mocker 4.1.12 and fast-uri 3.1.9. Do not claim a clean *final* npm scan until the new head commit's workflow succeeds.
+- Initial RustSec scan: **17 vulnerabilities, including a critical ZIP extraction issue**, plus 12 allowed informational warnings. Reverse dependency graph traced ZIP 4.6.1 exclusively to unused `tauri-plugin-updater` (not initialized in Cogitor). Removed the unused plugin; re-resolved only affected compatible native packages: plist 1.10.3, quick-xml 0.42.0, quinn-proto 0.11.19, rustls 0.23.46, rustls-webpki 0.103.16, and webpki-roots 1.0.11. The subsequent RustSec audit [run 40646742578](https://github.com/emenches/multi-model-workbench/actions/runs/40646742578) **passed with no vulnerability errors** on the 498-crate lockfile.
+- **12 RustSec allowed warnings remain**: unmaintained `proc-macro-error`, `unic-*`, `zbus_names`, `zvariant`/derive and potentially unsound `event-listener`, `glib`, `tokio` warnings. These may be transitive and/or platform-specific; they are not equivalent to zero residual security risk and need upstream dependency monitoring.
+- These are **source-lockfile advisory results**, not proof of exploitability or isolation under a compromised OS account. Final cross-platform Rust compile and macOS packaging must pass after lock changes.
+
+
+
 ## Developer ID signing and Apple notarization (requires maintainer provisioning)
 `.github/workflows/cogitor-macos-signed-beta.yml` is **workflow_dispatch only**. It needs a protected GitHub Actions Environment named `cogitor-release` with required reviewer approval. Do not add credentials to ordinary repository variables, CI logs, PR comments or this chat.
 
