@@ -5,6 +5,17 @@ on:
     branches:
       - preview/cogitor-unified-macos
       - fix/claude-left-click-magic-link
+  # Package this specific same-repository design experiment for visual review.
+  # Never permit untrusted fork PRs to consume packaging resources.
+  pull_request:
+    branches:
+      - preview/cogitor-unified-macos
+    paths:
+      - 'src/mac-glass.css'
+      - 'src/ui/macGlass.ts'
+      - 'src/main.tsx'
+      - 'src/__tests__/macGlass.test.ts'
+      - '.github/workflows/cogitor-macos-preview.yml'
   workflow_dispatch:
 
 permissions:
@@ -17,6 +28,7 @@ concurrency:
 jobs:
   build-macos-universal:
     name: Test and build Cogitor universal DMG
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'design/cogitor-macos-glass-experiment')
     runs-on: macos-latest
     timeout-minutes: 120
     steps:
