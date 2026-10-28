@@ -1,0 +1,30 @@
+name: Cogitor Rust dependency reachability (one-time diagnostic)
+on:
+  push:
+    branches: [security/cogitor-deep-release-gates]
+    paths: ['.github/workflows/rust-reachability-diagnostic.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
+      - name: Check the exact resolved dependency and platform paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'COGITOR_REACH_BEGIN'
+          for target in aarch64-apple-darwin x86_64-pc-windows-msvc x86_64-unknown-linux-gnu; do
+            for crate in zip quick-xml quinn-proto rustls rustls-webpki webpki-roots event-listener glib; do
+              echo "=== target:$target crate:$crate normal-target-enabled ==="
+              cargo tree --manifest-path src-tauri/Cargo.toml --locked --target "$target" --edges normal -i "$crate" --prefix none 2>&1 | head -34 || true
+            done
+          done
+          echo '=== QUIC feature activations ==='
+          cargo tree --manifest-path src-tauri/Cargo.toml --locked --target aarch64-apple-darwin --edges features -i quinn-proto --prefix none 2>&1 | head -90 || true
+          echo 'COGITOR_REACH_END'
