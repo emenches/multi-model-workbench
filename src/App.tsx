@@ -2299,7 +2299,7 @@ export default function App() {
         ))}
       </select>
       <button type="button" className="workbench-multi-config rounded-lg px-2.5 py-1.5 font-medium" disabled={isProcessing}
-        onClick={() => (presetId === 'free' ? setWorkflowOptionsOpen(true) : setSettingsOpen(true))}>{translate('composer.configureAgents')}</button>
+        onClick={() => setWorkflowOptionsOpen(true)}>{translate('composer.configureAgents')}</button>
       <span className="ml-auto text-zinc-500 dark:text-zinc-400">{formatI18n(translate('preset.readinessAny'), { ready: anySendableTargets.length })}</span>
     </div>
   ) : null;
@@ -2710,9 +2710,9 @@ export default function App() {
               onSelectPreset={(selected) => {
                 selectPreset(selected);
                 setWorkflowOptionsOpen(false);
-                // Every collaborative workflow remains selectable even when a
-                // default role has no connected agent. Open its editable roles.
-                if (selected !== 'simple' && selected !== 'free') setSettingsOpen(true);
+                // Overview first; clicking a tile opens configuration for
+                // that chosen workflow, with its role editor expanded when relevant.
+                setSettingsOpen(true);
               }}
               locale={locale} states={states} modeRoles={appSettings.modeRoles}
               activeProviders={activeProviders} disabled={isProcessing} layout="dialog"
