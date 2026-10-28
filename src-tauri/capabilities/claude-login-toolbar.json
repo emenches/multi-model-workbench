@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "claude-login-toolbar",
+  "description": "Only the app-owned Claude tab strip can switch Claude/email tabs. Provider and email pages have no Tauri permissions.",
+  "webviews": ["claude-login-toolbar"],
+  "permissions": [
+    "core:default",
+    "allow-claude-auth-tab-open-email",
+    "allow-claude-auth-tab-switch",
+    "allow-claude-auth-tab-close-email"
+  ]
+}
