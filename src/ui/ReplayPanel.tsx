@@ -164,7 +164,7 @@ export class ReplayPanel extends Component<ReplayPanelProps, ReplayPanelState> {
     this.updateState({ notice: undefined });
     try {
       if (this.props.onOpenLogin) await this.props.onOpenLogin(provider);
-      else await host.provider.openLogin(provider);
+      else await host.provider.openWindow(provider, true);
     } catch {
       if (generation !== this.loginRequestGeneration || this.state.block !== block) return;
       this.updateState({

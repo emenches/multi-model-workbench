@@ -21,6 +21,19 @@ declare global {
     __MAC_ENGINE__?: {
       bootId: string;
       adapterVersion: number;
+      statusTicks: number;
+      responsePollTicks: number;
+      waitingForResponse: boolean;
+      statusEmits: number;
+      fillStarts: number;
+      fillDones: number;
+      capturePhase: string | null;
+      captureResponseNodes: number;
+      captureAssistantUnits: number;
+      captureLatestUnitDomChars: number;
+      captureTextChars: number;
+      captureAnchor: boolean;
+      captureGenerationSeen: boolean;
       stop?: () => void;
     };
   }

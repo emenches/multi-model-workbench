@@ -519,8 +519,23 @@ fn build_source_url(base: Option<&str>, provider: &str) -> Result<String, String
         Some(base) => format!("{}/{provider}.json", base.trim_end_matches('/')),
         None => format!("{DEFAULT_ADAPTER_BASE}/{provider}.json"),
     };
-    if !url.starts_with("https://") {
-        return Err(format!("adapter base URL must be https: {url}"));
+    // Prevent WHATWG URL normalization of a missing/malformed authority,
+    // such as https:///example.com, into an unexpected valid host.
+    let authority = url.strip_prefix("https://")
+        .ok_or_else(|| "adapter source must use HTTPS".to_string())?;
+    if authority.starts_with('/') || authority.starts_with('\\') {
+        return Err("invalid adapter source URL authority".into());
+    }
+    let parsed = tauri::Url::parse(&url)
+        .map_err(|_| "invalid adapter source URL".to_string())?;
+    if !plain_https_url(&parsed)
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        // Refuse URLs carrying userinfo, custom ports, queries or fragments.
+        // Those are not necessary for a JSON adapter source and can conceal
+        // the actual remote host or leak tokens in error messages.
+        return Err("adapter source must use standard HTTPS without credentials or URL parameters".into());
     }
     Ok(url)
 }
@@ -578,14 +593,19 @@ fn cache_path(app: &tauri::AppHandle, provider: &str) -> Result<std::path::PathB
         .join(format!("{provider}.json")))
 }
 
+// Cached remote adapters remain untrusted local input. Enforce the same byte
+// limit as HTTPS downloads and reject symlinks; never delete existing cache
+// files when a read fails.
+fn read_cached_adapter(path: &std::path::Path) -> Option<Adapter> {
+    let text = settings::read_bounded_utf8(path, ADAPTER_FETCH_CAP).ok()?;
+    serde_json::from_str::<Adapter>(&text).ok()
+}
+
 fn hydrate_from_cache(app: &tauri::AppHandle, provider: &str) {
     let Ok(path) = cache_path(app, provider) else {
         return;
     };
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return;
-    };
-    let Ok(adapter) = serde_json::from_str::<Adapter>(&text) else {
+    let Some(adapter) = read_cached_adapter(&path) else {
         return;
     };
     if validate_downloaded_adapter(provider, &adapter).is_err() {
@@ -598,12 +618,36 @@ fn hydrate_from_cache(app: &tauri::AppHandle, provider: &str) {
     }
 }
 
+// A validated HTTPS source must not redirect to HTTP, local services, a
+// different host, credentials, or a custom port. Reject before following.
+fn safe_adapter_redirect(url: &reqwest::Url, expected_host: &str) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some(expected_host)
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+}
+
 async fn fetch_adapter_text(url: &str) -> Result<String, String> {
+    let source = reqwest::Url::parse(url).map_err(|_| "invalid adapter source URL")?;
+    let source_host = source.host_str()
+        .ok_or_else(|| "adapter source must have a host".to_string())?
+        .to_owned();
     let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+            // Bound redirect chains independently of reqwest's defaults.
+            if attempt.previous().len() >= 5
+                || !safe_adapter_redirect(attempt.url(), &source_host)
+            {
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        }))
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|error| error.to_string())?;
-    let response = client
+    let mut response = client
         .get(url)
         .send()
         .await
@@ -621,11 +665,21 @@ async fn fetch_adapter_text(url: &str) -> Result<String, String> {
             return Err(format!("adapter file too large: {len} bytes"));
         }
     }
-    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
-    if bytes.len() > ADAPTER_FETCH_CAP {
-        return Err(format!("adapter file too large: {} bytes", bytes.len()));
+    // Content-Length may be absent or dishonest. Apply the limit *during*
+    // streaming instead of allocating the complete response first.
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+        append_bounded_adapter_chunk(&mut bytes, &chunk)?;
     }
-    String::from_utf8(bytes.to_vec()).map_err(|error| error.to_string())
+    String::from_utf8(bytes).map_err(|error| error.to_string())
+}
+
+fn append_bounded_adapter_chunk(bytes: &mut Vec<u8>, chunk: &[u8]) -> Result<(), String> {
+    if chunk.len() > ADAPTER_FETCH_CAP.saturating_sub(bytes.len()) {
+        return Err(format!("adapter file too large: over {ADAPTER_FETCH_CAP} bytes"));
+    }
+    bytes.extend_from_slice(chunk);
+    Ok(())
 }
 
 fn emit_notice(
@@ -645,6 +699,11 @@ fn emit_notice(
 }
 
 async fn refresh_one(app: &tauri::AppHandle, provider: &str, allow_downgrade: bool) {
+    // Consent may have been revoked during a previous provider's HTTP request.
+    // Never reactivate cached overrides for another provider after revocation.
+    if !settings::adapter_updates_enabled(app) {
+        return;
+    }
     let before_cache_version = overlay_version(provider);
     hydrate_from_cache(app, provider);
     if overlay_version(provider) > before_cache_version {
@@ -696,6 +755,11 @@ async fn refresh_one(app: &tauri::AppHandle, provider: &str, allow_downgrade: bo
         return;
     };
 
+    // A settings change can happen while an HTTPS request is in flight.
+    // Refuse the downloaded selector even if it passed validation earlier.
+    if !settings::adapter_updates_enabled(app) {
+        return;
+    }
     let version = adapter.adapter_version;
     if let Ok(path) = cache_path(app, provider) {
         let _ = settings::write_atomic(&path, text.as_bytes());
@@ -707,6 +771,22 @@ async fn refresh_one(app: &tauri::AppHandle, provider: &str, allow_downgrade: bo
 
 pub async fn refresh_all_adapters(app: tauri::AppHandle, allow_downgrade: bool) {
     let _guard = refresh_lock().lock().await;
+    if !settings::adapter_updates_enabled(&app) {
+        // No network, and no cached remote selector overrides by default.
+        // Keep cache files for reversibility; reinstall bundled adapters in
+        // already-open provider pages when the user turns updates off.
+        let cleared = if let Ok(mut map) = overrides().write() {
+            let providers = map.keys().cloned().collect::<Vec<_>>();
+            map.clear();
+            providers
+        } else {
+            Vec::new()
+        };
+        for provider in cleared {
+            let _ = crate::webviews::push_engine_and_adapter(&app, &provider);
+        }
+        return;
+    }
     for provider in all_provider_states() {
         refresh_one(&app, &provider, allow_downgrade).await;
     }
@@ -726,6 +806,86 @@ fn login_url_matches(login: &str, url: &tauri::Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_adapter_read_rejects_oversize_without_deleting_data() {
+        let file = std::env::temp_dir().join(format!(
+            "cogitor-cached-adapter-{}-{}.json",
+            std::process::id(),
+            "oversized"
+        ));
+        let oversized = vec![b'x'; ADAPTER_FETCH_CAP + 1];
+        std::fs::write(&file, &oversized).unwrap();
+        assert!(read_cached_adapter(&file).is_none());
+        assert_eq!(std::fs::read(&file).unwrap(), oversized);
+        std::fs::remove_file(file).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cached_adapter_read_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!(
+            "cogitor-cached-adapter-link-{}", std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("original.json");
+        let link = dir.join("cache.json");
+        std::fs::write(&file, b"{}").unwrap();
+        symlink(&file, &link).unwrap();
+        assert!(read_cached_adapter(&link).is_none());
+        assert_eq!(std::fs::read(&file).unwrap(), b"{}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn adapter_response_size_is_bounded_as_chunks_arrive() {
+        let mut data = Vec::new();
+        append_bounded_adapter_chunk(&mut data, &vec![b'a'; ADAPTER_FETCH_CAP - 1])
+            .expect("chunk below cap");
+        append_bounded_adapter_chunk(&mut data, b"b").expect("exact cap");
+        assert_eq!(data.len(), ADAPTER_FETCH_CAP);
+        assert!(append_bounded_adapter_chunk(&mut data, b"c").is_err());
+        assert_eq!(data.len(), ADAPTER_FETCH_CAP, "reject before growth");
+    }
+
+    #[test]
+    fn adapter_redirects_stay_on_the_original_https_host() {
+        let host = "raw.githubusercontent.com";
+        assert!(safe_adapter_redirect(
+            &reqwest::Url::parse("https://raw.githubusercontent.com/a/b.json").unwrap(),
+            host,
+        ));
+        for url in [
+            "http://raw.githubusercontent.com/a/b.json",
+            "https://other.example/a/b.json",
+            "https://user@raw.githubusercontent.com/a/b.json",
+            "https://raw.githubusercontent.com:8443/a/b.json",
+            "https://127.0.0.1/a/b.json",
+        ] {
+            assert!(!safe_adapter_redirect(&reqwest::Url::parse(url).unwrap(), host), "{url}");
+        }
+    }
+
+    #[test]
+    fn adapter_source_urls_are_plain_https_without_hidden_authorities() {
+        assert_eq!(
+            build_source_url(Some("https://example.com/adapters/"), "claude").unwrap(),
+            "https://example.com/adapters/claude.json",
+        );
+        for base in [
+            "http://example.com/adapters",
+            "https:///example.com/adapters",
+            "https://user:pass@example.com/adapters",
+            "https://user@example.com/adapters",
+            "https://example.com:8443/adapters",
+            "https://example.com/adapters?token=private",
+            "https://example.com/adapters#fragment",
+            "https://example.com.evil.test@evil.test/adapters",
+        ] {
+            assert!(build_source_url(Some(base), "claude").is_err(), "{base}");
+        }
+    }
 
     #[test]
     fn bundled_adapters_validate() {

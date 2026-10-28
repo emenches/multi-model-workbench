@@ -1,0 +1,11 @@
+# Automatically generated permission for the constrained native command.
+
+[[permission]]
+identifier = "allow-provider-bridge-read"
+description = "Enables the provider_bridge_read semantic command for the trusted Cogitor control webview."
+commands.allow = ["provider_bridge_read"]
+
+[[permission]]
+identifier = "deny-provider-bridge-read"
+description = "Denies the provider_bridge_read semantic command."
+commands.deny = ["provider_bridge_read"]

@@ -1,0 +1,11 @@
+# Automatically generated permission for the constrained native command.
+
+[[permission]]
+identifier = "allow-provider-control-action"
+description = "Enables the provider_control_action semantic command for the trusted Cogitor control webview."
+commands.allow = ["provider_control_action"]
+
+[[permission]]
+identifier = "deny-provider-control-action"
+description = "Denies the provider_control_action semantic command."
+commands.deny = ["provider_control_action"]

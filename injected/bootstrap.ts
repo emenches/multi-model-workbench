@@ -1,6 +1,6 @@
 import { OUTBOX_MAX_BYTES, PULL_MAX_DECODED_BYTES } from '../shared/constants';
 import { hasCloudflareChallengeSignals, isGoogleSorryChallenge, isProviderChallengeActive } from './challenge';
-import { encodeTitleFrame } from './codec';
+import { encodeBoundedStatusTitleFrame } from './codec';
 import type { BridgeMessage, MessageAction } from '../shared/types';
 
 export { hasCloudflareChallengeSignals, isGoogleSorryChallenge };
@@ -104,7 +104,13 @@ export function shouldDeferBridgeStart(
 }
 
 export function shouldPatchHistory(provider: string): boolean {
-  return provider !== 'grok';
+  // ChatGPT's navigation and response loading run through its own SPA router.
+  // We do not consume the bridge's route-only STATUS_REPORT anywhere in the
+  // workflow, so avoid replacing native history methods on its app page.
+  // This keeps the rest of the bridge and response capture untouched.
+  // Route-only status messages are not used for Claude either. Keep its
+  // native SPA history methods intact after authenticated bridge installation.
+  return provider !== 'grok' && provider !== 'chatgpt' && provider !== 'claude';
 }
 
 // The bridge belongs on the provider's exact app hosts only. SSO/auth pages (auth.openai.com,
@@ -129,6 +135,8 @@ export function isProviderAppHost(hostname: string, appHosts: unknown): boolean 
 interface MacBridge {
   version: 1;
   bootId: string;
+  // Text-free title writer liveness (frame queue can be blocked independently of engine timers).
+  diagnostics: { queued: number; started: number; finished: number; compacted: number };
   emit(message: unknown): void;
   dispatch(message: BridgeMessage): void;
   onDispatch(handler: (message: BridgeMessage) => void): void;
@@ -175,12 +183,14 @@ interface MacBridge {
   let latestTitle: { action: MessageAction; payload?: unknown } | undefined;
   let titleEmitChain = Promise.resolve();
   let inFlightTitleFrame: string | undefined;
+  const titleHealth = { queued: 0, started: 0, finished: 0, compacted: 0 };
 
   function logError(error: unknown) {
     console.error('[MAC bridge]', error);
   }
 
   function emitTitleNow(action: MessageAction, payload?: unknown): void {
+    titleHealth.queued += 1;
     titleEmitChain = titleEmitChain
       .then(() => emitTitleFrame(action, payload))
       .catch((error: unknown) => {
@@ -189,24 +199,28 @@ interface MacBridge {
   }
 
   async function emitTitleFrame(action: MessageAction, payload?: unknown): Promise<void> {
+    titleHealth.started += 1;
     const titlePayload =
       action === 'STATUS_REPORT' && outbox.length > 0
         ? { ...((payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>), bulkReady: outbox.length }
         : payload;
     const message = { v: 1 as const, action, provider, bootId, seq: ++seq, payload: titlePayload };
-    const frame = encodeTitleFrame(bootId, seq, message);
-    if (!document.head) {
-      try {
-        document.title = frame;
-      } catch (error) {
-        logError(error);
-      }
-      await waitForHead();
-    }
-
-    const previous = document.title.startsWith('\u200BMAC1|') ? '' : document.title;
-    inFlightTitleFrame = frame;
+    let frame: string | undefined;
     try {
+      const bounded = encodeBoundedStatusTitleFrame(bootId, seq, message);
+      frame = bounded.frame;
+      if (bounded.compacted) titleHealth.compacted += 1;
+      if (!document.head) {
+        try {
+          document.title = frame;
+        } catch (error) {
+          logError(error);
+        }
+        await waitForHead();
+      }
+
+      const previous = document.title.startsWith('\u200BMAC1|') ? '' : document.title;
+      inFlightTitleFrame = frame;
       document.title = frame;
       await delay(10);
       if (document.title === inFlightTitleFrame) {
@@ -217,6 +231,7 @@ interface MacBridge {
       await delay(40);
       if (document.title === inFlightTitleFrame) document.title = previous;
     } finally {
+      titleHealth.finished += 1;
       if (inFlightTitleFrame === frame) inFlightTitleFrame = undefined;
     }
   }
@@ -313,6 +328,7 @@ interface MacBridge {
   const bridge: MacBridge = {
     version: 1,
     bootId,
+    diagnostics: titleHealth,
     emit(message: unknown) {
       const maybe = message as Partial<BridgeMessage>;
       if (maybe.action === 'RESPONSE_CHUNK' || maybe.action === 'RESPONSE_DONE' || maybe.action === 'REPORT_BROKEN') {

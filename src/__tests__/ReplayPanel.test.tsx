@@ -12,7 +12,7 @@ import type { ExecutionSnapshot, RedactedValueRef } from '../workflow/snapshot/t
 vi.mock('../host', () => ({
   host: {
     provider: {
-      openLogin: vi.fn(),
+      openWindow: vi.fn(),
     },
     snapshot: {
       list: vi.fn(),
@@ -70,6 +70,15 @@ function buttonWithText(node: ReactNode, text: string): ReactElement {
   return firstElement(node, (element) => element.type === 'button' && textOf(element).includes(text));
 }
 
+const nativeWindowGeometry = {
+  windowWidth: 940,
+  windowHeight: 700,
+  webviewWidth: 940,
+  webviewHeight: 700,
+  webviewX: 0,
+  webviewY: 0,
+};
+
 describe('ReplayPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -77,7 +86,7 @@ describe('ReplayPanel', () => {
     vi.mocked(host.snapshot.list).mockResolvedValue([]);
     vi.mocked(host.snapshot.load).mockResolvedValue(null);
     vi.mocked(host.snapshot.delete).mockResolvedValue(undefined);
-    vi.mocked(host.provider.openLogin).mockResolvedValue(undefined);
+    vi.mocked(host.provider.openWindow).mockResolvedValue(nativeWindowGeometry);
     vi.mocked(replaySnapshot).mockResolvedValue({
       ok: true,
       plan: {
@@ -222,7 +231,7 @@ describe('ReplayPanel', () => {
 
     propsOf(buttonWithText(panel.render(), t('replay.openLogin', 'en'))).onClick?.();
     expect(onOpenLogin).toHaveBeenCalledWith('claude');
-    expect(host.provider.openLogin).not.toHaveBeenCalled();
+    expect(host.provider.openWindow).not.toHaveBeenCalled();
   });
 
   it.each(['host', 'callback', 'sync-callback'] as const)('shows a retryable login error via %s without restarting replay', async (path) => {
@@ -231,7 +240,7 @@ describe('ReplayPanel', () => {
       preflight: { ok: false, unavailable: ['meta'], aliased: [] },
     });
     const onOpenLogin = vi.fn().mockResolvedValue(undefined);
-    const login = path === 'host' ? vi.mocked(host.provider.openLogin) : onOpenLogin;
+    const login = path === 'host' ? vi.mocked(host.provider.openWindow) : onOpenLogin;
     login.mockImplementationOnce(() => {
       const error = new Error('login rejected by host');
       if (path === 'sync-callback') throw error;
@@ -247,8 +256,10 @@ describe('ReplayPanel', () => {
     await vi.waitFor(() => expect(renderToStaticMarkup(panel.render()).includes('role="alert"')).toBe(true));
     expect(renderToStaticMarkup(panel.render())).toContain('Couldn&#x27;t open Meta AI. Please try again.');
     propsOf(buttonWithText(panel.render(), t('provider.retry', 'en'))).onClick?.();
-    await vi.waitFor(() => expect(login.mock.calls).toEqual([['meta'], ['meta']]));
-    expect(path === 'host' ? onOpenLogin : host.provider.openLogin).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(login.mock.calls).toEqual(
+      path === 'host' ? [['meta', true], ['meta', true]] : [['meta'], ['meta']],
+    ));
+    expect(path === 'host' ? onOpenLogin : host.provider.openWindow).not.toHaveBeenCalled();
     expect(replaySnapshot).toHaveBeenCalledTimes(1);
     expect(panel.state.block?.reason).toBe('preflight');
     expect(renderToStaticMarkup(panel.render())).not.toContain('role="alert"');
@@ -260,11 +271,15 @@ describe('ReplayPanel', () => {
       preflight: { ok: false, unavailable: ['meta'], aliased: [] },
     });
     let rejectFirst!: (reason: Error) => void;
-    const first = new Promise<void>((_, reject) => { rejectFirst = reject; });
+    const first = new Promise<typeof nativeWindowGeometry>((_, reject) => { rejectFirst = reject; });
     let resolveRetry!: () => void;
-    const retry = new Promise<void>((resolve) => { resolveRetry = resolve; });
+    const retry = new Promise<typeof nativeWindowGeometry>((resolve) => {
+      resolveRetry = () => resolve(nativeWindowGeometry);
+    });
     const onOpenLogin = vi.fn().mockResolvedValue(undefined);
-    const login = path === 'host' ? vi.mocked(host.provider.openLogin) : onOpenLogin;
+    const login = path === 'host' ? vi.mocked(host.provider.openWindow) : onOpenLogin;
+    // A native login returns its geometry. The optional callback's return
+    // value is ignored by ReplayPanel; both share the same guard semantics.
     login.mockReturnValueOnce(first).mockReturnValueOnce(retry);
     const panel = new ReplayPanel({ onOpenLogin: path === 'host' ? undefined : onOpenLogin });
     await panel.startReplay({ kind: 'last', snapshot: buildSnapshot() });
@@ -279,14 +294,18 @@ describe('ReplayPanel', () => {
     retryClick();
     retryClick();
     openClick();
-    expect(login.mock.calls).toEqual([['meta'], ['meta']]);
+    expect(login.mock.calls).toEqual(
+      path === 'host' ? [['meta', true], ['meta', true]] : [['meta'], ['meta']],
+    );
 
     resolveRetry();
     await retry;
     openClick();
-    expect(login.mock.calls).toEqual([['meta'], ['meta'], ['meta']]);
+    expect(login.mock.calls).toEqual(
+      path === 'host' ? [['meta', true], ['meta', true], ['meta', true]] : [['meta'], ['meta'], ['meta']],
+    );
     expect(replaySnapshot).toHaveBeenCalledTimes(1);
-    expect(path === 'host' ? onOpenLogin : host.provider.openLogin).not.toHaveBeenCalled();
+    expect(path === 'host' ? onOpenLogin : host.provider.openWindow).not.toHaveBeenCalled();
     expect(panel.state.notice).toBeUndefined();
   });
 
@@ -320,7 +339,7 @@ describe('ReplayPanel', () => {
       ok: false, blocked: 'preflight',
       preflight: { ok: false, unavailable: ['meta'], aliased: [] },
     });
-    vi.mocked(host.provider.openLogin).mockRejectedValueOnce(new Error('login unavailable'));
+    vi.mocked(host.provider.openWindow).mockRejectedValueOnce(new Error('login unavailable'));
     const activeProviders: AIProvider[] = ['chatgpt', 'claude', 'gemini', 'meta'];
     const panel = new ReplayPanel({ activeProviders });
     await panel.startReplay({ kind: 'last', snapshot: buildSnapshot() });
@@ -333,7 +352,7 @@ describe('ReplayPanel', () => {
       && textOf(element).includes(t('provider.retry', 'en')))).toHaveLength(0);
     propsOf(oldRetry).onClick?.();
     await Promise.resolve();
-    expect(host.provider.openLogin).toHaveBeenCalledTimes(1);
+    expect(host.provider.openWindow).toHaveBeenCalledTimes(1);
     expect(replaySnapshot).toHaveBeenCalledTimes(1);
   });
 
@@ -390,7 +409,7 @@ describe('ReplayPanel', () => {
       (element) => element.type === 'button' && textOf(element).includes(t('settings.title', 'en')),
     )).toHaveLength(0);
     expect(onOpenLogin).not.toHaveBeenCalled();
-    expect(host.provider.openLogin).not.toHaveBeenCalled();
+    expect(host.provider.openWindow).not.toHaveBeenCalled();
   });
 
   it('offers Settings instead of login when a required snapshot provider is standby', async () => {
@@ -420,7 +439,7 @@ describe('ReplayPanel', () => {
     propsOf(buttonWithText(tree, t('settings.title', 'en'))).onClick?.();
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(onOpenLogin).not.toHaveBeenCalled();
-    expect(host.provider.openLogin).not.toHaveBeenCalled();
+    expect(host.provider.openWindow).not.toHaveBeenCalled();
   });
 
   it('replaces login retry with Settings after that provider becomes standby', async () => {
@@ -428,7 +447,7 @@ describe('ReplayPanel', () => {
       ok: false, blocked: 'preflight',
       preflight: { ok: false, unavailable: ['meta'], aliased: [] },
     });
-    vi.mocked(host.provider.openLogin).mockRejectedValueOnce(new Error('login unavailable'));
+    vi.mocked(host.provider.openWindow).mockRejectedValueOnce(new Error('login unavailable'));
     const onOpenSettings = vi.fn();
     const activeProviders: AIProvider[] = ['chatgpt', 'claude', 'gemini', 'meta'];
     const panel = new ReplayPanel({ activeProviders, onOpenSettings });
@@ -442,7 +461,7 @@ describe('ReplayPanel', () => {
       && textOf(element).includes(t('provider.retry', 'en')))).toHaveLength(0);
     propsOf(oldRetry).onClick?.();
     await Promise.resolve();
-    expect(host.provider.openLogin).toHaveBeenCalledTimes(1);
+    expect(host.provider.openWindow).toHaveBeenCalledTimes(1);
     propsOf(buttonWithText(panel.render(), t('settings.title', 'en'))).onClick?.();
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });

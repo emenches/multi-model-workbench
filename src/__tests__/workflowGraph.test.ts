@@ -27,6 +27,7 @@ import {
   type WorkflowGraph,
 } from '../workflow/graph';
 import { isInactiveStandbyProvider } from '../workflow/graph/preflight';
+import { chooseConsultRoles } from '../ui/consultAvailability';
 import { flushSessionCheckpointForTests, resetSessionCheckpointForTests } from '../workflow/sessionCheckpoint';
 import { resetWorkflowStateForTests } from '../workflow/state';
 import { resetStepTimeoutForTests } from '../workflow/stepTimeout';
@@ -228,6 +229,33 @@ describe('workflow graph foundation', () => {
       unavailable: ['grok'],
       aliased: [],
     });
+  });
+
+  it('runs Consult with two distinct providers and reuses them only for sequential roles', async () => {
+    vi.mocked(host.connections.get).mockResolvedValue([
+      state('chatgpt'), state('claude', false), state('gemini'), state('grok', false),
+    ]);
+    const roles = chooseConsultRoles(DEFAULT_CONSULT_ROLES, ['chatgpt', 'gemini']);
+    if (!roles) throw new Error('Expected two-provider Consult roles');
+
+    await expect(preflightGraph(consultGraph, roles, providers)).resolves.toMatchObject({
+      ok: true, unavailable: [], aliased: [],
+    });
+
+    const sent: AIProvider[] = [];
+    const prompts: string[] = [];
+    vi.mocked(host.provider.send).mockImplementation(async (provider, prompt) => {
+      sent.push(provider);
+      prompts.push(prompt);
+      publishBridgeMessage(done(provider, `${provider}-answer-${sent.length}`));
+    });
+    await expect(executeGraph(consultGraph, { text: 'Two-source question', roles })).resolves.toBeUndefined();
+
+    expect(sent).toEqual(['chatgpt', 'gemini', 'chatgpt', 'gemini']);
+    expect(prompts).toHaveLength(4);
+    expect(prompts[2]).toContain('chatgpt-answer-1');
+    expect(prompts[2]).toContain('gemini-answer-2');
+    expect(prompts[3]).toContain('chatgpt-answer-3');
   });
 
   it('versions every graph whose built-in provider routing changed', () => {

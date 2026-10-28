@@ -8,7 +8,7 @@ import { sendRoleAssignment, sendWorkflowStatus } from '../events';
 import { fillAndAwaitNativeSend } from '../nativeEdit';
 import { providerResponseError, ProviderResponseError } from '../providerResponse';
 import { reserveProviderTurn, sendAndWait } from '../sendAndWait';
-import { prependResponseLanguagePolicy, type ResponseLanguagePolicy } from '../responseLanguage';
+import { appendResponseLanguageReminder, prependResponseLanguagePolicy, type ResponseLanguagePolicy } from '../responseLanguage';
 import { runStep } from '../stepRunner';
 import { clearActiveTurn, SKIP_RESPONSE } from '../state';
 import { cancelPendingStepTimeoutAction } from '../stepTimeout';
@@ -477,7 +477,10 @@ function renderPromptSpec(prompt: PromptSpec, context: ExecutionContext, nodeId:
     targets: context.targets,
     locale: context.locale,
   });
-  return prependResponseLanguagePolicy(rendered, context.responseLanguagePolicy);
+  return appendResponseLanguageReminder(
+    prependResponseLanguagePolicy(rendered, context.responseLanguagePolicy),
+    context.responseLanguagePolicy,
+  );
 }
 
 function renderTextTemplate(template: TextTemplate, context: ExecutionContext, nodeId: NodeId, provider?: AIProvider): string {

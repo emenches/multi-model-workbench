@@ -138,7 +138,7 @@ export function FocusPane({
     // overflow-y-auto 是極端小視窗下的逃生口，讓連線列在被擠壓時仍可捲到；
     // 捲動時原生 webview 的錨點只是換位置、尺寸不變，ResizeObserver 不會觸發，
     // 故用 onScroll（見 onFocusScroll）即時重新同步 webview 座標。
-    <aside className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-white dark:bg-zinc-950 p-3" onScroll={onFocusScroll}>
+    <aside className="workbench-focus-pane flex min-h-0 flex-1 flex-col overflow-y-auto bg-white p-3 dark:bg-zinc-950" onScroll={onFocusScroll}>
       {centeredProvider ? (
         <FocusStage
           provider={centeredProvider}
@@ -222,7 +222,7 @@ function FirstRunPanel({
     <section
       ref={setCenterStageRef}
       aria-labelledby="first-run-title"
-      className="ai-sister-first-run grid min-h-[160px] flex-1 place-items-center overflow-auto rounded-lg border border-zinc-200 bg-gradient-to-b from-sky-50 to-white p-4 dark:border-zinc-800 dark:from-sky-950/30 dark:to-zinc-950"
+      className="ai-sister-first-run workbench-first-run grid min-h-[160px] flex-1 place-items-center overflow-auto rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
     >
       <div className="w-full max-w-2xl text-center">
         <div className="ai-sister-onboarding-star mx-auto grid h-12 w-12 place-items-center rounded-full bg-sky-100 text-2xl dark:bg-sky-950" aria-hidden="true">
@@ -328,18 +328,18 @@ function FocusStage({
 
   return (
     <section
-      className="ai-sister-focus-stage flex min-h-[160px] flex-1 flex-col overflow-hidden border border-sky-300 dark:border-sky-900 bg-zinc-50 dark:bg-zinc-900"
+      className="ai-sister-focus-stage workbench-provider-stage flex min-h-[160px] flex-1 flex-col overflow-hidden rounded-2xl border border-sky-300 bg-zinc-50 dark:border-sky-900 dark:bg-zinc-900"
       onPointerDownCapture={() => onManualFocusControl(provider)}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-sky-300 dark:border-sky-900 px-3 py-2 text-sm">
+      <div className="workbench-provider-stage-toolbar flex flex-wrap items-center justify-between gap-2 border-b border-sky-300 px-3 py-2.5 text-sm dark:border-sky-900">
         <span className="flex min-w-0 items-center gap-2 truncate">
           <AiSisterAvatar provider={provider} size="sm" active={state.thinking} />
           <span className="truncate">{AI_PROVIDERS[provider].name}</span>
         </span>
-        <div className="flex flex-wrap justify-end gap-2 text-xs">
+        <div className="workbench-provider-stage-actions flex flex-wrap justify-end gap-2 text-xs">
           {centerSurface === 'text' ? (
             <button type="button" className="border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={onEnlargeCenter}>
-              {t('provider.realPage')}
+              {t('provider.realPage')} <span aria-hidden="true">↗</span>
             </button>
           ) : (
             <button type="button" className="border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={onCollapseCenter}>
@@ -354,6 +354,16 @@ function FocusStage({
               onClick={onToggleStageExpanded}
             >
               {stageExpanded ? t('provider.collapseStage') : t('provider.expandStage')}
+            </button>
+          ) : null}
+          {state.webview === 'loaded' && state.dom === 'unknown' ? (
+            <button
+              type="button"
+              className="border border-sky-300 px-2 py-1 text-sky-900 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-200 dark:hover:bg-sky-900"
+              onClick={() => void onReload(provider)}
+              title="Retry provider page detection without signing out"
+            >
+              {t('provider.reload')}
             </button>
           ) : null}
           {showLoginCta ? (
@@ -381,7 +391,7 @@ function FocusStage({
               <div
                 id={moreMenuId}
                 role="menu"
-                className="absolute right-0 z-20 mt-1 min-w-32 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 p-1 shadow-lg"
+                className="workbench-provider-stage-menu absolute right-0 z-20 mt-1 min-w-32 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-950"
               >
                 <button
                   type="button"
@@ -418,7 +428,7 @@ function FocusStage({
         </div>
       ) : null}
       {/* WebView 以此區域定位，讓上方標題列（含「文字檢視」返回鈕）保持可見 */}
-      <div ref={setCenterStageRef} className="flex min-h-0 flex-1 flex-col">
+      <div ref={setCenterStageRef} className="workbench-provider-stage-content flex min-h-0 flex-1 flex-col">
       {state.adapter === 'broken' ? (
         <div className="border-b border-red-300 dark:border-red-900 bg-red-50 dark:bg-red-950 px-3 py-2 text-xs text-red-800 dark:text-red-200">{t('provider.adapterBroken')}</div>
       ) : null}

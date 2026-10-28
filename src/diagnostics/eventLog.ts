@@ -220,6 +220,17 @@ export function eventFromBridgeMessage(message: BridgeMessage): EventLogInput | 
   if (message.action === 'ADAPTER_UPDATE') return adapterUpdateEvent(message);
   if (message.action === 'WORKFLOW_STATUS') return workflowStatusEvent(message);
   if (message.action === 'ROLE_ASSIGNMENT') return roleAssignmentEvent(message);
+  if (message.action === 'WORKFLOW_STEP_CONFIRMED') {
+    const provider = safeProvider(message.provider);
+    const value = recordPayload(message.payload);
+    const turn = numberProp(value, 'turn');
+    return {
+      provider,
+      kind: 'workflow-step',
+      summary: `${provider ? providerName(provider) : 'Provider'} workflow answer accepted`,
+      detail: { turn: turn ?? null, transport: message.transport ?? null },
+    };
+  }
   if (message.action === 'CANCEL_WORKFLOW') {
     return {
       kind: 'workflow-error',
@@ -288,6 +299,59 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
   const thinking = booleanProp(payload, 'thinking');
   const bulkReady = numberProp(payload, 'bulkReady');
   const doneReady = booleanProp(payload, 'doneReady');
+  const capturePhase = stringProp(payload, 'capturePhase');
+  const rendererDiagnostic = stringProp(payload, 'rendererDiagnostic');
+  const captureDilRendererFrames = numberProp(payload, 'captureDilRendererFrames');
+  const captureLatestUnitFrames = numberProp(payload, 'captureLatestUnitFrames');
+  const statusErrorStage = stringProp(payload, 'statusErrorStage');
+  const pullDiagnostic = stringProp(payload, 'pullDiagnostic');
+  const pullFailureKind = stringProp(payload, 'pullFailureKind');
+  const recoveryAttempt = numberProp(payload, 'recoveryAttempt');
+  const statusSilentMs = numberProp(payload, 'statusSilentMs');
+  const bridgePresent = booleanProp(payload, 'bridgePresent');
+  const enginePresent = booleanProp(payload, 'enginePresent');
+  const bootMatches = booleanProp(payload, 'bootMatches');
+  const adapterInstalled = booleanProp(payload, 'adapterInstalled');
+  const statusTicks = numberProp(payload, 'statusTicks');
+  const responsePollTicks = numberProp(payload, 'responsePollTicks');
+  const engineAwaiting = booleanProp(payload, 'engineAwaiting');
+  const statusEmits = numberProp(payload, 'statusEmits');
+  const fillStarts = numberProp(payload, 'fillStarts');
+  const fillDones = numberProp(payload, 'fillDones');
+  const titleQueued = numberProp(payload, 'titleQueued');
+  const titleStarted = numberProp(payload, 'titleStarted');
+  const titleFinished = numberProp(payload, 'titleFinished');
+  const nativeCapturePhase = stringProp(payload, 'capturePhase');
+  const captureResponseNodes = numberProp(payload, 'captureResponseNodes');
+  const captureAssistantUnits = numberProp(payload, 'captureAssistantUnits');
+  const captureLatestUnitDomChars = numberProp(payload, 'captureLatestUnitDomChars');
+  const captureTextChars = numberProp(payload, 'captureTextChars');
+  const captureAnchor = booleanProp(payload, 'captureAnchor');
+  const captureGenerationSeen = booleanProp(payload, 'captureGenerationSeen');
+  if (rendererDiagnostic === 'navigation-blocked') parts.push('ChatGPT DIL renderer navigation blocked by native policy');
+  if (rendererDiagnostic === 'navigation-allowed') parts.push('ChatGPT DIL renderer navigation allowed inside native page');
+  if (rendererDiagnostic === 'top-level-recovered') parts.push('ChatGPT DIL renderer escaped to top-level; native page restored');
+  if (rendererDiagnostic === 'popup-blocked') parts.push('ChatGPT DIL renderer popup blocked by native policy');
+  if (capturePhase) parts.push(`capture ${capturePhase}`);
+  if (statusErrorStage) parts.push(`status probe error ${statusErrorStage}`);
+  if (pullDiagnostic) parts.push(`pull ${pullDiagnostic}`);
+  if (pullFailureKind) parts.push(`failure ${pullFailureKind}`);
+  if (pullDiagnostic && typeof recoveryAttempt === 'number') parts.push(`attempt ${recoveryAttempt}`);
+  if (pullDiagnostic && typeof statusSilentMs === 'number') parts.push(`title silent ${Math.floor(statusSilentMs / 1_000)}s`);
+  if (pullDiagnostic === 'bridge-probe') {
+    parts.push(`bridge present ${bridgePresent === true ? 'yes' : 'no'}`);
+    parts.push(`engine present ${enginePresent === true ? 'yes' : 'no'}`);
+    parts.push(`boot matched ${bootMatches === true ? 'yes' : 'no'}`);
+    parts.push(`adapter installed ${adapterInstalled === true ? 'yes' : 'no'}`);
+    parts.push(`status ticks ${statusTicks ?? 'unknown'}`);
+    parts.push(`response poll ticks ${responsePollTicks ?? 'unknown'}`);
+    parts.push(`engine awaiting ${engineAwaiting === true ? 'yes' : 'no'}`);
+    parts.push(`status emitted ${statusEmits ?? 'unknown'}`);
+    parts.push(`title queued/started/finished ${titleQueued ?? '?'}/${titleStarted ?? '?'}/${titleFinished ?? '?'}`);
+    parts.push(`fill started/done ${fillStarts ?? '?'}/${fillDones ?? '?'}`);
+    parts.push(`capture ${nativeCapturePhase ?? 'unknown'}`);
+    parts.push(`answer chars ${captureTextChars ?? '?'}`);
+  }
   if (dom) parts.push(`dom ${dom}`);
   if (login) parts.push(`login ${login}`);
   if (typeof thinking === 'boolean') parts.push(`thinking ${thinking ? 'yes' : 'no'}`);
@@ -309,6 +373,60 @@ function statusEvent(message: BridgeMessage): EventLogInput | undefined {
       reason,
       bulkReady: bulkReady ?? null,
       doneReady: doneReady ?? null,
+      ...(statusErrorStage ? { statusErrorStage } : {}),
+      ...(['navigation-blocked', 'navigation-allowed', 'top-level-recovered', 'popup-blocked'].includes(rendererDiagnostic ?? '')
+        ? { rendererDiagnostic } : {}),
+      ...(pullDiagnostic ? {
+        pullDiagnostic,
+        pullFailureKind: pullFailureKind ?? null,
+        recoveryAttempt: recoveryAttempt ?? null,
+        statusSilentMs: statusSilentMs ?? null,
+        ...(pullDiagnostic === 'bridge-probe' ? {
+          bridgePresent: bridgePresent ?? null,
+          enginePresent: enginePresent ?? null,
+          bootMatches: bootMatches ?? null,
+          adapterInstalled: adapterInstalled ?? null,
+          statusTicks: statusTicks ?? null,
+          responsePollTicks: responsePollTicks ?? null,
+          engineAwaiting: engineAwaiting ?? null,
+          statusEmits: statusEmits ?? null,
+          fillStarts: fillStarts ?? null,
+          fillDones: fillDones ?? null,
+          titleQueued: titleQueued ?? null,
+          titleStarted: titleStarted ?? null,
+          titleFinished: titleFinished ?? null,
+          capturePhase: nativeCapturePhase ?? null,
+          captureResponseNodes: captureResponseNodes ?? null,
+          captureAssistantUnits: captureAssistantUnits ?? null,
+          captureLatestUnitDomChars: captureLatestUnitDomChars ?? null,
+          captureTextChars: captureTextChars ?? null,
+          captureAnchor: captureAnchor ?? null,
+          captureGenerationSeen: captureGenerationSeen ?? null,
+        } : {}),
+      } : {}),
+      ...(capturePhase ? {
+        capturePhase,
+        captureUserNodes: numberProp(payload, 'captureUserNodes') ?? null,
+        captureResponseNodes: numberProp(payload, 'captureResponseNodes') ?? null,
+        captureAssistantUnits: numberProp(payload, 'captureAssistantUnits') ?? null,
+        captureLatestUnitDomChars: numberProp(payload, 'captureLatestUnitDomChars') ?? null,
+        captureLatestUnitRenderedChars: numberProp(payload, 'captureLatestUnitRenderedChars') ?? null,
+        captureLatestUnitSerializedChars: numberProp(payload, 'captureLatestUnitSerializedChars') ?? null,
+        captureLatestUnitMarkdownNodes: numberProp(payload, 'captureLatestUnitMarkdownNodes') ?? null,
+        captureLatestUnitFrames: captureLatestUnitFrames ?? null,
+        captureDilRendererFrames: captureDilRendererFrames ?? null,
+        captureRejectedBeforeAnchor: numberProp(payload, 'captureRejectedBeforeAnchor') ?? null,
+        captureRejectedAsUser: numberProp(payload, 'captureRejectedAsUser') ?? null,
+        captureRejectedBaseline: numberProp(payload, 'captureRejectedBaseline') ?? null,
+        captureRejectedEmpty: numberProp(payload, 'captureRejectedEmpty') ?? null,
+        captureRejectedScaffold: numberProp(payload, 'captureRejectedScaffold') ?? null,
+        captureRejectedEcho: numberProp(payload, 'captureRejectedEcho') ?? null,
+        captureEligibleNodes: numberProp(payload, 'captureEligibleNodes') ?? null,
+        captureAnchor: booleanProp(payload, 'captureAnchor') ?? null,
+        captureAnchorLatched: booleanProp(payload, 'captureAnchorLatched') ?? null,
+        captureGenerationSeen: booleanProp(payload, 'captureGenerationSeen') ?? null,
+        captureTextChars: numberProp(payload, 'captureTextChars') ?? null,
+      } : {}),
     },
   };
 }

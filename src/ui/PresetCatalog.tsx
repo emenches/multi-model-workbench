@@ -4,6 +4,7 @@ import { formatI18n, t } from '../i18n/t';
 import type { Locale } from '../i18n/resolve';
 import { isSendable } from '../workflow/sendability';
 import { PRESET_CATALOG, defaultRolesForPreset, type PresetCatalogEntry } from './presetCatalogData';
+import { MIN_CONSULT_PROVIDERS, availableConsultProviders } from './consultAvailability';
 import type { ModeRoleAssignments } from './modeRoleAssignment';
 
 export function PresetCatalog({
@@ -29,7 +30,7 @@ export function PresetCatalog({
   activeProviders?: readonly AIProvider[];
   disabled?: boolean;
   detailsPresetId?: WorkflowPresetId;
-  layout?: 'wide' | 'sidebar';
+  layout?: 'wide' | 'sidebar' | 'dialog';
 }) {
   const visiblePresets = PRESET_CATALOG.slice(0, visiblePresetCount);
   const quickMode = visiblePresetCount < PRESET_CATALOG.length;
@@ -46,9 +47,12 @@ export function PresetCatalog({
         activeProviders,
         disabled,
         compact: layout === 'sidebar',
+        dialog: layout === 'dialog',
         className:
           layout === 'sidebar'
             ? 'grid grid-cols-2 gap-1.5'
+            : layout === 'dialog'
+              ? 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3'
             : quickMode
               ? 'grid gap-2 lg:grid-cols-3'
               : 'grid gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6',
@@ -79,6 +83,7 @@ function renderPresetGrid({
   disabled,
   className,
   compact = false,
+  dialog = false,
   activePresetId,
   keyPrefix = 'preset',
 }: {
@@ -91,6 +96,7 @@ function renderPresetGrid({
   disabled: boolean;
   className: string;
   compact?: boolean;
+  dialog?: boolean;
   activePresetId: WorkflowPresetId;
   keyPrefix?: string;
 }) {
@@ -106,7 +112,7 @@ function renderPresetGrid({
             type="button"
             onClick={() => onSelectPreset(preset.id)}
             disabled={disabled}
-            className={`ai-sister-preset-card flex ${compact ? 'min-h-12 px-2 py-1.5' : 'min-h-14 px-3 py-2'} flex-col justify-center rounded border text-left transition ${
+            className={`ai-sister-preset-card flex ${dialog ? 'min-h-36 p-4' : compact ? 'min-h-12 px-2 py-1.5' : 'min-h-14 px-3 py-2'} flex-col justify-center rounded-xl border text-left transition ${
               selected ? 'border-sky-500 bg-sky-50 dark:bg-sky-950 text-sky-900 dark:text-zinc-50' : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 hover:border-zinc-400 dark:hover:border-zinc-600'
             } disabled:cursor-not-allowed disabled:opacity-60`}
             aria-pressed={selected}
@@ -125,7 +131,10 @@ function renderPresetGrid({
                 </span>
               ) : null}
             </span>
-            {preset.metaKey ? <span className="mt-1 text-[0.6875rem] leading-none text-zinc-500 dark:text-zinc-400">{t(preset.metaKey, locale)}</span> : null}
+            {dialog ? (
+              <span className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">{t(preset.descriptionKey, locale)}</span>
+            ) : null}
+            {preset.metaKey ? <span className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{t(preset.metaKey, locale)}</span> : null}
           </button>
         );
       })}
@@ -140,6 +149,16 @@ function presetReadiness(
   modeRoles?: ModeRoleAssignments,
   activeProviders?: readonly AIProvider[],
 ): { label: string; ready: boolean } {
+  if (preset.graphId === 'consult') {
+    const readyCount = availableConsultProviders(states, activeProviders ?? DEFAULT_FREE_TARGET_PROVIDERS).length;
+    return {
+      label: formatI18n(t('preset.readinessRequired', locale), {
+        ready: Math.min(readyCount, MIN_CONSULT_PROVIDERS),
+        total: MIN_CONSULT_PROVIDERS,
+      }),
+      ready: readyCount >= MIN_CONSULT_PROVIDERS,
+    };
+  }
   const roles = defaultRolesForPreset(preset.graphId, preset.id, modeRoles);
   const required = roles ? ([...new Set(Object.values(roles))] as AIProvider[]) : preset.requiredProviders;
   if (required.length === 0) {

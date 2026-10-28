@@ -194,6 +194,20 @@ function renderInline(text: string, keyPrefix: string, allowLinks = true, depth 
       continue;
     }
 
+    // Common short lead-ins are structural labels even when a provider emits
+    // plain text instead of Markdown. Emphasize only the label; never rewrite
+    // response content or interpret arbitrary prose as a heading.
+    if ((cursor === 0 || text[cursor - 1] === '\n') && depth < 20) {
+      const leadIn = /^(Try|Tip|Note|Example|Key takeaway|Best for|Why it works):(?=\s|$)/i.exec(text.slice(cursor));
+      if (leadIn) {
+        flushPlainText();
+        const label = leadIn[0];
+        nodes.push(<strong key={nextKey()} className="font-semibold">{label}</strong>);
+        cursor += label.length;
+        continue;
+      }
+    }
+
     if (character === '\\' && cursor + 1 < text.length && /[\\`*_[\]()<>]/.test(text[cursor + 1])) {
       plainText += text[cursor + 1];
       cursor += 2;
@@ -505,6 +519,19 @@ function renderBlocks(text: string): ReactNode[] {
           currentItem.push(continuation[1]);
           cursor += 1;
           continue;
+        }
+
+        // Providers often separate numbered recommendations with a blank
+        // line. Keep those entries in one semantic list, without swallowing
+        // the paragraph that follows the final list item.
+        if (currentItem && lines[cursor].trim() === '') {
+          let nextCursor = cursor + 1;
+          while (nextCursor < lines.length && lines[nextCursor].trim() === '') nextCursor += 1;
+          const nextItem = matchListItem(lines[nextCursor] ?? '');
+          if (nextItem && nextItem.ordered === firstListItem.ordered) {
+            cursor = nextCursor;
+            continue;
+          }
         }
         break;
       }

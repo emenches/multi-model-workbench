@@ -20,6 +20,18 @@ const DEFAULT_REQUIRED_PROVIDERS = [...DEFAULT_FREE_TARGET_PROVIDERS] as AIProvi
 
 export const PRESET_CATALOG: PresetCatalogEntry[] = [
   {
+    id: 'simple',
+    graphId: 'free',
+    displayNameKey: 'preset.simple.displayName',
+    metaKey: 'preset.simple.meta',
+    descriptionKey: 'preset.simple.description',
+    costLabelKey: 'preset.simple.costLabel',
+    requiredProviders: [],
+    estMinutes: 1,
+    ramHint: 'low',
+    source: 'builtin',
+  },
+  {
     id: 'free',
     graphId: 'free',
     displayNameKey: 'preset.free.displayName',

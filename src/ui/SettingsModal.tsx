@@ -18,11 +18,13 @@ import {
   MODE_ROLE_LABEL_KEYS,
   MODE_ROLE_MODE_LABEL_KEYS,
   assignModeRole,
+  assignReadyModeRoles,
   replaceModeRoleProvider,
   type ModeRoleAssignments,
 } from './modeRoleAssignment';
 import { compareVersions, fetchLatestRelease } from './updateCheck';
 import { host } from '../host';
+import { isSendable } from '../workflow/sendability';
 import {
   filterEventLogByProvider,
   formatEventLogText,
@@ -128,12 +130,29 @@ export function SettingsModal({
   const fontSizeUpdateSeqRef = useRef(0);
   const liveRef = useRef({ openProviders, focusPaneWidth, presentation });
   const saveInFlightRef = useRef(false);
+  const lastFocusedRoleModeRef = useRef<string>();
   liveRef.current = { openProviders, focusPaneWidth, presentation };
 
   useEffect(() => {
     if (!open) return;
     setExpandedRoleModes(activeModeRoleSettings ? [activeModeRoleSettings] : []);
   }, [activeModeRoleSettings, open]);
+
+  useEffect(() => {
+    if (!open) {
+      lastFocusedRoleModeRef.current = undefined;
+      return;
+    }
+    if (!draft || !activeModeRoleSettings) return;
+    if (lastFocusedRoleModeRef.current === activeModeRoleSettings) return;
+    lastFocusedRoleModeRef.current = activeModeRoleSettings;
+    // Move into the relevant expanded role editor just once, not every time
+    // the user changes a select field.
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('settings-collaboration-roles')?.scrollIntoView?.({ block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, activeModeRoleSettings, draft]);
 
   useEffect(() => {
     const modalSession = ++modalSessionRef.current;
@@ -383,7 +402,7 @@ export function SettingsModal({
       titleId="settings-title"
       onEscape={closeSettings}
       onBackdrop={closeSettings}
-      panelClassName="max-h-[92vh] w-full max-w-2xl overflow-auto rounded-lg border border-zinc-300 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
+      panelClassName="workbench-settings-dialog max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl border border-zinc-300 bg-white p-6 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
     >
         <div className="mb-4 flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3">
           <h2 id="settings-title" className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{t('settings.title')}</h2>
@@ -435,21 +454,6 @@ export function SettingsModal({
               <p id="settings-response-language-description" className="mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-500">
                 {t('settings.responseLanguageDescription')}
               </p>
-            </section>
-
-            <section>
-              <label className="block text-xs text-zinc-600 dark:text-zinc-400">
-                <span className="mb-1 block font-medium text-zinc-700 dark:text-zinc-300">{t('settings.theme')}</span>
-                <select
-                  value={draft.theme}
-                  onChange={(event) => updateDraft({ theme: event.target.value as AppSettings['theme'] })}
-                  className="w-full border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-2 py-1.5 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-sky-500 dark:focus:border-sky-600"
-                >
-                  <option value="light">{t('settings.themeLight')}</option>
-                  <option value="dark">{t('settings.themeDark')}</option>
-                  <option value="ai-sister">{t('settings.themeAiSister')}</option>
-                </select>
-              </label>
             </section>
 
             <section>
@@ -519,7 +523,7 @@ export function SettingsModal({
               </div>
             </section>
 
-            <section className="space-y-3 border-t border-zinc-200 dark:border-zinc-800 pt-4">
+            <section id="settings-collaboration-roles" className="space-y-3 border-t border-zinc-200 dark:border-zinc-800 pt-4">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('settings.modeRoles')}</h3>
               <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-500">{t('settings.modeRolesDescription')}</p>
               {orderedRoleModes.map((roleMode) => (
@@ -540,6 +544,23 @@ export function SettingsModal({
                     {t(MODE_ROLE_MODE_LABEL_KEYS[roleMode])}
                   </summary>
                   <div className="grid grid-cols-2 gap-2 border-t border-zinc-200 p-3 dark:border-zinc-800">
+                    <div className="col-span-2 flex flex-wrap items-center justify-between gap-2 pb-1">
+                      <p className="max-w-md text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                        {t('settings.modeRolesReadyDescription')}
+                      </p>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-lg border border-sky-500/30 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-sky-300 dark:hover:bg-sky-950"
+                        onClick={() => {
+                          const ready = activeProvidersForStandby(draft.standbyProvider)
+                            .filter((provider) => Boolean(providerStates[provider]) && isSendable(providerStates[provider]));
+                          updateDraft({ modeRoles: assignReadyModeRoles(draft.modeRoles, roleMode, ready) });
+                        }}
+                        disabled={providerSelectionDisabled || activeProvidersForStandby(draft.standbyProvider).filter((provider) => Boolean(providerStates[provider]) && isSendable(providerStates[provider])).length < (roleMode === 'consult' ? 2 : 1)}
+                      >
+                        {t('settings.useReadyAgents')}
+                      </button>
+                    </div>
                     {MODE_ROLE_FIELDS[roleMode].map((role) => (
                       <label key={role} className="block text-xs text-zinc-600 dark:text-zinc-400">
                         <span className="mb-1 block">{t(MODE_ROLE_LABEL_KEYS[roleMode][role])}</span>
@@ -640,6 +661,19 @@ export function SettingsModal({
                 </span>
               </summary>
               <div className="mt-3 space-y-4 border-l-2 border-zinc-200 pl-4 dark:border-zinc-800">
+                <section>
+                  <label className="flex items-start gap-2.5 text-sm text-zinc-700 dark:text-zinc-300">
+                    <input type="checkbox" className="mt-0.5 h-4 w-4 accent-sky-700"
+                      checked={draft.adapterUpdatesEnabled}
+                      onChange={(event) => updateDraft({ adapterUpdatesEnabled: event.target.checked })}/>
+                    <span>
+                      <span className="block font-semibold">{t('settings.adapterUpdatesEnabled')}</span>
+                      <span className="mt-1 block text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                        {t('settings.adapterUpdatesDescription')}
+                      </span>
+                    </span>
+                  </label>
+                </section>
                 <section>
                   <label className="block text-xs text-zinc-600 dark:text-zinc-400">
                     <span className="mb-1 block">{t('settings.adapterBaseUrl')}</span>

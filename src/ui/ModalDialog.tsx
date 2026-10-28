@@ -73,7 +73,7 @@ export function ModalDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="workbench-dialog-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) onBackdrop?.();
       }}

@@ -6,6 +6,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
 const SNAPSHOT_RETENTION: usize = 50;
+const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotListEntry {
@@ -86,6 +87,9 @@ fn save_snapshot_to_dir(
     retention: usize,
 ) -> Result<(), String> {
     let path = snapshot_path(dir, snapshot_id)?;
+    if snapshot_json.len() > MAX_SNAPSHOT_BYTES {
+        return Err("snapshot exceeds the size limit".into());
+    }
     crate::settings::write_atomic(&path, snapshot_json.as_bytes())?;
     prune_snapshots(dir, retention)
 }
@@ -102,7 +106,8 @@ fn list_snapshots_in_dir(dir: &Path) -> Result<Vec<SnapshotListEntry>, String> {
     files
         .into_iter()
         .map(|file| {
-            let text = std::fs::read_to_string(&file.path).map_err(|error| error.to_string())?;
+            let text = crate::settings::read_bounded_utf8(&file.path, MAX_SNAPSHOT_BYTES)
+                .map_err(|error| error.to_string())?;
             Ok(snapshot_list_entry(file.id, &text))
         })
         .collect()
@@ -110,7 +115,7 @@ fn list_snapshots_in_dir(dir: &Path) -> Result<Vec<SnapshotListEntry>, String> {
 
 fn load_snapshot_from_dir(dir: &Path, snapshot_id: &str) -> Result<Option<String>, String> {
     let path = snapshot_path(dir, snapshot_id)?;
-    match std::fs::read_to_string(path) {
+    match crate::settings::read_bounded_utf8(&path, MAX_SNAPSHOT_BYTES) {
         Ok(text) => Ok(Some(text)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.to_string()),
@@ -190,7 +195,11 @@ fn snapshot_file(entry: std::fs::DirEntry) -> Result<Option<SnapshotFile>, Strin
     if validate_snapshot_id(id).is_err() {
         return Ok(None);
     }
+    // Do not follow a symlink in the private snapshots directory.
     let metadata = entry.metadata().map_err(|error| error.to_string())?;
+    if entry.file_type().map_err(|error| error.to_string())?.is_symlink() {
+        return Ok(None);
+    }
     if !metadata.is_file() {
         return Ok(None);
     }
@@ -272,6 +281,34 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn oversize_snapshot_fails_without_pruning_or_overwriting() {
+        let dir = unique_dir("oversize");
+        let id = "snap-safe";
+        save_snapshot_to_dir(&dir, id, r#"{"original":true}"#, SNAPSHOT_RETENTION)
+            .expect("write existing snapshot");
+        let oversized = "x".repeat(MAX_SNAPSHOT_BYTES + 1);
+        assert!(save_snapshot_to_dir(&dir, id, &oversized, SNAPSHOT_RETENTION).is_err());
+        assert_eq!(load_snapshot_from_dir(&dir, id).unwrap(), Some(r#"{"original":true}"#.into()));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_snapshot_is_not_followed() {
+        use std::os::unix::fs::symlink;
+        let dir = unique_dir("symlink");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let outside = unique_dir("external").with_extension("json");
+        std::fs::write(&outside, br#"{"private":true}"#).expect("outside file");
+        symlink(&outside, dir.join("link.json")).expect("link");
+        assert!(list_snapshots_in_dir(&dir).unwrap().is_empty());
+        assert!(load_snapshot_from_dir(&dir, "link").is_err());
+        assert_eq!(std::fs::read(&outside).unwrap(), br#"{"private":true}"#);
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_file(outside);
     }
 
     #[test]

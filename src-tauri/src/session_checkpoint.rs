@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 const SESSION_CHECKPOINT_FILE: &str = "session-checkpoint.json";
+const MAX_SESSION_CHECKPOINT_BYTES: usize = 8 * 1024 * 1024;
 
 pub(crate) fn session_checkpoint_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(session_checkpoint_path_in_dir(
@@ -45,11 +46,14 @@ fn session_checkpoint_path_in_dir(app_data_dir: &Path) -> PathBuf {
 }
 
 fn save_session_checkpoint_to_path(path: &Path, json: &str) -> Result<(), String> {
+    if json.len() > MAX_SESSION_CHECKPOINT_BYTES {
+        return Err("session checkpoint exceeds the size limit".into());
+    }
     crate::settings::write_atomic(path, json.as_bytes())
 }
 
 fn load_session_checkpoint_from_path(path: &Path) -> Result<Option<String>, String> {
-    match std::fs::read_to_string(path) {
+    match crate::settings::read_bounded_utf8(path, MAX_SESSION_CHECKPOINT_BYTES) {
         Ok(text) => Ok(Some(text)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.to_string()),
@@ -98,6 +102,20 @@ mod tests {
             None
         );
 
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn oversized_checkpoint_is_rejected_without_mutating_the_file() {
+        let dir = unique_dir("oversize");
+        let path = session_checkpoint_path_in_dir(&dir);
+        let oversized = "x".repeat(MAX_SESSION_CHECKPOINT_BYTES + 1);
+        assert!(save_session_checkpoint_to_path(&path, &oversized).is_err());
+        assert!(!path.exists(), "reject before writing");
+        std::fs::create_dir_all(&dir).expect("create test dir");
+        std::fs::write(&path, oversized.as_bytes()).expect("write legacy file");
+        assert!(load_session_checkpoint_from_path(&path).is_err());
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), oversized.len() as u64);
         let _ = std::fs::remove_dir_all(dir);
     }
 

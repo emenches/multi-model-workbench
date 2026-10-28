@@ -11,11 +11,21 @@ use std::{
 use tauri::{
     utils::config::BackgroundThrottlingPolicy,
     webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder},
+    window::WindowBuilder,
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
 };
 use tauri_plugin_opener::OpenerExt;
 
 use crate::{adapters, bridge::BridgeMessage, settings};
+
+#[path = "webviews/provider_ipc.rs"]
+mod provider_ipc;
+use provider_ipc::{
+    build_provider_control_script, provider_bridge_read_script, CHATGPT_BRIDGE_ACK_PREFIX,
+    CHATGPT_BRIDGE_HEALTH_JS, CHATGPT_BRIDGE_PEEK_JS,
+};
+#[cfg(target_os = "macos")]
+use crate::claude_login_tabs;
 
 const BOOTSTRAP_JS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -86,11 +96,110 @@ const PERMISSION_SHIM_JS: &str = r#"(function () {
 })();"#;
 
 fn provider_uses_permission_shim(provider: &str) -> bool {
-    provider != "grok"
+    // The clean WKWebView probe successfully authenticated Claude with unmodified WebKit APIs.
+    // Do not run a permission shim in Claude's login, SSO, or app documents.
+    provider != "grok" && provider != "claude"
 }
 
 fn provider_uses_document_start_bridge(provider: &str) -> bool {
-    provider != "grok"
+    // Never install a document-start script in a Claude authentication document.
+    // Claude's bridge is installed only after the authenticated composer appears.
+    provider != "grok" && provider != "claude"
+}
+
+/// Positive, exact-match allowlist for injecting automation into an authenticated Claude tab.
+/// A provider host match by itself is insufficient: /login and authentication callbacks are
+/// hosted on claude.ai too. Keep this separate from navigation/SSO URL allowlisting.
+fn claude_conversation_url(url: &tauri::Url) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some("claude.ai")
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && (url.path() == "/new"
+            || url.path().strip_prefix("/chat/").is_some_and(|id| !id.is_empty() && !id.contains('/')))
+}
+
+// Read-only. Never inspect an authentication field's contents or any session storage.
+// Confirm a real Claude composer exists before installing *any* automation script.
+// Repeat this guard inside the installation JS to close the navigation race between
+// the native URL check and WebKit's script execution.
+const CLAUDE_COMPOSER_READY_JS: &str = r#"(function () {
+  if (location.origin !== 'https://claude.ai') return false;
+  if (!(location.pathname === '/new' || /^\/chat\/[^/]+$/.test(location.pathname))) return false;
+  if (document.querySelector('input[type="password"], input[autocomplete="one-time-code"], input[type="email"]')) return false;
+  return !!document.querySelector('.ProseMirror[contenteditable="true"]');
+})()"#;
+
+fn guard_claude_automation(js: &str) -> String {
+    format!("(function () {{ if (!({CLAUDE_COMPOSER_READY_JS})) return;\n{js}\n}})();")
+}
+
+/// Unlike the document-start bridge, this probe never executes on login or SSO.
+/// A successful clean WKWebView test showed that user authentication is possible without
+/// scripts. Wait for the logged-in composer rather than guessing from the URL alone.
+fn schedule_claude_bridge_install(app: &AppHandle, webview: &tauri::Webview) {
+    // Both title and load events can fire during SPA navigation. Never launch
+    // simultaneous installers or install the engine twice in the same document.
+    static CLAUDE_INSTALL_INFLIGHT: OnceLock<Mutex<bool>> = OnceLock::new();
+    let lock = CLAUDE_INSTALL_INFLIGHT.get_or_init(|| Mutex::new(false));
+    if let Ok(mut running) = lock.lock() {
+        if *running { return; }
+        *running = true;
+    } else {
+        return;
+    }
+    let app = app.clone();
+    let webview = webview.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = async {
+        for _ in 0..60 {
+            if !webview.url().ok().is_some_and(|url| claude_conversation_url(&url)) {
+                // Navigation can be in progress: do not run scripts, but allow
+                // a successful authentication redirect to finish in this window.
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                continue;
+            }
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let sender = std::sync::Arc::new(std::sync::Mutex::new(Some(sender)));
+            let callback_sender = sender.clone();
+            if webview.eval_with_callback(CLAUDE_COMPOSER_READY_JS, move |result| {
+                if let Ok(mut guard) = callback_sender.lock() {
+                    if let Some(sender) = guard.take() {
+                        let _ = sender.send(result);
+                    }
+                }
+            }).is_ok() {
+                if let Ok(Ok(result)) = tokio::time::timeout(Duration::from_secs(2), receiver).await {
+                    if result.trim() == "true" {
+                        // The bootstrap is also guarded inside WebKit. It does not run on login.
+                        if install_claude_bridge(&app).is_ok() { return; }
+                    }
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        }.await;
+        if let Some(lock) = CLAUDE_INSTALL_INFLIGHT.get() {
+            if let Ok(mut running) = lock.lock() { *running = false; }
+        }
+    });
+}
+
+fn install_claude_bridge(app: &AppHandle) -> Result<(), String> {
+    let provider = "claude";
+    let webview = get_provider_webview(app, provider)?;
+    let url = webview.url().map_err(|error| error.to_string())?;
+    if !claude_conversation_url(&url) {
+        return Err("Claude bridge is disabled on non-conversation pages".into());
+    }
+    let app_hosts = serde_json::to_string(&adapters::app_hosts_for_provider(provider)?)
+        .map_err(|error| error.to_string())?;
+    let js = format!(
+        "if (!window.__MAC_BRIDGE__) {{ window.__MAC_PROVIDER__='claude';\nwindow.__MAC_APP_HOSTS__={app_hosts};\n{BOOTSTRAP_JS} }}"
+    );
+    eval_provider(app, provider, &guard_claude_automation(&js))?;
+    push_engine_and_adapter(app, provider)
 }
 
 fn grok_app_title_ready(provider: &str, title: &str) -> bool {
@@ -186,8 +295,30 @@ fn gemini_sorry_navigation_active(provider: &str, url: &tauri::Url) -> bool {
         && (url.path() == "/sorry" || url.path().starts_with("/sorry/"))
 }
 
+/// Tauri's macOS on_navigation hook is also invoked for auxiliary challenge
+/// frame navigations, not just top-level provider changes. Claude's *working*
+/// nonblocking login audit showed about: documents and newassets.hcaptcha.com
+/// were denied; hCaptcha documents that this is one of its real asset hosts.
+///
+/// Keep this exception exact and Claude-only. Do not relax the general
+/// cross-provider navigation policy or allow all external websites.
 fn challenge_auxiliary_navigation_allowed(provider: &str, url: &tauri::Url) -> bool {
-    provider == "grok" && url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc")
+    if provider == "grok" {
+        return url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc");
+    }
+    if provider != "claude" {
+        return false;
+    }
+    if url.scheme() == "about" {
+        return url.host_str().is_none()
+            && url.query().is_none()
+            && matches!(url.path(), "blank" | "srcdoc");
+    }
+    url.scheme() == "https"
+        && url.host_str() == Some("newassets.hcaptcha.com")
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
 }
 
 fn grok_external_auth_handoff_needs_app_return(provider: &str, url: &tauri::Url) -> bool {
@@ -1001,6 +1132,47 @@ enum NewWindowAction {
     DenySilent,
 }
 
+/// Provider-generated links are not user clicks. Do not launch the system
+/// browser when Gemini, ChatGPT or Claude request disallowed popups/redirects.
+/// The sole automatic fallback is the explicitly verified Grok auth return;
+/// allowlisted Google/other SSO popups are still hosted inside Tauri.
+fn external_handoff_allowed(provider: &str, url: &tauri::Url) -> bool {
+    grok_external_auth_handoff_needs_app_return(provider, url)
+}
+
+/// Auxiliary ChatGPT reply renderers belong inside their existing page/iframe.
+/// Never open one as a top-level system browser tab or native auth popup.
+fn chatgpt_renderer_auxiliary_url(provider: &str, url: &tauri::Url) -> bool {
+    provider == "chatgpt"
+        && url.scheme() == "https"
+        && url.host_str() == Some("cdn.platform.openai.com")
+        && url.path().starts_with("/deployments/dil/")
+        && url.path().ends_with("/runner.html")
+}
+
+/// WKWebView reports the DIL iframe's navigation through the URL-only
+/// on_navigation callback. The provider's current *top-level* URL must remain
+/// the trusted ChatGPT application before permitting this exact CDN runner.
+/// A second guard at page-load completion restores the trusted app if the
+/// runner nevertheless became the top-level document.
+fn allow_chatgpt_renderer_navigation(
+    provider: &str,
+    target: &tauri::Url,
+    current_main_url: &tauri::Url,
+) -> bool {
+    chatgpt_renderer_auxiliary_url(provider, target)
+        && adapters::url_matches_provider_app(provider, current_main_url).unwrap_or(false)
+}
+
+fn chatgpt_renderer_replaced_top_level(
+    provider: &str,
+    loaded_url: &tauri::Url,
+    current_main_url: &tauri::Url,
+) -> bool {
+    chatgpt_renderer_auxiliary_url(provider, loaded_url)
+        && chatgpt_renderer_auxiliary_url(provider, current_main_url)
+}
+
 fn decide_new_window_action(url: &tauri::Url, allowlisted: bool) -> NewWindowAction {
     if url.host_str() == Some("mac-bridge.invalid") {
         return NewWindowAction::DenySilent;
@@ -1049,6 +1221,51 @@ fn physical_bounds(bounds: &Bounds) -> Result<(PhysicalPosition<i32>, PhysicalSi
     ))
 }
 
+
+/** Create a dedicated native host BEFORE creating the provider WebView.
+ * macOS WKWebView can retain the old AppKit frame after reparenting. A provider
+ * born inside a full-size standalone NSWindow avoids that move entirely.
+ * Keep the window (and its one cookie/session profile) for the app's lifetime.
+ */
+fn ensure_provider_page_window(
+    app: &AppHandle,
+    provider: &str,
+) -> Result<tauri::Window, String> {
+    let label = provider_page_window_label(provider);
+    if let Some(window) = app.get_window(&label) {
+        return Ok(window);
+    }
+    let window = WindowBuilder::new(app, label)
+        .title(format!("{} — Multi-Model Workbench", provider.to_uppercase()))
+        .inner_size(940.0, 700.0)
+        .min_inner_size(520.0, 380.0)
+        .visible(false)
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let close_app = app.clone();
+    let close_provider = provider.to_string();
+    let close_window = window.clone();
+    window.on_window_event(move |event| {
+        #[cfg(target_os = "macos")]
+        if close_provider == "claude" && matches!(event, tauri::WindowEvent::Resized(_)) {
+            claude_login_tabs::layout(&close_app, &close_window);
+        }
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            // Do not destroy and recreate the authenticated WebView. Hiding its
+            // host preserves the existing bridge/session for future workflows.
+            api.prevent_close();
+            let _ = close_window.hide();
+            let _ = close_app.emit_to(
+                "main",
+                "provider-window://closed",
+                close_provider.clone(),
+            );
+        }
+    });
+    Ok(window)
+}
+
 #[tauri::command]
 pub async fn provider_open(
     app: AppHandle,
@@ -1057,7 +1274,9 @@ pub async fn provider_open(
     bounds: Bounds,
 ) -> Result<ProviderState, String> {
     ensure_control_webview(&webview)?;
-    let (position, size) = physical_bounds(&bounds)?;
+    // Preserve validation of the trusted UI's legacy bounds argument, but
+    // never use those panel coordinates to size the separately hosted page.
+    let _ = physical_bounds(&bounds)?;
     let adapter = adapters::get_adapter(&provider)?;
     // Serialize provider creation with standby changes. Otherwise settings_set could select this
     // provider as standby after the first active check but before add_child registers the WebView.
@@ -1065,10 +1284,10 @@ pub async fn provider_open(
     settings::ensure_provider_active_locked(&app, &provider)?;
     let label = provider_label(&provider);
     if let Some(webview) = app.get_webview(&label) {
-        webview.show().map_err(|error| error.to_string())?;
-        set_webview_bounds(&webview, position, size)?;
-        let state = current_state(&provider);
-        return Ok(state);
+        if !is_provider_detached(&webview, &provider) {
+            return Err(format!("{provider} is attached to an unexpected host window"));
+        }
+        return Ok(current_state(&provider));
     }
     start_staleness_watchdog(&app);
     set_state(
@@ -1076,9 +1295,13 @@ pub async fn provider_open(
         state_with(&provider, "creating", "unknown", "unknown", false),
     );
 
-    let window = app
-        .get_window("main")
-        .ok_or_else(|| "main window not found".to_string())?;
+    // WebView ownership is established once, here. No reparenting to/from
+    // the workbench: the provider runs in this native window even when hidden.
+    let window = ensure_provider_page_window(&app, &provider)?;
+    #[cfg(target_os = "macos")]
+    if provider == "claude" {
+        claude_login_tabs::ensure_toolbar(&app, &window)?;
+    }
     let app_data = app
         .path()
         .app_data_dir()
@@ -1135,13 +1358,29 @@ pub async fn provider_open(
     };
     // Every provider is parked offscreen outside its active pane. Preserve the shipped liveness
     // tuning so provider timers and renderers keep running while hidden.
-    let builder = builder
-        .data_directory(profile_dir)
-        .background_throttling(BackgroundThrottlingPolicy::Disabled)
+    let builder = builder.data_directory(profile_dir);
+    // macOS Claude uses a 48pt local tab strip above the provider child.
+    // Auto-resize otherwise stretches the provider across that strip.
+    #[cfg(target_os = "macos")]
+    let builder = if provider == "claude" { builder } else { builder.auto_resize() };
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.auto_resize();
+    let builder = builder.background_throttling(BackgroundThrottlingPolicy::Disabled)
         .additional_browser_args(PROVIDER_BROWSER_ARGS)
         .on_document_title_changed(move |webview, title| {
             let document_epoch = current_grok_document_epoch(&title_provider);
             handle_provider_document_title(&title_app, &title_provider, &title);
+            // A successful magic-link login can transition to /new via the
+            // site's client-side router without a full page-load callback.
+            // Only a validated conversation route may launch the read-only
+            // composer probe, and no script runs on login/account pages.
+            if title_provider == "claude"
+                && !title.starts_with("\u{200B}MAC1|")
+                && current_state("claude").login != "logged_in"
+                && webview.url().ok().is_some_and(|url| claude_conversation_url(&url))
+            {
+                schedule_claude_bridge_install(&title_app, &webview);
+            }
             let Some(title_signal) = webview
                 .url()
                 .ok()
@@ -1187,13 +1426,61 @@ pub async fn provider_open(
         .on_page_load(move |webview, payload| {
             match payload.event() {
                 PageLoadEvent::Started => {
+                    if chatgpt_renderer_auxiliary_url(&load_provider, payload.url()) {
+                        return;
+                    }
                     if load_provider == "grok" {
                         confirm_grok_page_load(&load_provider);
                     }
                     reset_bridge_state(&load_app, &load_provider);
                 }
                 PageLoadEvent::Finished => {
+                    if chatgpt_renderer_auxiliary_url(&load_provider, payload.url()) {
+                        // A subframe load leaves Webview::url() on chatgpt.com.
+                        // If the actual top-level URL became the CDN runner,
+                        // restore the provider instead of hosting it as the app.
+                        let top_level_replaced = webview
+                            .url()
+                            .ok()
+                            .is_some_and(|main_url| {
+                                chatgpt_renderer_replaced_top_level(
+                                    &load_provider,
+                                    payload.url(),
+                                    &main_url,
+                                )
+                            });
+                        if top_level_replaced {
+                            let _ = load_app.emit_to(
+                                "main",
+                                "bridge://msg",
+                                serde_json::json!({
+                                    "v": 1,
+                                    "action": "STATUS_REPORT",
+                                    "provider": &load_provider,
+                                    "transport": "local",
+                                    "payload": { "rendererDiagnostic": "top-level-recovered" }
+                                }),
+                            );
+                            if let Ok(adapter) = adapters::get_adapter(&load_provider) {
+                                if let Ok(app_url) = tauri::Url::parse(&adapter.urls.app) {
+                                    let _ = webview.navigate(app_url);
+                                }
+                            }
+                        }
+                        return;
+                    }
                     if load_provider != "grok" {
+                        if load_provider == "claude"
+                            && claude_conversation_url(payload.url())
+                        {
+                            schedule_claude_bridge_install(&load_app, &webview);
+                        }
+                        if load_provider == "chatgpt"
+                            && adapters::url_matches_provider_app(&load_provider, payload.url())
+                                .unwrap_or(false)
+                        {
+                            let _ = recover_regular_provider_bridge(&load_app, &load_provider);
+                        }
                         return;
                     }
                     let Some(script) = load_delayed_grok_script.as_deref() else {
@@ -1225,6 +1512,37 @@ pub async fn provider_open(
             }
         })
         .on_navigation(move |url| {
+            // WKWebView sends the DIL reply iframe through this URL-only
+            // callback. Blocking it prevents ChatGPT from rendering answers.
+            // Permit only this exact CDN runner while the WebView's top-level
+            // document is still an allowed ChatGPT app URL. Renderer popups
+            // remain denied; the load callback guards top-level takeover.
+            if chatgpt_renderer_auxiliary_url(&nav_provider, url) {
+                let current_main_url = get_provider_webview(&nav_app, &nav_provider)
+                    .ok()
+                    .and_then(|webview| webview.url().ok());
+                let allowed = current_main_url.as_ref().is_some_and(|current| {
+                    allow_chatgpt_renderer_navigation(&nav_provider, url, current)
+                });
+                let _ = nav_app.emit_to(
+                    "main",
+                    "bridge://msg",
+                    serde_json::json!({
+                        "v": 1,
+                        "action": "STATUS_REPORT",
+                        "provider": &nav_provider,
+                        "transport": "local",
+                        "payload": {
+                            "rendererDiagnostic": if allowed {
+                                "navigation-allowed"
+                            } else {
+                                "navigation-blocked"
+                            }
+                        }
+                    }),
+                );
+                return allowed;
+            }
             if url.host_str() == Some("mac-bridge.invalid") {
                 return false;
             }
@@ -1246,17 +1564,40 @@ pub async fn provider_open(
                         serde_json::json!({ "provider": &nav_provider, "host": host }),
                     );
                 }
-                let _ = nav_app.opener().open_url(url.as_str(), None::<&str>);
-                schedule_grok_external_auth_return(&nav_app, &nav_provider, url);
+                if external_handoff_allowed(&nav_provider, url) {
+                    let _ = nav_app.opener().open_url(url.as_str(), None::<&str>);
+                    schedule_grok_external_auth_return(&nav_app, &nav_provider, url);
+                }
             }
             false
         })
         .on_new_window(move |url, features| {
+            if chatgpt_renderer_auxiliary_url(&popup_provider, &url) {
+                let _ = popup_app.emit_to(
+                    "main",
+                    "bridge://msg",
+                    serde_json::json!({
+                        "v": 1,
+                        "action": "STATUS_REPORT",
+                        "provider": &popup_provider,
+                        "transport": "local",
+                        "payload": { "rendererDiagnostic": "popup-blocked" }
+                    }),
+                );
+                return NewWindowResponse::Deny;
+            }
             // Challenge auxiliary about: documents are allowed only as in-webview navigation.
             // Keep all non-HTTP(S) popups fail-closed; Turnstile does not require popup windows.
             let provider_allowed =
                 adapters::url_allowed_for_provider(&popup_provider, &url).unwrap_or(false);
             let sso_allowed = adapters::url_allowed_for_sso(&popup_provider, &url).unwrap_or(false);
+            // Gemini frequently requests provider-app window.open calls while
+            // generating. Such duplicated Gemini app windows are not OAuth
+            // popups and must not be launched or handed to the system browser.
+            // Keep allowlisted Google/Apple SSO windows for explicit login.
+            if popup_provider == "gemini" && provider_allowed && !sso_allowed {
+                return NewWindowResponse::Deny;
+            }
             let allowlisted = provider_allowed || sso_allowed;
             match decide_new_window_action(&url, allowlisted) {
                 // Host popups in our own decorated window: the platform-default popup
@@ -1276,6 +1617,9 @@ pub async fn provider_open(
                         WebviewUrl::External("about:blank".parse().expect("static url")),
                     )
                     .window_features(features)
+                    // Keep auth popups decorated and initially bounded.
+                    .decorations(true)
+                    .inner_size(760.0, 640.0)
                     .title(popup_initial_title(&url))
                     .on_document_title_changed(|window, title| {
                         let _ = window.set_title(&title);
@@ -1306,7 +1650,8 @@ pub async fn provider_open(
                             }
                             NewWindowResponse::Create { window }
                         }
-                        Err(_) => NewWindowResponse::Allow,
+                        // Avoid fallback to an unmanaged native popup.
+                        Err(_) => NewWindowResponse::Deny,
                     }
                 }
                 NewWindowAction::DenySilent => NewWindowResponse::Deny,
@@ -1318,15 +1663,30 @@ pub async fn provider_open(
                             serde_json::json!({ "provider": &popup_provider, "host": host }),
                         );
                     }
-                    let _ = popup_app.opener().open_url(url.as_str(), None::<&str>);
-                    schedule_grok_external_auth_return(&popup_app, &popup_provider, &url);
+                    if external_handoff_allowed(&popup_provider, &url) {
+                        let _ = popup_app.opener().open_url(url.as_str(), None::<&str>);
+                        schedule_grok_external_auth_return(&popup_app, &popup_provider, &url);
+                    }
                     NewWindowResponse::Deny
                 }
             }
         });
 
     let prepared_epoch = prepare_grok_navigation(&provider)?;
-    let webview = match window.add_child(builder, position, size) {
+    let client_size = window.inner_size().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    let (child_position, child_size) = if provider == "claude" {
+        claude_login_tabs::content_bounds(&window)?
+    } else {
+        (PhysicalPosition::new(0, 0), client_size)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let (child_position, child_size) = (PhysicalPosition::new(0, 0), client_size);
+    let webview = match window.add_child(
+        builder,
+        child_position,
+        child_size,
+    ) {
         Ok(webview) => webview,
         Err(error) => {
             cancel_grok_navigation(&provider, prepared_epoch);
@@ -1336,6 +1696,10 @@ pub async fn provider_open(
     if let Err(error) = webview.show() {
         cancel_grok_navigation(&provider, prepared_epoch);
         return Err(error.to_string());
+    }
+    #[cfg(target_os = "macos")]
+    if provider == "claude" {
+        claude_login_tabs::layout(&app, &window);
     }
     schedule_grok_navigation_start_lease(&provider, prepared_epoch, GrokNavigationOwner::Lifecycle);
     let current = current_state(&provider);
@@ -1364,6 +1728,11 @@ fn close_provider(app: &AppHandle, provider: &str) -> Result<(), String> {
     retire_grok_document(provider);
     if let Some(webview) = app.get_webview(&label) {
         webview.close().map_err(|error| error.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    if provider == "claude" { claude_login_tabs::close_tabs(app); }
+    if let Some(window) = app.get_window(&provider_page_window_label(provider)) {
+        let _ = window.hide();
     }
     if let Ok(mut guard) = runtime().lock() {
         guard.engine_boot.remove(provider);
@@ -1404,6 +1773,9 @@ pub async fn provider_show(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("webview not found: {label}"))?;
+    if is_provider_detached(&webview, &provider) {
+        return Ok(());
+    }
     webview.show().map_err(|error| error.to_string())?;
     if provider_show_should_focus(focus) {
         webview.set_focus().map_err(|error| error.to_string())?;
@@ -1422,6 +1794,10 @@ pub async fn provider_hide(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("webview not found: {label}"))?;
+    if is_provider_detached(&webview, &provider) {
+        // Background parking must not blank a user-opened standalone page.
+        return Ok(());
+    }
     webview.hide().map_err(|error| error.to_string())
 }
 
@@ -1439,40 +1815,52 @@ pub async fn provider_set_bounds(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("webview not found: {label}"))?;
+    if is_provider_detached(&webview, &provider) {
+        // A separate window owns its own bounds and auto-resize.
+        return Ok(());
+    }
     set_webview_bounds(&webview, position, size)
 }
 
 #[tauri::command]
-pub async fn provider_eval(
+pub async fn provider_control_action(
     app: AppHandle,
     webview: tauri::Webview,
     provider: String,
-    js: String,
+    action: String,
+    text: Option<String>,
+    mid: Option<u64>,
 ) -> Result<(), String> {
     ensure_control_webview(&webview)?;
     settings::ensure_provider_active(&app, &provider)?;
-    ensure_provider_control_eval_allowed(&provider)?;
+    let js = build_provider_control_script(&provider, &action, text.as_deref(), mid)?;
+    ensure_provider_control_eval_allowed(&provider, &js, false)?;
     eval_provider(&app, &provider, &js)
 }
 
 #[tauri::command]
-pub async fn provider_eval_with_callback(
+pub async fn provider_bridge_read(
     app: AppHandle,
     webview: tauri::Webview,
     provider: String,
-    js: String,
+    kind: String,
 ) -> Result<String, String> {
     ensure_control_webview(&webview)?;
-    eval_provider_with_callback_from_control(&app, &provider, &js).await
+    settings::ensure_provider_active(&app, &provider)?;
+    let js = provider_bridge_read_script(&kind)?;
+    ensure_provider_control_eval_allowed(&provider, js, true)?;
+    eval_provider_with_callback(&app, &provider, js).await
 }
 
+// Native-only helper for the fixed, JSON-serialized broken-adapter report.
+// This is NOT a Tauri command and is not reachable through frontend IPC.
 pub(crate) async fn eval_provider_with_callback_from_control(
     app: &AppHandle,
     provider: &str,
     js: &str,
 ) -> Result<String, String> {
     settings::ensure_provider_active(app, provider)?;
-    ensure_provider_control_eval_allowed(provider)?;
+    ensure_provider_control_eval_allowed(provider, js, true)?;
     eval_provider_with_callback(app, provider, js).await
 }
 
@@ -1500,30 +1888,136 @@ async fn eval_provider_with_callback(
         .map_err(|_| "eval_with_callback response channel closed".to_string())
 }
 
+
+/// Apply the native page window's current client size to its attached
+/// provider view. Reparenting preserves the old child size. Use Tauri's
+/// independent size/position setters rather than the combined bounds route
+/// that has left WKWebView at its old pane dimensions on macOS.
+fn fit_detached_provider_to_window(
+    provider_view: &tauri::Webview,
+    parent_window: &tauri::Window,
+) -> Result<(), String> {
+    let size = parent_window.inner_size().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    let (position, size) = if provider_view.label() == "ai-claude" {
+        claude_login_tabs::content_bounds(parent_window)?
+    } else {
+        (PhysicalPosition::new(0, 0), size)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let position = PhysicalPosition::new(0, 0);
+    provider_view
+        .set_position(tauri::Position::Physical(position))
+        .map_err(|error| error.to_string())?;
+    provider_view
+        .set_size(tauri::Size::Physical(size))
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderWindowGeometry {
+    window_width: u32,
+    window_height: u32,
+    webview_width: u32,
+    webview_height: u32,
+    webview_x: i32,
+    webview_y: i32,
+}
+
+fn detached_provider_geometry(
+    provider_view: &tauri::Webview,
+    parent_window: &tauri::Window,
+) -> Result<ProviderWindowGeometry, String> {
+    let window = parent_window.inner_size().map_err(|error| error.to_string())?;
+    let webview = provider_view.size().map_err(|error| error.to_string())?;
+    let origin = provider_view.position().map_err(|error| error.to_string())?;
+    Ok(ProviderWindowGeometry {
+        window_width: window.width,
+        window_height: window.height,
+        webview_width: webview.width,
+        webview_height: webview.height,
+        webview_x: origin.x,
+        webview_y: origin.y,
+    })
+}
+
+#[tauri::command]
+pub async fn provider_open_window(
+    app: AppHandle,
+    webview: tauri::Webview,
+    provider: String,
+    login: Option<bool>,
+) -> Result<ProviderWindowGeometry, String> {
+    ensure_control_webview(&webview)?;
+    settings::ensure_provider_active(&app, &provider)?;
+    let provider_webview = get_provider_webview(&app, &provider)?;
+    let window_label = provider_page_window_label(&provider);
+
+    // The provider was constructed in this dedicated window at startup.
+    // Never move it: reparented WKWebViews on macOS retained their old
+    // content-pane frame, despite multiple successful resize calls.
+    let window = app
+        .get_window(&window_label)
+        .ok_or_else(|| format!("provider host window missing: {window_label}"))?;
+    if !is_provider_detached(&provider_webview, &provider) {
+        return Err(format!("provider WebView has unexpected parent: {provider}"));
+    }
+
+    if login.unwrap_or(false) {
+        let adapter = adapters::get_adapter(&provider)?;
+        let login_url = tauri::Url::parse(&adapter.urls.login)
+            .map_err(|error| format!("Invalid provider login URL: {error}"))?;
+        provider_webview
+            .navigate(login_url)
+            .map_err(|error| error.to_string())?;
+    }
+
+    // A WebView constructed at its destination can follow native resizing via
+    // the builder's auto_resize() policy. Explicitly fit once after showing
+    // the host, without any transfer between windows.
+    window.show().map_err(|error| error.to_string())?;
+    provider_webview.show().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    if provider == "claude" { claude_login_tabs::show_claude(&app)?; }
+    fit_detached_provider_to_window(&provider_webview, &window)?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    let geometry = detached_provider_geometry(&provider_webview, &window)?;
+    eprintln!("Workbench provider host {} geometry: {:?}", provider, geometry);
+    Ok(geometry)
+}
+
 #[tauri::command]
 pub async fn provider_open_login(
     app: AppHandle,
     webview: tauri::Webview,
     provider: String,
+    bounds: Bounds,
 ) -> Result<(), String> {
     ensure_control_webview(&webview)?;
     let adapter = adapters::get_adapter(&provider)?;
     settings::ensure_provider_active(&app, &provider)?;
-    if app.get_webview(&provider_label(&provider)).is_none() {
-        let bounds = Bounds {
-            x: 24.0,
-            y: 24.0,
-            width: 420.0,
-            height: 320.0,
-        };
-        let _ = provider_open(app.clone(), webview.clone(), provider.clone(), bounds).await?;
-    }
+    let _ = physical_bounds(&bounds)?;
+    let provider_webview = get_provider_webview(&app, &provider)
+        .map_err(|_| format!("Open {provider} before logging in"))?;
     let login_url = tauri::Url::parse(&adapter.urls.login)
         .map_err(|error| format!("invalid provider login URL: {error}"))?;
-    get_provider_webview(&app, &provider)?
-        .navigate(login_url)
-        .map_err(|error| error.to_string())?;
-    provider_show(app, webview, provider, Some(true)).await
+    // Legacy callers may still use this command. Never apply main-pane
+    // bounds to a WebView created in its native host window.
+    if is_provider_detached(&provider_webview, &provider) {
+        let window = app.get_window(&provider_page_window_label(&provider))
+            .ok_or_else(|| format!("provider host window missing: {provider}"))?;
+        provider_webview.navigate(login_url).map_err(|error| error.to_string())?;
+        window.show().map_err(|error| error.to_string())?;
+        provider_webview.show().map_err(|error| error.to_string())?;
+        #[cfg(target_os = "macos")]
+        if provider == "claude" { claude_login_tabs::show_claude(&app)?; }
+        fit_detached_provider_to_window(&provider_webview, &window)?;
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+    Err(format!("provider WebView is not in its native host window: {provider}"))
 }
 
 #[tauri::command]
@@ -1822,6 +2316,28 @@ fn bridge_resets_on_boot_rotation(
     }
 }
 
+/// Recover a missed document-start bridge after a ChatGPT page restart.
+ /// Only the recognized provider application document is eligible; eval_provider
+ /// rejects SSO and renderer URLs. Bootstrap independently refuses challenges
+ /// and non-top-frame documents. This never navigates or signs users out.
+fn recover_regular_provider_bridge(app: &AppHandle, provider: &str) -> Result<(), String> {
+    if provider != "chatgpt" {
+        return Ok(());
+    }
+    let state = current_state(provider);
+    if state.webview != "loaded" || state.login == "blocked" || state.thinking {
+        return Ok(());
+    }
+    let app_hosts = serde_json::to_string(&adapters::app_hosts_for_provider(provider)?)
+        .map_err(|error| error.to_string())?;
+    let provider_json = serde_json::to_string(provider).map_err(|error| error.to_string())?;
+    let js = format!(
+        "window.__MAC_PROVIDER__={provider_json};\nwindow.__MAC_APP_HOSTS__={app_hosts};\n{BOOTSTRAP_JS}"
+    );
+    eval_provider(app, provider, &js)?;
+    push_engine_and_adapter(app, provider)
+}
+
 pub(crate) fn push_engine_and_adapter(app: &AppHandle, provider: &str) -> Result<(), String> {
     let adapter = adapters::get_adapter(provider)?;
     let dispatch_adapter = serde_json::json!({
@@ -1841,6 +2357,13 @@ pub(crate) fn push_engine_and_adapter(app: &AppHandle, provider: &str) -> Result
         adapter_msg = serde_json::to_string(&dispatch_adapter).map_err(|error| error.to_string())?,
         check_msg = serde_json::to_string(&dispatch_check).map_err(|error| error.to_string())?,
     );
+    if provider == "claude" {
+        let webview = get_provider_webview(app, provider)?;
+        if !webview.url().ok().is_some_and(|url| claude_conversation_url(&url)) {
+            return Err("Claude bridge must not run on login or account pages".into());
+        }
+        return eval_provider(app, provider, &guard_claude_automation(&js));
+    }
     eval_provider(app, provider, &js)
 }
 
@@ -2033,6 +2556,11 @@ fn get_provider_webview_for_generic_eval(
 ) -> Result<tauri::Webview, String> {
     let webview = get_provider_webview(app, provider)?;
     let url = webview.url().map_err(|error| error.to_string())?;
+    // Even if the site uses a same-document SPA route transition, disallow any
+    // trusted host command (read, fill, send, poll) on Claude login/account pages.
+    if provider == "claude" && !claude_conversation_url(&url) {
+        return Err("Claude automation is disabled outside its conversation pages".into());
+    }
     let url_matches_app = adapters::url_matches_provider_app(provider, &url)?;
     let allowed = if provider == "grok" {
         let guard = runtime()
@@ -2066,9 +2594,51 @@ fn get_provider_webview_for_generic_eval(
     Ok(webview)
 }
 
-fn ensure_provider_control_eval_allowed(provider: &str) -> Result<(), String> {
+// A 40-second missed-status watchdog marks the provider DOM "unknown".
+ // The response transport must still be allowed to *read its own outbox*
+ // from the already-loaded ChatGPT app, or it becomes impossible for the
+ // bridge to recover from that stale state. This exception is deliberately
+ // restricted to the two exact internal bridge expressions. Normal provider
+ // control actions (send, fill, stop, arbitrary evaluation) still require
+ // a current "ready" DOM. get_provider_webview_for_generic_eval separately
+ // enforces the recognized ChatGPT app URL for either expression.
+fn stale_chatgpt_bridge_eval_allowed(
+    provider: &str,
+    state: &ProviderState,
+    js: &str,
+    callback: bool,
+) -> bool {
+    if provider != "chatgpt"
+        || state.webview != "loaded"
+        || state.dom != "unknown"
+        || state.login != "logged_in"
+    {
+        return false;
+    }
+    if callback {
+        return js == CHATGPT_BRIDGE_PEEK_JS || js == CHATGPT_BRIDGE_HEALTH_JS;
+    }
+    let Some(mid) = js
+        .strip_prefix(CHATGPT_BRIDGE_ACK_PREFIX)
+        .and_then(|remaining| remaining.strip_suffix(");"))
+    else {
+        return false;
+    };
+    // Acknowledgement values are generated from monotonic outbox IDs by
+    // the trusted control pane. Reject injected JS and non-safe integers.
+    mid.parse::<u64>()
+        .is_ok_and(|mid| mid > 0 && mid <= 9_007_199_254_740_991)
+}
+
+fn ensure_provider_control_eval_allowed(
+    provider: &str,
+    js: &str,
+    callback: bool,
+) -> Result<(), String> {
     let state = current_state(provider);
-    if provider_state_allows_control_eval(&state) {
+    if provider_state_allows_control_eval(&state)
+        || stale_chatgpt_bridge_eval_allowed(provider, &state, js, callback)
+    {
         Ok(())
     } else {
         Err(format!(
@@ -2093,6 +2663,15 @@ pub(crate) fn ensure_control_webview(webview: &tauri::Webview) -> Result<(), Str
 fn provider_label(provider: &str) -> String {
     format!("ai-{provider}")
 }
+
+fn provider_page_window_label(provider: &str) -> String {
+    format!("provider-page-{provider}")
+}
+
+fn is_provider_detached(webview: &tauri::Webview, provider: &str) -> bool {
+    webview.window().label() == provider_page_window_label(provider)
+}
+
 
 fn set_webview_bounds<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
@@ -2348,6 +2927,11 @@ fn run_staleness_check(app: &AppHandle) {
         }
     }
     for provider in to_check {
+        // A missing document-start bridge cannot receive CHECK_STATUS. Restore
+        // it only for ChatGPT's verified app host, then request a fresh status.
+        if provider == "chatgpt" {
+            let _ = recover_regular_provider_bridge(app, &provider);
+        }
         let msg = serde_json::json!({ "v": 1, "action": "CHECK_STATUS", "provider": provider });
         let js = format!(
             "window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.dispatch({});",
@@ -2391,1161 +2975,76 @@ fn now_ms() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Mutex;
+mod claude_clean_login_tests {
+    use super::{challenge_auxiliary_navigation_allowed, claude_conversation_url, guard_claude_automation, provider_uses_document_start_bridge, provider_uses_permission_shim};
 
-    use tauri::{PhysicalPosition, PhysicalSize};
-
-    use super::{
-        accept_status_for_session_reset, adopt_grok_bridge_boot, bridge_resets_on_boot_rotation,
-        cancel_grok_navigation, cancel_grok_popup_recovery, cancel_session_reset,
-        challenge_auxiliary_navigation_allowed, claim_grok_popup_recovery, confirm_grok_page_load,
-        decide_new_window_action, delayed_grok_bridge_script, eval_callback_reports_true,
-        expire_grok_navigation_start_lease, fresh_session_boot, gemini_sorry_navigation_active,
-        generic_staleness_dispatch_allowed, grok_app_title_ready,
-        grok_auth_popup_may_complete_login, grok_bridge_drive_allowed, grok_bridge_host_action,
-        grok_bridge_install_ready, grok_bridge_result_is_current, grok_challenge_title_active,
-        grok_document_title_signal, grok_external_auth_handoff_needs_app_return,
-        grok_external_auth_return_is_current, grok_popup_recovery_claim_is_current,
-        grok_popup_recovery_needed, grok_reconnect_allowed, grok_stale_reason,
-        parse_grok_bridge_drive_outcome, physical_bounds, popup_initial_title,
-        prepare_grok_external_auth_return, prepare_grok_navigation, prepare_grok_popup_recovery,
-        provider_document_allows_generic_eval, provider_show_should_focus,
-        provider_state_allows_control_eval, provider_uses_document_start_bridge,
-        provider_uses_permission_shim, record_grok_bridge_challenge, reset_state_for_page_load,
-        retire_grok_document, runtime, should_drive_grok_bridge,
-        should_drive_grok_bridge_from_background, should_reset_bridge_on_boot_rotation,
-        staleness_action, state_with, Bounds, GrokBridgeDriveOutcome, GrokBridgeDriveResult,
-        GrokBridgeHostAction, GrokDocumentTitleSignal, GrokNavigationOwner, NewWindowAction,
-        StalenessAction, CHALLENGE_SIGNALS_JSON, GROK_APP_TITLE_UNCONFIRMED_REASON,
-        PERMISSION_SHIM_JS, PROVIDER_BROWSER_ARGS,
-    };
-
-    static GROK_RUNTIME_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-    fn url(input: &str) -> tauri::Url {
-        tauri::Url::parse(input).expect("test URL should parse")
+    #[test]
+    fn claude_never_modifies_browser_during_login() {
+        assert!(!provider_uses_document_start_bridge("claude"));
+        assert!(!provider_uses_permission_shim("claude"));
+        assert!(provider_uses_document_start_bridge("chatgpt"));
+        assert!(provider_uses_permission_shim("gemini"));
     }
 
     #[test]
-    fn provider_browser_args_keep_hidden_automation_responsive() {
-        assert!(PROVIDER_BROWSER_ARGS.contains("--disable-background-timer-throttling"));
-        assert!(PROVIDER_BROWSER_ARGS.contains("--disable-renderer-backgrounding"));
-        assert!(PROVIDER_BROWSER_ARGS.contains("--disable-backgrounding-occluded-windows"));
-        assert!(PROVIDER_BROWSER_ARGS.contains("msSmartScreenProtection"));
-    }
-
-    #[test]
-    fn provider_show_requires_an_explicit_focus_request() {
-        assert!(!provider_show_should_focus(None));
-        assert!(!provider_show_should_focus(Some(false)));
-        assert!(provider_show_should_focus(Some(true)));
-    }
-
-    #[test]
-    fn grok_keeps_core_web_apis_unmodified_for_cloudflare_challenges() {
-        assert!(!provider_uses_permission_shim("grok"));
-        assert!(!provider_uses_document_start_bridge("grok"));
-        for provider in ["chatgpt", "claude", "gemini"] {
-            assert!(provider_uses_permission_shim(provider));
-            assert!(provider_uses_document_start_bridge(provider));
-        }
-    }
-
-    #[test]
-    fn grok_bridge_waits_for_the_real_app_and_an_atomic_negative_challenge_check() {
-        assert!(grok_app_title_ready("grok", "Grok"));
-        assert!(grok_app_title_ready("grok", "Grok — Home"));
-        assert!(!grok_app_title_ready("grok", "grok.com 正在執行安全驗證"));
-        assert!(!grok_app_title_ready("grok", "Just a moment..."));
-        assert!(!grok_app_title_ready("chatgpt", "Grok"));
-        assert!(grok_bridge_install_ready(
-            "grok",
-            "Grok",
-            &url("https://grok.com/")
-        ));
-        assert!(!grok_bridge_install_ready(
-            "grok",
-            "Grok",
-            &url("https://accounts.x.ai/sign-in")
-        ));
-
-        let script = delayed_grok_bridge_script("grok").expect("delayed script should build");
-        assert!(!script.contains("__MAC_GROK_DELAYED_INSTALL__"));
-        assert!(script.contains("location.hostname !== 'grok.com'"));
-        assert!(script.contains("challenges.cloudflare.com"));
-        assert!(script.contains("function installEngineAndAdapter()"));
-        assert!(script.contains("ADAPTER_UPDATE"));
-        assert!(script.contains("CHECK_STATUS"));
-        assert!(script.contains("window.__MAC_APP_HOSTS__ = [\"grok.com\"]"));
-        assert!(script.contains("正在執行安全驗證"));
-        assert!(script.contains("bootId: String(window.__MAC_BRIDGE__.bootId || '')"));
-        let challenge_check = script
-            .find("if (challengeActive()) return { outcome: 'challenge' };")
-            .expect("driver must check the challenge");
-        let first_provider_write = script
-            .find("window.__MAC_PROVIDER__ =")
-            .expect("driver must eventually identify the provider");
-        assert!(challenge_check < first_provider_write);
-        serde_json::from_str::<serde_json::Value>(CHALLENGE_SIGNALS_JSON)
-            .expect("shared challenge signals must remain valid JSON");
-    }
-
-    #[test]
-    fn grok_allows_only_cloudflare_auxiliary_about_documents() {
-        assert!(challenge_auxiliary_navigation_allowed(
-            "grok",
-            &url("about:blank")
-        ));
-        assert!(challenge_auxiliary_navigation_allowed(
-            "grok",
-            &url("about:srcdoc")
-        ));
-        assert!(!challenge_auxiliary_navigation_allowed(
-            "chatgpt",
-            &url("about:blank")
-        ));
-        assert!(!challenge_auxiliary_navigation_allowed(
-            "grok",
-            &url("data:text/plain,hello")
-        ));
-        assert!(!challenge_auxiliary_navigation_allowed(
-            "grok",
-            &url("javascript:alert(1)")
-        ));
-        assert!(!challenge_auxiliary_navigation_allowed(
-            "grok",
-            &url("about:config")
-        ));
-    }
-
-    #[test]
-    fn grok_returns_to_its_app_only_after_the_exact_denied_xai_auth_handoff() {
-        let denied_popup = url("https://auth.x.ai/oauth/authorize?state=test");
-        assert!(grok_external_auth_handoff_needs_app_return(
-            "grok",
-            &denied_popup
-        ));
-        assert_eq!(
-            decide_new_window_action(&denied_popup, false),
-            NewWindowAction::DenyExternal
-        );
-        for (provider, value) in [
-            ("chatgpt", "https://auth.x.ai/oauth/authorize"),
-            ("grok", "http://auth.x.ai/oauth/authorize"),
-            ("grok", "https://auth.x.ai:8443/oauth/authorize"),
-            ("grok", "https://user:pass@auth.x.ai/oauth/authorize"),
-            ("grok", "https://auth.x.ai.evil.net/oauth/authorize"),
+    fn claude_auth_allows_only_observed_captcha_navigation_targets() {
+        let allow = |provider: &str, value: &str| {
+            challenge_auxiliary_navigation_allowed(provider, &value.parse().unwrap())
+        };
+        // These were the only blocked destinations in the user-controlled
+        // successful audit window. Neither is permitted for other providers.
+        assert!(allow("claude", "about:blank"));
+        assert!(allow("claude", "about:srcdoc"));
+        assert!(allow("claude", "https://newassets.hcaptcha.com/captcha/v1/test/hcaptcha.html"));
+        assert!(!allow("chatgpt", "about:blank"));
+        assert!(!allow("gemini", "https://newassets.hcaptcha.com/captcha/v1/test/hcaptcha.html"));
+        for target in [
+            "about:config",
+            "about:blank?token=should-not-be-here",
+            "data:text/html,hello",
+            "javascript:alert(1)",
+            "http://newassets.hcaptcha.com/captcha",
+            "https://newassets.hcaptcha.com:8443/captcha",
+            "https://newassets.hcaptcha.com.evil.example/captcha",
+            "https://evil.example/newassets.hcaptcha.com",
+            "https://newassets-hcaptcha.com/captcha",
+            "https://hcaptcha.com/captcha",
+            "https://newassets.hcaptcha.com@evil.example/captcha",
         ] {
-            assert!(
-                !grok_external_auth_handoff_needs_app_return(provider, &url(value)),
-                "{provider} {value}"
-            );
+            assert!(!allow("claude", target), "unexpected allow: {target}");
         }
+        // Existing Grok challenge behavior remains unchanged.
+        assert!(allow("grok", "about:blank"));
+        assert!(!allow("grok", "https://newassets.hcaptcha.com/captcha"));
     }
 
     #[test]
-    fn new_window_allowlisted_google_oauth_allows_popup() {
-        assert_eq!(
-            decide_new_window_action(
-                &url("https://accounts.google.com/o/oauth2/v2/auth?client_id=test"),
-                true
-            ),
-            NewWindowAction::AllowPopup
-        );
-    }
-
-    #[test]
-    fn grok_popup_recovery_is_limited_to_auth_hosts() {
-        assert!(grok_auth_popup_may_complete_login(
-            "grok",
-            &url("https://accounts.google.com/o/oauth2/v2/auth?client_id=test")
-        ));
-        assert!(grok_auth_popup_may_complete_login(
-            "grok",
-            &url("https://auth.grokusercontent.com/api/auth/callback/google")
-        ));
-        assert!(!grok_auth_popup_may_complete_login(
-            "grok",
-            &url("https://grok.com/chat")
-        ));
-        assert!(!grok_auth_popup_may_complete_login(
-            "grok",
-            &url("https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b")
-        ));
-        assert!(!grok_auth_popup_may_complete_login(
-            "chatgpt",
-            &url("https://accounts.google.com/o/oauth2/v2/auth")
-        ));
-    }
-
-    #[test]
-    fn grok_popup_recovery_requires_the_same_blocked_document() {
-        let blocked = state_with("grok", "loaded", "unknown", "blocked", false);
-        assert!(grok_popup_recovery_needed(&blocked, 7, 7, false));
-        assert!(!grok_popup_recovery_needed(&blocked, 6, 7, false));
-        assert!(!grok_popup_recovery_needed(&blocked, 7, 7, true));
-
-        let ready = state_with("grok", "loaded", "ready", "logged_in", false);
-        assert!(!grok_popup_recovery_needed(&ready, 7, 7, false));
-        let logged_out = state_with("grok", "loaded", "unknown", "logged_out", false);
-        assert!(!grok_popup_recovery_needed(&logged_out, 7, 7, false));
-        let other_provider = state_with("chatgpt", "loaded", "unknown", "blocked", false);
-        assert!(!grok_popup_recovery_needed(&other_provider, 7, 7, false));
-    }
-
-    #[test]
-    fn popup_initial_title_never_exposes_oauth_query_parameters() {
-        let oauth =
-            url("https://accounts.google.com/o/oauth2/v2/auth?client_id=secret&state=sensitive");
-        assert_eq!(popup_initial_title(&oauth), "accounts.google.com");
-        assert_eq!(popup_initial_title(&url("about:blank")), "Sign in");
-    }
-
-    #[test]
-    fn physical_bounds_round_valid_values_and_allow_negative_positions() {
-        let (position, size) = physical_bounds(&Bounds {
-            x: -10.4,
-            y: 0.0,
-            width: 640.6,
-            height: 479.5,
-        })
-        .expect("valid bounds should convert");
-
-        assert_eq!(position, PhysicalPosition::new(-10, 0));
-        assert_eq!(size, PhysicalSize::new(641, 480));
-    }
-
-    #[test]
-    fn physical_bounds_reject_non_finite_values() {
-        for field in 0..4 {
-            for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-                let mut bounds = Bounds {
-                    x: 10.0,
-                    y: 20.0,
-                    width: 640.0,
-                    height: 480.0,
-                };
-                match field {
-                    0 => bounds.x = invalid,
-                    1 => bounds.y = invalid,
-                    2 => bounds.width = invalid,
-                    _ => bounds.height = invalid,
-                }
-                assert!(physical_bounds(&bounds).is_err());
-            }
-        }
-    }
-
-    #[test]
-    fn physical_bounds_reject_invalid_sizes_and_out_of_range_positions() {
-        for invalid_size in [0.0, -1.0, 0.49, u32::MAX as f64 + 1.0] {
-            for bounds in [
-                Bounds {
-                    x: 0.0,
-                    y: 0.0,
-                    width: invalid_size,
-                    height: 480.0,
-                },
-                Bounds {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 640.0,
-                    height: invalid_size,
-                },
-            ] {
-                assert!(physical_bounds(&bounds).is_err());
-            }
-        }
-        for bounds in [
-            Bounds {
-                x: i32::MAX as f64 + 1.0,
-                y: 0.0,
-                width: 640.0,
-                height: 480.0,
-            },
-            Bounds {
-                x: 0.0,
-                y: i32::MIN as f64 - 1.0,
-                width: 640.0,
-                height: 480.0,
-            },
+    fn claude_injection_is_conversation_scoped() {
+        for uri in [
+            "https://claude.ai/login",
+            "https://claude.ai/signup",
+            "https://claude.ai/auth/callback?code=private",
+            "https://claude.ai/settings",
+            "https://claude.ai/chat/123/other",
+            "https://claude.ai/chat/",
+            "https://claude.ai/account",
+            "https://claude.ai/",
+            "https://auth.anthropic.com/login",
+            "https://claude.ai.evil.example/new",
+            "http://claude.ai/new",
+            "https://claude.ai:8443/new",
         ] {
-            assert!(physical_bounds(&bounds).is_err());
+            assert!(!claude_conversation_url(&uri.parse().unwrap()), "{uri}");
         }
-
-        let (position, size) = physical_bounds(&Bounds {
-            x: i32::MIN as f64,
-            y: i32::MAX as f64,
-            width: 1.0,
-            height: u32::MAX as f64,
-        })
-        .expect("exact integer limits should remain valid");
-        assert_eq!(position, PhysicalPosition::new(i32::MIN, i32::MAX));
-        assert_eq!(size, PhysicalSize::new(1, u32::MAX));
-    }
-
-    #[test]
-    fn new_window_allowlisted_provider_app_allows_popup() {
-        assert_eq!(
-            decide_new_window_action(&url("https://grok.com/chat"), true),
-            NewWindowAction::AllowPopup
-        );
-    }
-
-    #[test]
-    fn new_window_non_allowlisted_https_goes_external() {
-        assert_eq!(
-            decide_new_window_action(&url("https://evil.example/phish"), false),
-            NewWindowAction::DenyExternal
-        );
-    }
-
-    #[test]
-    fn new_window_non_allowlisted_http_goes_external() {
-        assert_eq!(
-            decide_new_window_action(&url("http://evil.example/"), false),
-            NewWindowAction::DenyExternal
-        );
-    }
-
-    #[test]
-    fn new_window_sentinel_silently_denied_even_if_allowlisted() {
-        assert_eq!(
-            decide_new_window_action(&url("https://mac-bridge.invalid/bridge"), false),
-            NewWindowAction::DenySilent
-        );
-        assert_eq!(
-            decide_new_window_action(&url("https://mac-bridge.invalid/bridge"), true),
-            NewWindowAction::DenySilent
-        );
-    }
-
-    #[test]
-    fn new_window_non_http_non_allowlisted_silently_denied() {
-        assert_eq!(
-            decide_new_window_action(&url("about:blank"), false),
-            NewWindowAction::DenySilent
-        );
-        assert_eq!(
-            decide_new_window_action(&url("data:text/plain,hello"), false),
-            NewWindowAction::DenySilent
-        );
-    }
-
-    #[test]
-    fn new_window_allowlisted_true_never_goes_external() {
-        assert_eq!(
-            decide_new_window_action(&url("http://evil.example/"), true),
-            NewWindowAction::AllowPopup
-        );
-        assert_eq!(
-            decide_new_window_action(&url("data:text/plain,hello"), true),
-            NewWindowAction::AllowPopup
-        );
-    }
-
-    #[test]
-    fn staleness_before_30s_does_nothing() {
-        assert_eq!(staleness_action(1_000, 30_999, true), StalenessAction::None);
-    }
-
-    #[test]
-    fn staleness_30_to_40s_dispatches_check() {
-        assert_eq!(
-            staleness_action(1_000, 31_000, true),
-            StalenessAction::DispatchCheck
-        );
-        assert_eq!(
-            staleness_action(1_000, 41_000, true),
-            StalenessAction::DispatchCheck
-        );
-    }
-
-    #[test]
-    fn staleness_after_40s_marks_unknown() {
-        assert_eq!(
-            staleness_action(1_000, 41_001, true),
-            StalenessAction::MarkUnknown
-        );
-    }
-
-    #[test]
-    fn staleness_not_loaded_does_nothing() {
-        assert_eq!(
-            staleness_action(1_000, 60_000, false),
-            StalenessAction::None
-        );
-    }
-
-    #[test]
-    fn grok_reconnect_requires_an_old_unresolved_safe_state() {
-        let mut stale = state_with("grok", "loaded", "unknown", "unknown", false);
-        stale.last_status_at = 1_000;
-        stale.bridge = "ok".into();
-        stale.adapter = "ok".into();
-
-        assert!(!grok_reconnect_allowed(&stale, 41_000));
-        assert!(grok_reconnect_allowed(&stale, 41_001));
-
-        let mut signed_in = stale.clone();
-        signed_in.login = "logged_in".into();
-        assert!(grok_reconnect_allowed(&signed_in, 41_001));
-
-        let mut blocked = stale.clone();
-        blocked.login = "blocked".into();
-        assert!(!grok_reconnect_allowed(&blocked, 41_001));
-
-        let mut logged_out = stale.clone();
-        logged_out.login = "logged_out".into();
-        assert!(!grok_reconnect_allowed(&logged_out, 41_001));
-
-        let mut thinking = stale.clone();
-        thinking.thinking = true;
-        assert!(!grok_reconnect_allowed(&thinking, 41_001));
-
-        let mut healthy = stale.clone();
-        healthy.dom = "ready".into();
-        assert!(!grok_reconnect_allowed(&healthy, 41_001));
-
-        let mut degraded = stale.clone();
-        degraded.bridge = "degraded".into();
-        assert!(!grok_reconnect_allowed(&degraded, 41_001));
-
-        let mut broken = stale.clone();
-        broken.adapter = "broken".into();
-        assert!(!grok_reconnect_allowed(&broken, 41_001));
-
-        let mut other_provider = stale;
-        other_provider.provider = "chatgpt".into();
-        assert!(!grok_reconnect_allowed(&other_provider, 41_001));
-    }
-
-    #[test]
-    fn grok_stale_reason_requires_missing_current_app_title_and_is_emitted_once() {
-        let mut stale = state_with("grok", "loaded", "unknown", "unknown", false);
-        stale.last_status_at = 1_000;
-        stale.bridge = "ok".into();
-        stale.adapter = "ok".into();
-
-        assert_eq!(
-            grok_stale_reason(&stale, 41_001, false),
-            Some(GROK_APP_TITLE_UNCONFIRMED_REASON)
-        );
-        assert_eq!(grok_stale_reason(&stale, 41_001, true), None);
-
-        stale.bridge_reason = Some(GROK_APP_TITLE_UNCONFIRMED_REASON.into());
-        assert_eq!(grok_stale_reason(&stale, 41_001, false), None);
-    }
-
-    #[test]
-    fn degraded_bridge_resets_only_on_new_boot() {
-        assert!(!bridge_resets_on_boot_rotation(
-            "degraded",
-            None,
-            Some("boot-b")
-        ));
-        assert!(!bridge_resets_on_boot_rotation(
-            "degraded",
-            Some("boot-a"),
-            None
-        ));
-        assert!(!bridge_resets_on_boot_rotation(
-            "degraded",
-            Some("boot-b"),
-            Some("boot-b")
-        ));
-        assert!(bridge_resets_on_boot_rotation(
-            "degraded",
-            Some("boot-a"),
-            Some("boot-b")
-        ));
-        assert!(!bridge_resets_on_boot_rotation(
-            "ok",
-            Some("boot-a"),
-            Some("boot-b")
-        ));
-    }
-
-    #[test]
-    fn gemini_google_sorry_navigation_is_narrow_and_unmodified() {
-        assert!(gemini_sorry_navigation_active(
-            "gemini",
-            &url("https://www.google.com/sorry")
-        ));
-        assert!(gemini_sorry_navigation_active(
-            "gemini",
-            &url(
-                "https://www.google.com/sorry/index?continue=https%3A%2F%2Fgemini.google.com%2Fapp"
-            )
-        ));
-        for value in [
-            "https://www.google.com/sorryevil",
-            "https://www.google.com/search",
-            "https://www.google.com.evil.net/sorry",
-            "http://www.google.com/sorry",
-        ] {
-            assert!(!gemini_sorry_navigation_active("gemini", &url(value)));
-        }
-        assert!(!gemini_sorry_navigation_active(
-            "chatgpt",
-            &url("https://www.google.com/sorry")
-        ));
-        assert!(PERMISSION_SHIM_JS.contains("location.hostname === 'www.google.com'"));
-        assert!(PERMISSION_SHIM_JS.contains("location.pathname === '/sorry'"));
-    }
-
-    #[test]
-    fn grok_challenge_titles_surface_without_enabling_other_providers() {
-        for title in [
-            "Just a moment...",
-            "Performing security verification",
-            "grok.com 正在執行安全驗證",
-            "安全性驗證",
-            "セキュリティ検証",
-            "Sicherheitsüberprüfung",
-        ] {
-            assert!(grok_challenge_title_active("grok", title));
-        }
-        assert!(!grok_challenge_title_active("grok", "Grok"));
-        assert!(!grok_challenge_title_active(
-            "chatgpt",
-            "Performing security verification"
-        ));
-    }
-
-    #[test]
-    fn grok_challenge_title_wins_when_it_also_looks_like_an_app_title() {
-        assert_eq!(
-            grok_document_title_signal(
-                "grok",
-                "Grok — Performing security verification",
-                &url("https://grok.com/")
-            ),
-            GrokDocumentTitleSignal::Challenge
-        );
-        assert_eq!(
-            grok_document_title_signal("grok", "Grok — Home", &url("https://grok.com/")),
-            GrokDocumentTitleSignal::App
-        );
-    }
-
-    #[test]
-    fn grok_bridge_driver_callback_parses_only_known_outcomes() {
-        assert_eq!(
-            parse_grok_bridge_drive_outcome(r#""challenge""#),
-            Some(GrokBridgeDriveResult {
-                outcome: GrokBridgeDriveOutcome::Challenge,
-                boot_id: None,
-            })
-        );
-        assert_eq!(
-            parse_grok_bridge_drive_outcome(r#""\"installed\"""#),
-            Some(GrokBridgeDriveResult {
-                outcome: GrokBridgeDriveOutcome::Installed,
-                boot_id: None,
-            })
-        );
-        assert_eq!(
-            parse_grok_bridge_drive_outcome(
-                r#""{\"outcome\":\"present\",\"bootId\":\"boot-current\"}""#
-            ),
-            Some(GrokBridgeDriveResult {
-                outcome: GrokBridgeDriveOutcome::Present,
-                boot_id: Some("boot-current".into()),
-            })
-        );
-        assert_eq!(parse_grok_bridge_drive_outcome("null"), None);
-        assert_eq!(parse_grok_bridge_drive_outcome(r#""unexpected""#), None);
-    }
-
-    #[test]
-    fn grok_bridge_driver_structural_gate_accepts_loaded_unresolved_states() {
-        assert!(should_drive_grok_bridge(&state_with(
-            "grok", "loaded", "unknown", "unknown", false
-        )));
-        assert!(should_drive_grok_bridge(&state_with(
-            "grok", "loaded", "unknown", "blocked", false
-        )));
-        assert!(!should_drive_grok_bridge(&state_with(
-            "grok",
-            "loaded",
-            "ready",
-            "logged_in",
-            false
-        )));
-        assert!(!should_drive_grok_bridge(&state_with(
-            "grok", "creating", "unknown", "unknown", false
-        )));
-        assert!(!should_drive_grok_bridge(&state_with(
-            "chatgpt", "loaded", "unknown", "unknown", false
-        )));
-        assert!(grok_bridge_drive_allowed(&state_with(
-            "grok", "creating", "unknown", "unknown", false
-        )));
-        // The blocked state must stay drive-eligible for the app-title recovery path.
-        assert!(grok_bridge_drive_allowed(&state_with(
-            "grok", "loaded", "unknown", "blocked", false
-        )));
-    }
-
-    #[test]
-    fn grok_page_load_and_watchdog_require_a_positive_app_title_signal() {
-        let unresolved = state_with("grok", "loaded", "unknown", "unknown", false);
-        assert!(!should_drive_grok_bridge_from_background(
-            &unresolved,
-            false
-        ));
-        assert!(should_drive_grok_bridge_from_background(&unresolved, true));
-
-        // A positive title is the recovery authorization. Keep the UI blocked until the bridge
-        // confirms status, but allow Finished/watchdog to retry if the first title-time drive
-        // returned "waiting" while the real app document was still loading.
-        let blocked = state_with("grok", "loaded", "unknown", "blocked", false);
-        assert!(!should_drive_grok_bridge_from_background(&blocked, false));
-        assert!(should_drive_grok_bridge_from_background(&blocked, true));
-        assert!(grok_bridge_drive_allowed(&blocked));
-    }
-
-    #[test]
-    fn grok_generic_staleness_requires_an_app_title_and_skips_blocked() {
-        assert!(!generic_staleness_dispatch_allowed(
-            &state_with("grok", "loaded", "unknown", "blocked", false),
-            false
-        ));
-        assert!(!generic_staleness_dispatch_allowed(
-            &state_with("grok", "loaded", "unknown", "unknown", false),
-            false
-        ));
-        assert!(generic_staleness_dispatch_allowed(
-            &state_with("grok", "loaded", "unknown", "unknown", false),
-            true
-        ));
-        assert!(generic_staleness_dispatch_allowed(
-            &state_with("grok", "loaded", "unknown", "blocked", false),
-            true
-        ));
-        assert!(generic_staleness_dispatch_allowed(
-            &state_with("chatgpt", "loaded", "unknown", "blocked", false),
-            false
-        ));
-    }
-
-    #[test]
-    fn generic_eval_requires_an_app_document_and_a_current_grok_bridge() {
-        let ready = state_with("grok", "loaded", "ready", "logged_in", false);
-        assert!(!provider_document_allows_generic_eval(
-            "grok",
-            false,
-            Some(&ready),
-            7,
-            Some(7),
-            Some(7),
-            false
-        ));
-        assert!(!provider_document_allows_generic_eval(
-            "grok",
-            true,
-            Some(&ready),
-            7,
-            None,
-            Some(7),
-            false
-        ));
-        assert!(!provider_document_allows_generic_eval(
-            "grok",
-            true,
-            Some(&ready),
-            7,
-            Some(7),
-            Some(6),
-            false
-        ));
-        assert!(!provider_document_allows_generic_eval(
-            "grok",
-            true,
-            Some(&ready),
-            7,
-            Some(7),
-            Some(7),
-            true
-        ));
-        assert!(provider_document_allows_generic_eval(
-            "grok",
-            true,
-            Some(&ready),
-            7,
-            Some(7),
-            Some(7),
-            false
-        ));
-
-        let blocked = state_with("grok", "loaded", "unknown", "blocked", false);
-        assert!(!provider_document_allows_generic_eval(
-            "grok",
-            true,
-            Some(&blocked),
-            7,
-            Some(7),
-            Some(7),
-            false
-        ));
-        assert!(provider_document_allows_generic_eval(
-            "chatgpt", true, None, 0, None, None, false
-        ));
-        assert!(!provider_document_allows_generic_eval(
-            "chatgpt", false, None, 0, None, None, false
-        ));
-    }
-
-    #[test]
-    fn control_eval_requires_a_ready_non_challenge_document() {
-        assert!(provider_state_allows_control_eval(&state_with(
-            "chatgpt",
-            "loaded",
-            "ready",
-            "logged_in",
-            false
-        )));
-        assert!(!provider_state_allows_control_eval(&state_with(
-            "chatgpt",
-            "loaded",
-            "unknown",
-            "logged_in",
-            false
-        )));
-        assert!(!provider_state_allows_control_eval(&state_with(
-            "grok", "loaded", "ready", "blocked", false
-        )));
-    }
-
-    #[test]
-    fn page_load_start_immediately_makes_a_ready_provider_non_sendable() {
-        let mut state = state_with("chatgpt", "loaded", "ready", "logged_in", true);
-        state.bridge = "degraded".into();
-        state.bridge_reason = Some("stale".into());
-        reset_state_for_page_load(&mut state);
-        assert_eq!(state.webview, "loaded");
-        assert_eq!(state.dom, "unknown");
-        assert_eq!(state.login, "logged_in");
-        assert!(!state.thinking);
-        assert_eq!(state.bridge, "ok");
-        assert_eq!(state.bridge_reason, None);
-        assert!(!provider_state_allows_control_eval(&state));
-    }
-
-    #[test]
-    fn body_detected_grok_challenge_revokes_the_positive_title_epoch() {
-        let _test_guard = GROK_RUNTIME_TEST_LOCK.lock().expect("Grok test lock");
-        let provider = "grok";
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            guard.states.insert(
-                provider.into(),
-                state_with(provider, "loaded", "unknown", "unknown", false),
-            );
-            guard.grok_document_epoch.insert(provider.into(), 9);
-            guard.grok_app_title_epoch.insert(provider.into(), 9);
-            guard.grok_pending_navigation.remove(provider);
-        }
-
-        let blocked =
-            record_grok_bridge_challenge(provider, 9).expect("current challenge should apply");
-        assert_eq!(blocked.login, "blocked");
-        let guard = runtime().lock().expect("provider runtime lock");
-        assert!(!guard.grok_app_title_epoch.contains_key(provider));
-        drop(guard);
-        assert!(!should_drive_grok_bridge_from_background(&blocked, false));
-
-        let mut guard = runtime().lock().expect("provider runtime lock");
-        guard.states.remove(provider);
-        guard.grok_document_epoch.remove(provider);
-        guard.grok_app_title_epoch.remove(provider);
-    }
-
-    #[test]
-    fn stale_grok_bridge_driver_cannot_override_a_newer_document_or_ready_state() {
-        let unresolved = state_with("grok", "loaded", "unknown", "unknown", false);
-        assert_eq!(
-            grok_bridge_host_action(GrokBridgeDriveOutcome::Challenge, 4, 4, &unresolved),
-            GrokBridgeHostAction::MarkBlocked
-        );
-        assert_eq!(
-            grok_bridge_host_action(GrokBridgeDriveOutcome::Challenge, 3, 4, &unresolved),
-            GrokBridgeHostAction::Ignore
-        );
-        assert_eq!(
-            grok_bridge_host_action(GrokBridgeDriveOutcome::Waiting, 4, 4, &unresolved),
-            GrokBridgeHostAction::Ignore
-        );
-
-        let mut ready = unresolved.clone();
-        ready.dom = "ready".into();
-        ready.login = "logged_in".into();
-        assert_eq!(
-            grok_bridge_host_action(GrokBridgeDriveOutcome::Challenge, 4, 4, &ready),
-            GrokBridgeHostAction::Ignore
-        );
-    }
-
-    #[test]
-    fn session_reset_accepts_only_a_new_document_boot() {
-        assert!(!fresh_session_boot(Some("boot-a"), Some("boot-a")));
-        assert!(fresh_session_boot(Some("boot-a"), Some("boot-b")));
-        assert!(fresh_session_boot(None, Some("boot-a")));
-        assert!(!fresh_session_boot(Some("boot-a"), None));
-        assert!(!fresh_session_boot(None, None));
-    }
-
-    #[test]
-    fn grok_navigation_rejects_late_status_from_the_previous_document_boot() {
-        let _test_guard = GROK_RUNTIME_TEST_LOCK.lock().expect("Grok test lock");
-        let provider = "grok";
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            guard.status_boot.remove(provider);
-            guard.grok_adopted_boot.remove(provider);
-            guard.grok_pending_navigation.remove(provider);
-            guard.grok_document_epoch.remove(provider);
-            guard.pending_session_boot.remove(provider);
-        }
-
-        let first_epoch = prepare_grok_navigation(provider).expect("first navigation reservation");
-        assert_eq!(confirm_grok_page_load(provider), first_epoch);
-        assert!(adopt_grok_bridge_boot(provider, first_epoch, "old-boot"));
-        assert!(accept_status_for_session_reset(provider, Some("old-boot")));
-
-        let next_epoch = prepare_grok_navigation(provider).expect("next navigation reservation");
-        assert!(!grok_bridge_result_is_current(provider, first_epoch));
-        assert!(!adopt_grok_bridge_boot(provider, first_epoch, "old-boot"));
-        assert!(!accept_status_for_session_reset(provider, Some("old-boot")));
-        assert_eq!(confirm_grok_page_load(provider), next_epoch);
-        assert!(!grok_bridge_result_is_current(provider, first_epoch));
-        assert!(!adopt_grok_bridge_boot(provider, first_epoch, "old-boot"));
-        assert!(adopt_grok_bridge_boot(provider, next_epoch, "new-boot"));
-        assert!(accept_status_for_session_reset(provider, Some("new-boot")));
-        assert!(accept_status_for_session_reset(provider, Some("new-boot")));
-
-        let restored_epoch =
-            prepare_grok_navigation(provider).expect("restored navigation reservation");
-        assert_eq!(confirm_grok_page_load(provider), restored_epoch);
-        assert!(adopt_grok_bridge_boot(provider, restored_epoch, "old-boot"));
-        assert!(accept_status_for_session_reset(provider, Some("old-boot")));
-
-        let mut guard = runtime().lock().expect("provider runtime lock");
-        guard.status_boot.remove(provider);
-        guard.grok_adopted_boot.remove(provider);
-        guard.grok_pending_navigation.remove(provider);
-        guard.grok_document_epoch.remove(provider);
-    }
-
-    #[test]
-    fn failed_grok_navigation_restores_the_live_document_boot() {
-        let _test_guard = GROK_RUNTIME_TEST_LOCK.lock().expect("Grok test lock");
-        let provider = "grok";
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            guard.status_boot.remove(provider);
-            guard.grok_adopted_boot.remove(provider);
-            guard.grok_pending_navigation.remove(provider);
-            guard.grok_document_epoch.remove(provider);
-            guard.pending_session_boot.remove(provider);
-        }
-
-        let live_epoch = prepare_grok_navigation(provider).expect("live navigation reservation");
-        assert_eq!(confirm_grok_page_load(provider), live_epoch);
-        assert!(adopt_grok_bridge_boot(provider, live_epoch, "live-boot"));
-        assert!(accept_status_for_session_reset(provider, Some("live-boot")));
-
-        let failed_epoch =
-            prepare_grok_navigation(provider).expect("failed navigation reservation");
-        assert!(!accept_status_for_session_reset(
-            provider,
-            Some("live-boot")
-        ));
-        cancel_grok_navigation(provider, failed_epoch);
-        assert!(accept_status_for_session_reset(provider, Some("live-boot")));
-
-        let mut guard = runtime().lock().expect("provider runtime lock");
-        guard.status_boot.remove(provider);
-        guard.grok_adopted_boot.remove(provider);
-        guard.grok_pending_navigation.remove(provider);
-        guard.grok_document_epoch.remove(provider);
-    }
-
-    #[test]
-    fn navigation_start_lease_reopens_manual_recovery_and_ignores_stale_tokens() {
-        let _test_guard = GROK_RUNTIME_TEST_LOCK.lock().expect("Grok test lock");
-        let provider = "grok";
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            guard.grok_document_epoch.insert(provider.into(), 50);
-            guard.grok_pending_navigation.remove(provider);
-            guard
-                .pending_session_boot
-                .insert(provider.into(), Some("old-session".into()));
-        }
-
-        let timed_out = prepare_grok_navigation(provider).expect("timed-out lifecycle reservation");
-        expire_grok_navigation_start_lease(provider, timed_out, GrokNavigationOwner::PopupClaimed);
-        assert!(prepare_grok_navigation(provider).is_err());
-
-        expire_grok_navigation_start_lease(provider, timed_out, GrokNavigationOwner::Lifecycle);
-        {
-            let guard = runtime().lock().expect("provider runtime lock");
-            assert!(!guard.grok_pending_navigation.contains_key(provider));
-            assert!(!guard.pending_session_boot.contains_key(provider));
-        }
-
-        let retry = prepare_grok_navigation(provider).expect("retry after lease expiry");
-        assert_eq!(confirm_grok_page_load(provider), retry);
-        let newer = prepare_grok_navigation(provider).expect("newer lifecycle reservation");
-        expire_grok_navigation_start_lease(provider, retry, GrokNavigationOwner::Lifecycle);
-        assert!(prepare_grok_navigation(provider).is_err());
-        cancel_grok_navigation(provider, newer);
-
-        let mut guard = runtime().lock().expect("provider runtime lock");
-        guard.grok_document_epoch.remove(provider);
-        guard.grok_pending_navigation.remove(provider);
-        guard.pending_session_boot.remove(provider);
-    }
-
-    #[test]
-    fn delayed_external_auth_return_cannot_take_over_a_newer_grok_document() {
-        let _test_guard = GROK_RUNTIME_TEST_LOCK.lock().expect("Grok test lock");
-        let provider = "grok";
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            guard.grok_document_epoch.insert(provider.into(), 70);
-            guard.grok_pending_navigation.remove(provider);
-        }
-
-        assert!(prepare_grok_external_auth_return(provider, 69).is_none());
-        let prepared = prepare_grok_external_auth_return(provider, 70)
-            .expect("the current auth document may reserve one return");
-        assert_eq!(prepared, 71);
-        assert!(grok_external_auth_return_is_current(provider, 70, prepared));
-        assert!(prepare_grok_external_auth_return(provider, 70).is_none());
-        cancel_grok_navigation(provider, prepared);
-        assert!(!grok_external_auth_return_is_current(
-            provider, 70, prepared
-        ));
-
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            guard.grok_document_epoch.insert(provider.into(), 72);
-        }
-        assert!(prepare_grok_external_auth_return(provider, 70).is_none());
-        assert!(!grok_external_auth_return_is_current(
-            provider, 70, prepared
-        ));
-        assert!(prepare_grok_external_auth_return("chatgpt", 72).is_none());
-        assert!(prepare_grok_external_auth_return(provider, 0).is_none());
-
-        let mut guard = runtime().lock().expect("provider runtime lock");
-        guard.grok_document_epoch.remove(provider);
-        guard.grok_pending_navigation.remove(provider);
-    }
-
-    #[test]
-    fn popup_recovery_reservation_is_single_owner_and_manual_navigation_supersedes_it() {
-        let _test_guard = GROK_RUNTIME_TEST_LOCK.lock().expect("Grok test lock");
-        let provider = "grok";
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            guard.states.insert(
-                provider.into(),
-                state_with(provider, "loaded", "unknown", "blocked", false),
-            );
-            guard.grok_document_epoch.insert(provider.into(), 41);
-            guard.grok_pending_navigation.remove(provider);
-            guard.grok_adopted_boot.remove(provider);
-            guard.status_boot.remove(provider);
-        }
-
-        assert!(prepare_grok_popup_recovery(provider, 40).is_none());
-        let prepared = prepare_grok_popup_recovery(provider, 41)
-            .expect("current blocked popup should recover");
-        assert_eq!(prepared, 42);
-        assert!(prepare_grok_popup_recovery(provider, 41).is_none());
-        let manual = prepare_grok_navigation(provider)
-            .expect("manual navigation should supersede an unclaimed popup recovery");
-        assert_eq!(manual, prepared);
-        assert!(!claim_grok_popup_recovery(provider, 41, prepared));
-        assert!(prepare_grok_navigation(provider).is_err());
-        cancel_grok_navigation(provider, manual);
-
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            guard.states.insert(
-                provider.into(),
-                state_with(provider, "loaded", "ready", "logged_in", false),
-            );
-        }
-        assert!(prepare_grok_popup_recovery(provider, 41).is_none());
-
-        let mut guard = runtime().lock().expect("provider runtime lock");
-        guard.states.remove(provider);
-        guard.grok_document_epoch.remove(provider);
-        guard.grok_pending_navigation.remove(provider);
-        guard.grok_adopted_boot.remove(provider);
-        guard.status_boot.remove(provider);
-    }
-
-    #[test]
-    fn claimed_popup_recovery_rolls_back_on_failure_and_close_invalidates_it() {
-        let _test_guard = GROK_RUNTIME_TEST_LOCK.lock().expect("Grok test lock");
-        let provider = "grok";
-        let mut previous_state = state_with(provider, "loaded", "unknown", "blocked", false);
-        previous_state.bridge = "degraded".into();
-        previous_state.bridge_reason = Some("previous bridge".into());
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            guard.states.insert(provider.into(), previous_state.clone());
-            guard.grok_document_epoch.insert(provider.into(), 41);
-            guard
-                .grok_adopted_boot
-                .insert(provider.into(), (41, "old-adopted".into()));
-            guard
-                .status_boot
-                .insert(provider.into(), "old-status".into());
-            guard
-                .engine_boot
-                .insert(provider.into(), "old-engine".into());
-            guard
-                .bridge_boot
-                .insert(provider.into(), "old-bridge".into());
-            guard.last_push_ms.insert(provider.into(), 71);
-            guard.stale_check_sent.insert(provider.into(), 72);
-            guard.grok_pending_navigation.remove(provider);
-        }
-
-        let prepared = prepare_grok_popup_recovery(provider, 41)
-            .expect("current blocked popup should reserve recovery");
-        assert!(claim_grok_popup_recovery(provider, 41, prepared));
-        assert!(grok_popup_recovery_claim_is_current(provider, prepared));
-        assert!(prepare_grok_navigation(provider).is_err());
-        {
-            let guard = runtime().lock().expect("provider runtime lock");
-            assert!(!provider_document_allows_generic_eval(
-                provider,
-                true,
-                guard.states.get(provider),
-                41,
-                Some(41),
-                Some(41),
-                guard.grok_pending_navigation.contains_key(provider),
-            ));
-        }
-
-        // Reload enqueue can succeed without a Started event. Lease expiry must restore the live
-        // blocked document's full runtime snapshot and reopen manual recovery.
-        expire_grok_navigation_start_lease(provider, prepared, GrokNavigationOwner::PopupClaimed);
-        {
-            let guard = runtime().lock().expect("provider runtime lock");
-            assert_eq!(guard.states.get(provider), Some(&previous_state));
-            assert_eq!(
-                guard.grok_adopted_boot.get(provider),
-                Some(&(41, "old-adopted".into()))
-            );
-            assert_eq!(
-                guard.status_boot.get(provider).map(String::as_str),
-                Some("old-status")
-            );
-            assert_eq!(
-                guard.engine_boot.get(provider).map(String::as_str),
-                Some("old-engine")
-            );
-            assert_eq!(
-                guard.bridge_boot.get(provider).map(String::as_str),
-                Some("old-bridge")
-            );
-            assert_eq!(guard.last_push_ms.get(provider), Some(&71));
-            assert_eq!(guard.stale_check_sent.get(provider), Some(&72));
-            assert!(!guard.grok_pending_navigation.contains_key(provider));
-        }
-
-        // Closing the provider retires the claimed token before any delayed reload can run.
-        let close_prepared =
-            prepare_grok_popup_recovery(provider, 41).expect("second popup recovery reservation");
-        assert!(claim_grok_popup_recovery(provider, 41, close_prepared));
-        retire_grok_document(provider);
-        assert!(!grok_popup_recovery_claim_is_current(
-            provider,
-            close_prepared
-        ));
-        cancel_grok_popup_recovery(provider, close_prepared);
-
-        let mut guard = runtime().lock().expect("provider runtime lock");
-        guard.states.remove(provider);
-        guard.engine_boot.remove(provider);
-        guard.bridge_boot.remove(provider);
-        guard.status_boot.remove(provider);
-        guard.grok_document_epoch.remove(provider);
-        guard.grok_app_title_epoch.remove(provider);
-        guard.grok_adopted_boot.remove(provider);
-        guard.grok_pending_navigation.remove(provider);
-        guard.last_push_ms.remove(provider);
-        guard.stale_check_sent.remove(provider);
-    }
-
-    #[test]
-    fn session_reset_parses_native_and_wrapped_eval_booleans() {
-        assert!(eval_callback_reports_true("true"));
-        assert!(eval_callback_reports_true(r#""true""#));
-        assert!(!eval_callback_reports_true("false"));
-        assert!(!eval_callback_reports_true(r#""false""#));
-        assert!(!eval_callback_reports_true("null"));
-    }
-
-    #[test]
-    fn cancelled_session_reset_accepts_status_from_the_current_document_again() {
-        let provider = "test-cancelled-session-reset";
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            guard.status_boot.insert(provider.into(), "boot-a".into());
-            guard
-                .pending_session_boot
-                .insert(provider.into(), Some("boot-a".into()));
-        }
-
-        assert!(!accept_status_for_session_reset(provider, Some("boot-a")));
-        cancel_session_reset(provider);
-        assert!(accept_status_for_session_reset(provider, Some("boot-a")));
-
-        let mut guard = runtime().lock().expect("provider runtime lock");
-        guard.status_boot.remove(provider);
-        guard.pending_session_boot.remove(provider);
-    }
-
-    #[test]
-    fn degraded_bridge_reset_uses_bridge_boot_reference() {
-        let provider = "test-bridge-boot-reference";
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            let mut state = state_with(provider, "loaded", "ready", "logged_in", false);
-            state.bridge = "degraded".into();
-            guard.states.insert(provider.into(), state);
-            guard.engine_boot.remove(provider);
-            guard.bridge_boot.insert(provider.into(), "boot-b".into());
-        }
-
-        assert!(!should_reset_bridge_on_boot_rotation(
-            provider,
-            Some("boot-b")
-        ));
-        assert!(should_reset_bridge_on_boot_rotation(
-            provider,
-            Some("boot-c")
-        ));
-
-        {
-            let mut guard = runtime().lock().expect("provider runtime lock");
-            guard.states.remove(provider);
-            guard.bridge_boot.remove(provider);
-            guard.engine_boot.remove(provider);
-            guard.status_boot.remove(provider);
-            guard.pending_session_boot.remove(provider);
-        }
+        assert!(claude_conversation_url(&"https://claude.ai/new".parse().unwrap()));
+        assert!(claude_conversation_url(&"https://claude.ai/chat/1234".parse().unwrap()));
+        let script = guard_claude_automation("window.__SAFE_TEST__ = 1;");
+        assert!(!script.contains("CLAUDE_COMPOSER_READY_JS"));
+        assert!(script.contains("location.pathname"));
+        assert!(script.contains("window.__SAFE_TEST__ = 1;"));
     }
 }
+
+#[cfg(test)]
+#[path = "webviews/tests.rs"]
+mod tests;

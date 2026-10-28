@@ -38,6 +38,21 @@ interface AdapterConfig {
 interface MacEngineState {
   bootId: string;
   adapterVersion: number;
+  // Read-only liveness counters for the sanctioned native health probe.
+  statusTicks: number;
+  responsePollTicks: number;
+  waitingForResponse: boolean;
+  // Native read-only, text-free diagnostics updated by the existing status probe.
+  statusEmits: number;
+  fillStarts: number;
+  fillDones: number;
+  capturePhase: string | null;
+  captureResponseNodes: number;
+  captureAssistantUnits: number;
+  captureLatestUnitDomChars: number;
+  captureTextChars: number;
+  captureAnchor: boolean;
+  captureGenerationSeen: boolean;
   stop?: () => void;
 }
 
@@ -68,8 +83,18 @@ const CHATGPT_USER_MESSAGE_SELECTORS = [
   'div[id^="response-"].items-end',
   '.message-bubble.user',
   '[data-user-message-bubble]',
+  // The signed-in Chat/Work layout can identify user messages by search-unit keys
+  // without rendering [data-message-author-role="user"]. Mirror the existing
+  // user-message exclusion selectors so a verified new prompt can be anchored.
+  '[data-content-search-unit-key$=":user"]',
+  '[data-chatgpt-search-unit-key$=":user"]',
 ];
 const CHATGPT_USER_MESSAGE_SELECTOR = CHATGPT_USER_MESSAGE_SELECTORS.join(', ');
+// Chat/Work's assistant unit survives layout changes in the nested markdown body.
+const CHATGPT_ASSISTANT_UNIT_SELECTOR = [
+  '[data-content-search-unit-key$=":assistant"]',
+  '[data-chatgpt-search-unit-key$=":assistant"]',
+].join(', ');
 const CHATGPT_LIVE_SEND_BUTTON_SELECTORS = [
   'button[data-testid="composer-submit-button"]',
   'button[aria-label="Send message"]',
@@ -312,6 +337,19 @@ class InactiveSendOperationError extends Error {
   window.__MAC_ENGINE__ = {
     bootId: bridge.bootId,
     adapterVersion: 0,
+    statusTicks: 0,
+    responsePollTicks: 0,
+    waitingForResponse: false,
+    statusEmits: 0,
+    fillStarts: 0,
+    fillDones: 0,
+    capturePhase: null,
+    captureResponseNodes: 0,
+    captureAssistantUnits: 0,
+    captureLatestUnitDomChars: 0,
+    captureTextChars: 0,
+    captureAnchor: false,
+    captureGenerationSeen: false,
     stop,
   };
 
@@ -353,6 +391,8 @@ class InactiveSendOperationError extends Error {
         bootId: bridge.bootId,
       };
       if (fillMs !== undefined) payload.fillMs = fillMs;
+      if (phase === 'start') (window.__MAC_ENGINE__ as MacEngineState).fillStarts += 1;
+      else (window.__MAC_ENGINE__ as MacEngineState).fillDones += 1;
       bridge.emitTitle('STATUS_REPORT', payload, { immediate: true });
     } catch {
       // best effort diagnostic only
@@ -537,35 +577,176 @@ class InactiveSendOperationError extends Error {
   }
 
   function reportStatus() {
+    // Count invocations before touching ChatGPT DOM; a stalled title channel
+    // must remain distinguishable from a timer that never ran.
+    (window.__MAC_ENGINE__ as MacEngineState).statusTicks += 1;
     if (!adapter) {
+      (window.__MAC_ENGINE__ as MacEngineState).statusEmits += 1;
       bridge.emit({ v: 1, action: 'STATUS_REPORT', payload: { dom: 'unknown', bootId: bridge.bootId } });
       return;
     }
-    let login: 'logged_in' | 'logged_out' | 'blocked' = 'logged_out';
-    if (isProviderChallengeActive(adapter.provider)) {
-      login = 'blocked';
-    } else if (adapter.provider === 'meta' && queryInput(adapter) !== null) {
-      // A usable composer wins. After Facebook/Instagram login the page can still
-      // expose a login control or an inert prehydration field beside the real editor.
-      login = 'logged_in';
-    } else if (hasDetector(adapter.loggedOutDetectors) || adapter.provider === 'meta') {
-      // Meta does not treat a visible but gated composer, or Send alone, as logged in.
-      login = 'logged_out';
-    } else if (
-      hasDetector(adapter.loginDetectors) ||
-      (adapter.provider === 'grok' &&
-        (queryInput(adapter) !== null || queryFirstVisible([GROK_LIVE_STOP_BUTTON_SELECTOR]) !== null))
-    ) {
-      login = 'logged_in';
-    } else if (adapter.provider === 'gemini' && location.hostname === 'gemini.google.com') {
-      login = 'blocked';
+
+    // Status reports are the provider's liveness heartbeat. Never let an
+    // optional capture diagnostic, a transient DOM traversal, or a provider
+    // hydration change suppress them. Do not expose exception text: it may
+    // contain native page or conversation content.
+    const provider = adapter.provider;
+    let stage: 'login' | 'generation' | 'capture' = 'login';
+    let login: 'unknown' | 'logged_in' | 'logged_out' | 'blocked' = 'unknown';
+    let thinking = false;
+    let capture: Record<string, string | number | boolean> = {};
+    try {
+      // A page can temporarily have neither its composer nor login controls
+      // during navigation/hydration. Absence is not proof of signed-out state.
+      if (isProviderChallengeActive(provider)) {
+        login = 'blocked';
+      } else if (provider === 'meta' && queryInput(adapter) !== null) {
+        login = 'logged_in';
+      } else if (hasDetector(adapter.loggedOutDetectors) || provider === 'meta') {
+        login = 'logged_out';
+      } else if (
+        hasDetector(adapter.loginDetectors) ||
+        (provider === 'grok' &&
+          (queryInput(adapter) !== null || queryFirstVisible([GROK_LIVE_STOP_BUTTON_SELECTOR]) !== null))
+      ) {
+        login = 'logged_in';
+      }
+      stage = 'generation';
+      thinking = isGenerating();
+      stage = 'capture';
+      capture = chatGptCaptureSnapshot();
+    } catch {
+      // The engine remains installed and its timer continues reporting even
+      // when a ChatGPT DOM selector/serializer throws. Never send a claimed
+      // 'thinking no' result from a failed probe.
+      const state = window.__MAC_ENGINE__ as MacEngineState;
+      state.capturePhase = 'diagnostics-error';
+      state.statusEmits += 1;
+      bridge.emit({
+        v: 1,
+        action: 'STATUS_REPORT',
+        provider,
+        payload: {
+          dom: 'ready',
+          login: stage === 'login' ? 'unknown' : login,
+          thinking: null,
+          bootId: bridge.bootId,
+          statusErrorStage: stage,
+          ...(provider === 'chatgpt' && waitingForResponse ? { capturePhase: 'diagnostics-error' } : {}),
+        },
+      });
+      return;
     }
+
+    const state = window.__MAC_ENGINE__ as MacEngineState;
+    if (provider === 'chatgpt' && waitingForResponse) {
+      state.capturePhase = typeof capture.capturePhase === 'string' ? capture.capturePhase : null;
+      state.captureResponseNodes = typeof capture.captureResponseNodes === 'number' ? capture.captureResponseNodes : 0;
+      state.captureAssistantUnits = typeof capture.captureAssistantUnits === 'number' ? capture.captureAssistantUnits : 0;
+      state.captureLatestUnitDomChars = typeof capture.captureLatestUnitDomChars === 'number' ? capture.captureLatestUnitDomChars : 0;
+      state.captureTextChars = typeof capture.captureTextChars === 'number' ? capture.captureTextChars : 0;
+      state.captureAnchor = capture.captureAnchor === true;
+      state.captureGenerationSeen = capture.captureGenerationSeen === true;
+    }
+    state.statusEmits += 1;
     bridge.emit({
       v: 1,
       action: 'STATUS_REPORT',
-      provider: adapter.provider,
-      payload: { dom: 'ready', login, thinking: isGenerating(), bootId: bridge.bootId },
+      provider,
+      payload: {
+        dom: 'ready',
+        login,
+        thinking,
+        bootId: bridge.bootId,
+        ...capture,
+      },
     });
+  }
+
+  // Bounded, text-free capture telemetry for diagnosing a completed native
+  // ChatGPT answer that never appears in Consult. Keep extraction gates intact:
+  // this reports the first missing positive signal, but cannot complete a step.
+  function chatGptCaptureSnapshot(): Record<string, string | number | boolean> {
+    if (!waitingForResponse || adapter?.provider !== 'chatgpt') return {};
+    const anchor = refreshChatGptUserTurnAnchor(adapter);
+    const mayRead = Boolean(anchor) || chatGptMayReadResponseWithoutAnchor();
+    const strictResponses = Array.from(document.querySelectorAll(adapter.responseSelectors.join(', ')));
+    const assistantUnits = Array.from(document.querySelectorAll(CHATGPT_ASSISTANT_UNIT_SELECTOR));
+    const responseNodes = strictResponses.length;
+    // Text-free DOM health probe: if the native assistant unit contains a long
+    // response while our serializer sees only a heading, these lengths differ.
+    // Only inspect the most recent *post-anchor* assistant unit; old turns are
+    // not evidence of this response.
+    const latestUnit = [...assistantUnits].reverse().find((unit) =>
+      !anchor || elementFollows(anchor, unit),
+    );
+    const latestUnitTextContent = latestUnit?.textContent?.trim() ?? '';
+    const latestUnitInnerText = latestUnit && 'innerText' in latestUnit
+      ? String((latestUnit as Element & { innerText?: unknown }).innerText ?? '').trim()
+      : '';
+    const latestUnitSerializedText = latestUnit ? serializeResponseText(latestUnit) : '';
+    const latestUnitMarkdownNodes = latestUnit
+      ? latestUnit.querySelectorAll(
+          '.markdown, [data-markdown-text-style="assistant-message"], [data-message-author-role="assistant"]',
+        ).length
+      : 0;
+    const latestUnitFrames = latestUnit ? latestUnit.querySelectorAll('iframe').length : 0;
+    // Presence only. Cross-origin renderer contents are not read and URLs
+    // (which may contain conversation data) are never logged.
+    const dilRendererFrames = document.querySelectorAll(
+      'iframe[src*="cdn.platform.openai.com/deployments/dil/"]',
+    ).length;
+    const rejected = { beforeAnchor: 0, asUser: 0, baseline: 0, empty: 0, scaffold: 0, echo: 0, eligible: 0 };
+    for (const response of [...new Set([...strictResponses, ...assistantUnits])]) {
+      if (anchor && !elementFollows(anchor, response)) rejected.beforeAnchor += 1;
+      else if (!anchor && responseBaselineEls.has(response)) rejected.baseline += 1;
+      else if (isUserMessageElement(response)) rejected.asUser += 1;
+      else {
+        const raw = extractResponseText(response);
+        const text = meaningfulChatGptAnswerText(response, raw);
+        if (!raw) rejected.empty += 1;
+        else if (!text) rejected.scaffold += 1;
+        else if (isLikelyPromptEcho(text, pendingPromptText)) rejected.echo += 1;
+        else rejected.eligible += 1;
+      }
+    }
+    const candidate = mayRead ? getLatestResponseCandidate() : null;
+    const turn = candidate ? currentChatGptCompletionTurn(candidate.element) : null;
+    const completion = turn && candidate ? chatGptCompletionEvidence(turn, candidate) : null;
+    const capturePhase = !mayRead
+      ? 'waiting-user-anchor'
+      : !candidate && responseNodes === 0 && assistantUnits.length === 0
+        ? 'assistant-selector-missing'
+        : !candidate
+          ? 'candidate-rejected'
+          : !turn
+            ? 'completion-turn-missing'
+            : !completion
+              ? 'completion-marker-missing'
+              : 'completion-marker-present';
+    return {
+      capturePhase,
+      captureUserNodes: document.querySelectorAll(CHATGPT_USER_MESSAGE_SELECTOR).length,
+      captureResponseNodes: responseNodes,
+      captureAssistantUnits: assistantUnits.length,
+      captureLatestUnitDomChars: latestUnitTextContent.length,
+      captureLatestUnitRenderedChars: latestUnitInnerText.length,
+      captureLatestUnitSerializedChars: latestUnitSerializedText.length,
+      captureLatestUnitMarkdownNodes: latestUnitMarkdownNodes,
+      captureLatestUnitFrames: latestUnitFrames,
+      captureDilRendererFrames: dilRendererFrames,
+      captureRejectedBeforeAnchor: rejected.beforeAnchor,
+      captureRejectedAsUser: rejected.asUser,
+      captureRejectedBaseline: rejected.baseline,
+      captureRejectedEmpty: rejected.empty,
+      captureRejectedScaffold: rejected.scaffold,
+      captureRejectedEcho: rejected.echo,
+      captureEligibleNodes: rejected.eligible,
+      captureAnchor: Boolean(anchor),
+      captureAnchorLatched: chatGptUserTurnAnchorLatched,
+      captureGenerationSeen: chatGptResponseGenerationObserved,
+      captureTextChars: candidate?.text.length ?? 0,
+    };
   }
 
   function reportChallengeBlocked(provider: AIProvider) {
@@ -675,11 +856,17 @@ class InactiveSendOperationError extends Error {
 
     const existingResponses = document.querySelectorAll(activeAdapter.responseSelectors.join(', '));
     lastSeenResponseEl = existingResponses.length > 0 ? existingResponses[existingResponses.length - 1] : null;
-    responseBaselineEls = new Set(existingResponses);
-    responseBaselineTextCounts = countResponseTextKeys(Array.from(existingResponses));
+    // Snapshot alternate Chat/Work assistant units as well; none predating
+    // this send may qualify as a fresh answer even after a DOM remount.
+    const baselineCandidates = activeAdapter.provider === 'chatgpt'
+      ? [...existingResponses, ...document.querySelectorAll(CHATGPT_ASSISTANT_UNIT_SELECTOR)]
+      : Array.from(existingResponses);
+    responseBaselineEls = new Set(baselineCandidates);
+    responseBaselineTextCounts = countResponseTextKeys(baselineCandidates);
     responseGeneration += 1;
     activeResponseGeneration = responseGeneration;
     waitingForResponse = true;
+    (window.__MAC_ENGINE__ as MacEngineState).waitingForResponse = true;
     lastResponseText = '';
     lastCompletionActivityAt = Date.now();
     pendingPromptText = text;
@@ -1283,17 +1470,101 @@ class InactiveSendOperationError extends Error {
     // through to the baseline filters below instead of staying silent.
     if (adapter.provider === 'chatgpt' && !chatGptAnchor && !chatGptMayReadResponseWithoutAnchor()) return null;
     const responseEls = Array.from(document.querySelectorAll(adapter.responseSelectors.join(', ')));
-    if (responseEls.length === 0) return null;
+    if (responseEls.length === 0 && adapter.provider !== 'chatgpt') return null;
     for (let index = responseEls.length - 1; index >= 0; index -= 1) {
       const response = responseEls[index];
       if (chatGptAnchor && !elementFollows(chatGptAnchor, response)) continue;
       if (!chatGptAnchor && waitingForResponse && responseBaselineEls.has(response)) continue;
       if (isUserMessageElement(response)) continue;
-      const text = extractResponseText(response);
+      const rawText = extractResponseText(response);
+      const text = adapter.provider === 'chatgpt'
+        ? meaningfulChatGptAnswerText(response, rawText)
+        : rawText;
       if (!chatGptAnchor && waitingForResponse && text && !responseTextIsBeyondBaseline(text, responseEls)) continue;
       if (text && !isLikelyPromptEcho(text, pendingPromptText)) return { element: response, text };
     }
+    // Some authenticated Chat/Work pages render a complete answer inside a
+    // new assistant unit without any adapter-specific markdown element.
+    // Require a verified post-send user bubble AND the same new-element,
+    // new-text, assistant-role, ordering, and prompt-echo protections.
+    // The existing current-turn stable completion signal still controls DONE.
+    if (adapter.provider === 'chatgpt' && waitingForResponse && chatGptUserTurnAnchorLatched) {
+      const units = Array.from(document.querySelectorAll(CHATGPT_ASSISTANT_UNIT_SELECTOR));
+      for (let index = units.length - 1; index >= 0; index -= 1) {
+        const response = units[index];
+        if (chatGptAnchor && !elementFollows(chatGptAnchor, response)) continue;
+        if (responseBaselineEls.has(response) || isUserMessageElement(response)) continue;
+        const text = meaningfulChatGptAnswerText(response, extractResponseText(response));
+        if (!text || !responseTextIsBeyondBaseline(text, units)) continue;
+        if (isLikelyPromptEcho(text, pendingPromptText)) continue;
+        return { element: response, text };
+      }
+    }
     return null;
+  }
+
+  // The Chat/Work heading is not answer content, even when a terminal
+  // copy control is present. It must not become RESPONSE_CHUNK or DONE.
+  // Only strip it from an assistant unit if the DOM identifies it as its
+  // own chrome heading; do not remove quoted words from a real answer.
+  function chatGptIsChromeHeading(text: string): boolean {
+    const withoutMarkup = text.trim()
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^\*{1,2}/, '')
+      .replace(/\*{1,2}$/, '')
+      .trim();
+    return /^chatgpt\s+said\s*[:：]?$/i.test(withoutMarkup);
+  }
+
+  // ChatGPT's Chat/Work page sometimes renders this recoverable error row,
+  // then continues its thinking phase and eventually replaces/appends the
+  // actual response. It must never count as an answer (or a terminal marker)
+  // even when a nearby copy/action control is already present. Match the
+  // entire normalized message, not arbitrary answer prose containing it.
+  function chatGptIsTransientLoadFailure(text: string): boolean {
+    const normalized = text.trim()
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^\*{1,2}/, '')
+      .replace(/\*{1,2}$/, '')
+      .replace(/^chatgpt\s+said\s*[:：]?\s*/i, '')
+      .trim();
+    return /^this response couldn['’]t load\.?$/i.test(normalized);
+  }
+
+  function meaningfulChatGptAnswerText(response: Element, rawText: string | null): string | null {
+    if (!rawText) return null;
+    let text = rawText.trim();
+    if (chatGptIsChromeHeading(text) || chatGptIsTransientLoadFailure(text)) return null;
+
+    // New-style assistant units sometimes contain a visible heading
+    // preceding the actual answer. Copy only the answer, not that heading
+    // or any tertiary tool-status footer.
+    const isAssistantUnit = CHATGPT_ASSISTANT_UNIT_SELECTOR.split(', ').some((selector) =>
+      response.getAttribute(selector.startsWith('[data-content-')
+        ? 'data-content-search-unit-key'
+        : 'data-chatgpt-search-unit-key')?.endsWith(':assistant'),
+    );
+    if (isAssistantUnit) {
+      const heading = response.querySelector('[data-conversation-role="assistant"]');
+      const headingText = heading?.textContent?.trim() ?? '';
+      if (headingText && chatGptIsChromeHeading(headingText)) {
+        const serializedHeading = serializeResponseText(heading!).trim();
+        for (const prefix of [serializedHeading, headingText]) {
+          if (prefix && text.startsWith(prefix)) {
+            text = text.slice(prefix.length).trim();
+            break;
+          }
+        }
+      }
+      const tertiary = response.querySelector('[data-markdown-text-tone="tertiary"]');
+      const tertiaryText = tertiary ? serializeResponseText(tertiary).trim() : '';
+      if (tertiaryText && text.endsWith(tertiaryText)) {
+        text = text.slice(0, -tertiaryText.length).trim();
+      }
+    }
+    if (!text || chatGptIsChromeHeading(text) || chatGptIsTransientLoadFailure(text)) return null;
+    if (/^(?:pro thinking|thinking|reasoning|searching|working on it|finalizing answer)$/i.test(text)) return null;
+    return text;
   }
 
   function isUserMessageElement(response: Element): boolean {
@@ -1655,6 +1926,10 @@ class InactiveSendOperationError extends Error {
     const response = getLatestResponseCandidate();
     const turn = currentChatGptCompletionTurn(response?.element);
     const responseText = response?.text ?? null;
+    if (responseText && chatGptIsTransientLoadFailure(responseText)) {
+      resetChatGptTerminalGate();
+      return false;
+    }
     const strongActivity = chatGptHasStrongActivity(turn);
     const completion = turn && response ? chatGptCompletionEvidence(turn, response) : null;
     if (!turn || !responseText || isThinking() || strongActivity || !completion) {
@@ -1796,6 +2071,14 @@ class InactiveSendOperationError extends Error {
     // baseline through waitingForResponse and responseBaselineEls, so after the reset it would
     // return a message that already existed before the send.
     const payload = finalResponseText(lastResponseText, getLatestResponseText());
+    if (adapter.provider === 'chatgpt' && chatGptIsTransientLoadFailure(payload)) {
+      // Fail closed: don't terminate the wait if a future layout manages to
+      // bypass the candidate filter. Re-arm polling for an actual answer.
+      lastResponseText = '';
+      resetChatGptTerminalGate();
+      clearFinishResponseTimeout();
+      return;
+    }
     const sendOperation = activeSendOperation;
     cancelResponseWait();
     bridge.emit({ v: 1, action: 'RESPONSE_DONE', provider: adapter.provider, payload });
@@ -1804,6 +2087,9 @@ class InactiveSendOperationError extends Error {
 
   function cancelResponseWait() {
     waitingForResponse = false;
+    const state = window.__MAC_ENGINE__ as MacEngineState;
+    state.waitingForResponse = false;
+    state.capturePhase = null;
     clearTimersForResponse();
     responseBaselineEls.clear();
     responseBaselineTextCounts.clear();
@@ -1888,6 +2174,7 @@ class InactiveSendOperationError extends Error {
   function startResponsePolling() {
     if (pollInterval !== undefined) return;
     pollInterval = window.setInterval(() => {
+      (window.__MAC_ENGINE__ as MacEngineState).responsePollTicks += 1;
       if (!waitingForResponse) {
         if (pollInterval !== undefined) window.clearInterval(pollInterval);
         pollInterval = undefined;
@@ -2031,7 +2318,13 @@ class InactiveSendOperationError extends Error {
   // already on screen still has to pass responseBaselineEls, responseTextIsBeyondBaseline,
   // isUserMessageElement, and isLikelyPromptEcho — the same filters the other providers use.
   function chatGptMayReadResponseWithoutAnchor(): boolean {
-    return waitingForResponse && chatGptResponseGenerationObserved;
+    if (!waitingForResponse) return false;
+    if (chatGptResponseGenerationObserved) return true;
+    // ChatGPT can render the answer without exposing its brief thinking phase.
+    // If THIS send previously had a verified matching user turn which then
+    // unmounted, keep reading fresh assistant nodes behind strict pre-send
+    // element/text baselines. Never use this path for an unconfirmed send.
+    return chatGptUserTurnAnchorLatched && !chatGptPendingDraftStillInComposer(adapter!);
   }
 
   function noteChatGptResponseGeneration(): void {

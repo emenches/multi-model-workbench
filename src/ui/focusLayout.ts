@@ -1,6 +1,8 @@
 import { DEFAULT_DOCK_CONSTRAINTS, clamp } from './dockLayout';
 
-export const DEFAULT_FOCUS_PANE_WIDTH = 560;
+// Smaller left-side default gives the conversation more room on laptops.
+// Existing saved user widths remain respected.
+export const DEFAULT_FOCUS_PANE_WIDTH = 440;
 
 export const DEFAULT_FOCUS_LAYOUT_CONSTRAINTS = {
   minFocusPaneWidth: 420,

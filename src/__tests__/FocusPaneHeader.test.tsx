@@ -124,7 +124,7 @@ describe('FocusPane provider header', () => {
         expect(html).toContain(`>${loginLabel}</button>`);
         expect(html).toContain(guidance);
         // The native webview overlays its anchor; guidance must precede that region.
-        const anchor = html.indexOf('<div class="flex min-h-0 flex-1 flex-col">');
+        const anchor = html.indexOf('workbench-provider-stage-content');
         expect(anchor).toBeGreaterThan(html.indexOf(guidance));
       }
       for (const login of ['logged_in', 'unknown'] as const) {

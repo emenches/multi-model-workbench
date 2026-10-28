@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AI_PROVIDERS, CHAT_MODES, DEFAULT_FREE_TARGET_PROVIDERS } from '../shared/constants';
-import type { AIProvider, BridgeMessage, ChatMode, ProviderState, WorkflowPresetId } from '../shared/types';
+import type { AIProvider, BridgeMessage, ChatMode, ModeRoles, ProviderState, WorkflowPresetId } from '../shared/types';
 import { startBridgePull, resetProviderBootState } from './bridge/pull';
 import { isRenderableResponseMessage } from './bridge/render';
 import { publishBridgeMessage } from './bridge/bus';
 import { EchoPanel } from './dev/EchoPanel';
 import { getRuntimeAppVersion } from './appVersion';
-import { host } from './host';
+import { host, type ProviderWindowGeometry } from './host';
+import { ProjectPicker } from './workspace/ProjectPicker';
+import { ProviderModelControls } from './ui/ProviderModelControls';
+import { MIN_CONSULT_PROVIDERS, availableConsultProviders, chooseConsultRoles } from './ui/consultAvailability';
+import { EMPTY_PROJECT_STORE, mergeProjectContext, type ProjectStore } from './workspace/model';
 import { useI18n } from './i18n/context';
-import { MODE_NAME_KEYS } from './i18n/modes';
 import type { Locale } from './i18n/resolve';
 import { formatI18n, t as translateKey } from './i18n/t';
 import { mergePullBridgeState, type PullBridgeState } from './appBridgeState';
@@ -27,20 +30,23 @@ import {
   type ManualFocusPointerDown,
 } from './ui/autoFocus';
 import { CheckpointCard } from './ui/CheckpointCard';
-import { AiSisterAvatar, AiSisterEnsembleCard } from './ui/AiSisterTheme';
 import { ConversationSidebar } from './ui/ConversationSidebar';
 import {
   beginNewConversationSession,
   createConversationSession,
-  loadConversationSessions,
   removeConversationSession,
-  saveConversationSessionsWithQuotaRecovery,
   sessionContentChanged,
   titleFromFirstUserMessage,
   upsertConversationSession,
   type ConversationSession,
-  type ConversationSessionMessage,
 } from './ui/conversationSessions';
+import {
+  bubblesFromSession,
+  conversationMessages,
+  initialConversationState,
+  persistConversationSessions,
+  type Bubble,
+} from './ui/conversationPersistence';
 import {
   buildConversationReplayContext,
   createActiveProviderResponse,
@@ -53,13 +59,18 @@ import {
 import { FocusPane, type CenterSurface } from './ui/FocusPane';
 import { InputBar } from './ui/InputBar';
 import { MarkdownText } from './ui/MarkdownText';
+import { ThinkingVisualization } from './ui/ThinkingVisualization';
 import { makeFileDragGuard } from './ui/fileDrop';
 import { PreflightDialog } from './ui/PreflightDialog';
 import { PresetCatalog } from './ui/PresetCatalog';
+import { PRESET_CATALOG } from './ui/presetCatalogData';
+import { ModalDialog } from './ui/ModalDialog';
 import { createProcessTrace, reduceProcessTraceEvent, settleProcessTrace, type ProcessTraceState } from './ui/processTraceModel';
+import { ProcessTrace } from './ui/ProcessTrace';
 import { ReplayPanel, type ReplaySource } from './ui/ReplayPanel';
 import { SessionCheckpointNotice } from './ui/SessionCheckpointNotice';
 import { loadSessionSidebarCollapsed, saveSessionSidebarCollapsed } from './ui/sessionSidebarPreference';
+import { clampSidebarWidth, DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, loadSidebarWidth, saveSidebarWidth } from './ui/sidebarWidthPreference';
 import { StepTimeoutDialog, type StepTimeoutDialogState } from './ui/StepTimeoutDialog';
 import { TargetChips } from './ui/TargetChips';
 import { findScrollActiveProvider, isTranscriptNearEnd, scrollTranscriptToEnd, scrollTranscriptToProviderMessage } from './ui/transcriptScroll';
@@ -77,7 +88,6 @@ import {
   centerHiddenProviders,
   centerPresentationProvider,
   defaultPresentation,
-  restorableOpenProviders,
   setProviderPresentation,
   type PresentationByProvider,
   type WebviewPresentationState,
@@ -95,6 +105,7 @@ import { buildPreflightDialogModel } from './ui/preflightModel';
 import { preflightFromResult, type PreflightSubject } from './ui/preflightFromResult';
 import { processingAfterSend, processingAfterSettle, processingAfterWorkflowStatus } from './ui/processing';
 import { Resizer } from './ui/Resizer';
+import { activityPanelAfterSend, activityPanelForSession } from './ui/activityPanelVisibility';
 import { SettingsModal } from './ui/SettingsModal';
 import {
   activeProvidersForStandby,
@@ -112,6 +123,7 @@ import { nextStepTimeoutState } from './ui/stepTimeoutState';
 import {
   defaultTargets,
   freeModeTargets,
+  simpleChatTargets,
   hasEffectiveFreeModeTargets,
   markFreeTargetsTouched,
   waitForProvidersSendable,
@@ -137,70 +149,7 @@ import {
 import { recordEventLog } from './diagnostics/eventLogStore';
 import { ReportPreviewDialog } from './ui/ReportPreviewDialog';
 
-interface Bubble {
-  id: string;
-  provider?: AIProvider | 'system' | (string & {});
-  authorLabel?: string;
-  role: 'user' | 'ai';
-  content: string;
-  final?: boolean;
-  truncated?: boolean;
-  modeRole?: string;
-}
-
 const PROVIDERS = Object.keys(AI_PROVIDERS) as AIProvider[];
-
-function initialConversationState(): { sessions: ConversationSession[]; active: ConversationSession } {
-  const loaded = loadConversationSessions();
-  const active = loaded[0] ?? createConversationSession();
-  return { sessions: upsertConversationSession(loaded, active), active };
-}
-
-function conversationMessages(messages: readonly Bubble[]): ConversationSessionMessage[] {
-  return messages.map((message) => ({
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    ...(message.provider ? { provider: message.provider } : {}),
-    ...(message.authorLabel ? { authorLabel: message.authorLabel } : {}),
-    ...(message.modeRole ? { modeRole: message.modeRole } : {}),
-    ...(typeof message.final === 'boolean' ? { final: message.final } : {}),
-    ...(typeof message.truncated === 'boolean' ? { truncated: message.truncated } : {}),
-  }));
-}
-
-function persistConversationSessions(sessions: readonly ConversationSession[]): ConversationSession[] {
-  const result = saveConversationSessionsWithQuotaRecovery(sessions);
-  if (!result.saved) {
-    recordEventLog({
-      kind: 'workflow-error',
-      summary: 'Conversation history save failed; recent messages may be lost on restart',
-      detail: { sessions: sessions.length, reason: result.reason ?? 'unknown' },
-    });
-    return [...sessions];
-  }
-  if (result.evictedSessionIds.length > 0) {
-    recordEventLog({
-      kind: 'workflow-error',
-      summary: 'Oldest conversation history was removed to stay within local storage quota',
-      detail: { evictedSessionIds: result.evictedSessionIds.join(',') },
-    });
-  }
-  return result.sessions;
-}
-
-function bubblesFromSession(session: ConversationSession): Bubble[] {
-  return session.messages.map((message) => ({
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    ...(message.provider ? { provider: message.provider } : {}),
-    ...(message.authorLabel ? { authorLabel: message.authorLabel } : {}),
-    ...(message.modeRole ? { modeRole: message.modeRole } : {}),
-    ...(typeof message.final === 'boolean' ? { final: message.final } : {}),
-    ...(typeof message.truncated === 'boolean' ? { truncated: message.truncated } : {}),
-  }));
-}
 
 const presentationHost: PresentationCommandHost = {
   close: host.provider.close,
@@ -262,6 +211,20 @@ export function presentationHiddenProvidersForCenterSurface({
   return new Set([centered]);
 }
 
+// Keep previously-open agents visible while their native sessions are verified.
+// Sidebar-free restoration needs a native stage only for a visibly centered page.
+export function canRestoreWithoutInspectorPane(presentation: WebviewPresentationState, surface: 'text' | 'native', hasCenterStage: boolean): boolean {
+  return presentation !== 'center' || surface !== 'native' || hasCenterStage;
+}
+
+export function agentHeaderStatus(state: ProviderState, wasOpen: boolean, restoring: boolean): 'ready' | 'checking' | 'open' | null {
+  if (state.login === 'logged_out' || state.login === 'blocked') return null;
+  if (isSendable(state)) return 'ready';
+  if (state.webview === 'creating' || state.webview === 'loaded' || state.login === 'logged_in') return 'checking';
+  if (wasOpen) return restoring ? 'checking' : 'open';
+  return null;
+}
+
 function renderablePayload(payload: unknown): { content: string; truncated: boolean } {
   if (typeof payload === 'string') return { content: payload, truncated: false };
   if (payload && typeof payload === 'object' && 'text' in payload) {
@@ -297,14 +260,27 @@ export default function App() {
   const [sessions, setSessions] = useState<ConversationSession[]>(initialConversation.sessions);
   const [activeSessionId, setActiveSessionId] = useState(initialConversation.active.id);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(loadSessionSidebarCollapsed);
+  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [messages, setMessages] = useState<Bubble[]>(() => bubblesFromSession(initialConversation.active));
   const [workflowStatus, setWorkflowStatus] = useState('');
   const [mode, setMode] = useState<ChatMode>(initialConversation.active.mode);
-  const [presetId, setPresetId] = useState<WorkflowPresetId>(initialConversation.active.presetId ?? initialConversation.active.mode);
-  const [presetDetailsId, setPresetDetailsId] = useState<WorkflowPresetId | undefined>();
+  const [presetId, setPresetId] = useState<WorkflowPresetId>(
+    initialConversation.active.presetId
+      ?? (initialConversation.active.mode === 'free' && initialConversation.active.messages.length === 0
+        ? 'simple'
+        : initialConversation.active.mode),
+  );
+  // The top-level mode switch doesn't discard the user's multi-agent workflow.
+  const lastMultiPresetRef = useRef<WorkflowPresetId>(
+    initialConversation.active.presetId && initialConversation.active.presetId !== 'simple'
+      ? initialConversation.active.presetId
+      : initialConversation.active.mode !== 'free' ? initialConversation.active.mode : 'consult',
+  );
   const [replayDrawerOpen, setReplayDrawerOpen] = useState(false);
   const [processTrace, setProcessTrace] = useState<ProcessTraceState | undefined>();
   const [processTraceDetailOpen, setProcessTraceDetailOpen] = useState(false);
+  // Keep the reading area usable while retaining a full, opt-in timeline.
+  // Full timeline now lives in the optional right-side Activity panel.
   const [targetSelection, setTargetSelection] = useState<FreeTargetSelection>(() => ({
     targets: [...DEFAULT_FREE_TARGET_PROVIDERS],
     defaultsInitialized: true,
@@ -317,6 +293,50 @@ export default function App() {
   const [preflight, setPreflight] = useState<{ mode: PreflightSubject; result: PreflightResult } | undefined>();
   const [stepTimeout, setStepTimeout] = useState<StepTimeoutDialogState | undefined>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Developer transport testing is opt-in, never part of the default chat.
+  const [showDevDiagnostics, setShowDevDiagnostics] = useState(
+    import.meta.env.DEV && import.meta.env.VITE_M1_AUTOTEST === '1',
+  );
+  // The M1 project store is separate from global conversations and provider browser profiles.
+  const [projectStore, setProjectStore] = useState<ProjectStore>(EMPTY_PROJECT_STORE);
+  const [projectLoadError, setProjectLoadError] = useState<string>();
+  const [projectsReady, setProjectsReady] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    void host.projects.load().then((store) => {
+      if (mounted) setProjectStore(store);
+    }).catch((reason: unknown) => {
+      if (mounted) setProjectLoadError(`Cannot read saved projects: ${reason instanceof Error ? reason.message : String(reason)}`);
+    }).finally(() => {
+      if (mounted) setProjectsReady(true);
+    });
+    return () => { mounted = false; };
+  }, []);
+  const activeConversationProjectId = sessions.find((session) => session.id === activeSessionId)?.projectId;
+  // Conversation association is authoritative: switching between chats also
+  // switches the project instructions applied to the next workflow.
+  const effectiveProjectStore = useMemo<ProjectStore>(() => ({
+    ...projectStore,
+    activeProjectId: projectStore.projects.some((project) => project.id === activeConversationProjectId)
+      ? activeConversationProjectId ?? null
+      : null,
+  }), [projectStore, activeConversationProjectId]);
+
+  const saveProjectStore = useCallback(async (store: ProjectStore): Promise<void> => {
+    await host.projects.save(store);
+    setProjectStore(store);
+    const currentSession = sessions.find((session) => session.id === activeSessionId);
+    if (currentSession && (currentSession.projectId ?? null) !== store.activeProjectId) {
+      setSessions((current) => {
+        const original = current.find((session) => session.id === activeSessionId);
+        if (!original) return current;
+        const next = { ...original, updatedAt: Date.now() };
+        if (store.activeProjectId) next.projectId = store.activeProjectId;
+        else delete next.projectId;
+        return persistConversationSessions(upsertConversationSession(current, next));
+      });
+    }
+  }, [activeSessionId, sessions]);
   const [shareNotice, setShareNotice] = useState<{ kind: 'ok' | 'error'; text: string } | undefined>();
   const [sessionCheckpointNotice, setSessionCheckpointNotice] = useState<StartupSessionCheckpointNotice | undefined>();
   const [sessionCheckpointReplayBusy, setSessionCheckpointReplayBusy] = useState(false);
@@ -331,6 +351,17 @@ export default function App() {
   const [focusPaneWidth, setFocusPaneWidth] = useState(() => defaultSettings().focusPaneWidth);
   const [stageExpanded, setStageExpanded] = useState(false);
   const [messagesMaximized, setMessagesMaximized] = useState(false);
+  const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
+  const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
+  const [activityPanelOpen, setActivityPanelOpen] = useState(() => activityPanelForSession());
+  // A restored conversation may contain history but no new Activity in this view.
+  const sentInSelectedSessionRef = useRef(false);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [headerMoreOpen, setHeaderMoreOpen] = useState(false);
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
+  const [modelSettingsProvider, setModelSettingsProvider] = useState<AIProvider>();
+  const [providerWindowError, setProviderWindowError] = useState<string>();
+  const [providerWindowGeometry, setProviderWindowGeometry] = useState<ProviderWindowGeometry>();
   const [scrollFocusedProvider, setScrollFocusedProvider] = useState<AIProvider | undefined>();
   const [presentation, setPresentation] = useState<PresentationByProvider>(() => defaultPresentation());
   const [centerSurface, setCenterSurface] = useState<CenterSurface>('text');
@@ -365,7 +396,9 @@ export default function App() {
   );
   const overlayGuardOpenRef = useRef(false);
   const pendingRestore = useRef<Set<AIProvider>>(new Set());
+  const restoringProviders = useRef<Set<AIProvider>>(new Set());
   const dragStartFocusPaneWidth = useRef(defaultSettings().focusPaneWidth);
+  const dragStartSidebarWidth = useRef(DEFAULT_SIDEBAR_WIDTH);
   const activeResponses = useRef(new Map<AIProvider, ActiveProviderResponse>());
   const replayContextSessionRef = useRef<string | undefined>(
     initialConversation.active.messages.length > 0 ? initialConversation.active.id : undefined,
@@ -380,6 +413,16 @@ export default function App() {
   const activeProviders = useMemo(
     () => activeProvidersForStandby(appSettings.standbyProvider),
     [appSettings.standbyProvider],
+  );
+  const savedSimpleAgent = sessions.find((session) => session.id === activeSessionId)?.singleProvider;
+  // If a chat explicitly selected an agent, preserve that choice even if it
+  // signs out. Never silently redirect a conversation to another model.
+  const simpleAgent = savedSimpleAgent
+    ?? activeProviders.find((provider) => isSendable(states[provider]))
+    ?? activeProviders.find((provider) => appSettings.openProviders.includes(provider)
+      && states[provider].login !== 'logged_out' && states[provider].login !== 'blocked');
+  const simpleTargets = simpleChatTargets(
+    simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, states,
   );
   const centeredProvider = useMemo(() => centerPresentationProvider(presentation), [presentation]);
   const presentationHidden = useMemo(() => {
@@ -401,18 +444,28 @@ export default function App() {
   const hasFreeModeTargets = useMemo(() => hasEffectiveFreeModeTargets(targets, states), [states, targets]);
   const anySendableTargets = useMemo(() => defaultTargets(states, activeProviders), [activeProviders, states]);
   const requiredModeProviders = useMemo(() => {
+    // Consult can reuse two distinct, signed-in providers for its later,
+    // sequential review and synthesis roles.
+    if (mode === 'consult') return availableConsultProviders(states, activeProviders);
     const roles = defaultRolesForPreset(mode, presetId, appSettings.modeRoles);
     return roles
       ? ([...new Set(Object.values(roles))] as AIProvider[])
       : presetForId(presetId).requiredProviders;
-  }, [mode, presetId, appSettings.modeRoles]);
+  }, [mode, presetId, appSettings.modeRoles, states, activeProviders]);
   const readyModeProviders = useMemo(
     () => requiredModeProviders.filter((provider) => isSendable(states[provider])),
     [requiredModeProviders, states],
   );
-  const missingModeProviderCount = Math.max(0, requiredModeProviders.length - readyModeProviders.length);
-  const noSendableProviders = !settingsLoaded || (presetId === 'brainstorm'
-    ? readyModeProviders.length === 0
+  const missingModeProviderCount = mode === 'consult'
+    ? Math.max(0, MIN_CONSULT_PROVIDERS - readyModeProviders.length)
+    : Math.max(0, requiredModeProviders.length - readyModeProviders.length);
+  const connectionsChecking = !settingsLoaded || !connectionSnapshotLoaded || !initialRestoreComplete
+    || activeProviders.some((provider) => states[provider].webview === 'creating'
+      || (states[provider].webview === 'loaded' && states[provider].login === 'unknown'));
+  const noSendableProviders = !settingsLoaded || (presetId === 'simple'
+    ? simpleTargets.length !== 1
+    : presetId === 'brainstorm'
+      ? readyModeProviders.length === 0
     : mode === 'free'
       ? !hasFreeModeTargets
       : anySendableTargets.length === 0);
@@ -452,7 +505,25 @@ export default function App() {
     setCenterSurfaceMode('text');
   }, [centeredProvider, setCenterSurfaceMode]);
 
-  useOverlayGuard(overlayGuardOpen, loadedModalProviders);
+  useOverlayGuard(overlayGuardOpen, loadedModalProviders, async (provider) => {
+    // The old modal cleanup called provider.show() for every loaded child,
+    // including side/parked views. Those native children can float over the
+    // entire React UI on macOS. Restore only the current native center.
+    if (presentationRef.current[provider] !== 'center' ||
+        centerSurfaceRef.current !== 'native' ||
+        userHiddenRef.current.has(provider) ||
+        overlayGuardOpenRef.current) return;
+    await nextAnimationFrame();
+    const bounds = nonEmptyRect(centerStageRef.current?.getBoundingClientRect());
+    if (!bounds) return;
+    await host.layout.setBounds(provider, bounds);
+    if (presentationRef.current[provider] === 'center' &&
+        centerSurfaceRef.current === 'native' &&
+        !overlayGuardOpenRef.current &&
+        !userHiddenRef.current.has(provider)) {
+      await host.provider.show(provider);
+    }
+  });
 
   useEffect(() => {
     const guard = makeFileDragGuard();
@@ -477,9 +548,10 @@ export default function App() {
   }, [appSettings]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', appSettings.theme !== 'light');
-    document.documentElement.classList.toggle('ai-sister', appSettings.theme === 'ai-sister');
-  }, [appSettings.theme]);
+    // Dark is the only supported UI theme; the HTML root already starts dark.
+    document.documentElement.classList.add('dark');
+    document.documentElement.classList.remove('ai-sister');
+  }, []);
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${appSettings.fontSize}px`;
@@ -663,7 +735,11 @@ export default function App() {
         setLanguage(loaded.language);
         setFocusPaneWidth(loaded.focusPaneWidth);
         setPresentation(loaded.presentation);
-        pendingRestore.current = new Set(restorableOpenProviders(loaded.openProviders, loaded.presentation));
+        // Saved native pages must restore without a mounted inspector (including
+        // pages formerly displayed as chips). Never auto-open the standby model.
+        pendingRestore.current = new Set(loaded.openProviders.filter((provider) =>
+          activeProvidersForStandby(loaded.standbyProvider).includes(provider),
+        ));
         setInitialRestoreComplete(pendingRestore.current.size === 0);
       })
       .catch(() => {
@@ -742,6 +818,13 @@ export default function App() {
         }
         return;
       }
+      if (message.action === 'WORKFLOW_STEP_CONFIRMED' || message.action === 'WORKFLOW_STEP_FAILED') {
+        // A provider's raw RESPONSE_DONE is not proof that the running graph
+        // accepted the answer. Only the active waiter emits this local event.
+        // Keep it out of the chat transcript; it updates progress only.
+        setProcessTrace((current) => (current ? reduceProcessTraceEvent(current, message, localeRef.current) : current));
+        return;
+      }
       if (!isRenderableResponseMessage(message) || !message.provider) return;
       setProcessTrace((current) => (current ? reduceProcessTraceEvent(current, message, localeRef.current) : current));
       let active = activeResponses.current.get(message.provider);
@@ -775,6 +858,7 @@ export default function App() {
             provider: message.provider,
             modeRole: active.label,
             content,
+            timestamp: Date.now(),
             truncated,
             final: message.action === 'RESPONSE_DONE',
           },
@@ -934,8 +1018,7 @@ export default function App() {
   const restoreProvider = useCallback(
     async (provider: AIProvider) => {
       const target = presentationRef.current[provider];
-      if (target === 'chip') return;
-      if (target === 'side') {
+      if (target === 'chip' || target === 'side') {
         await ensureProviderLoadedHidden(
           provider,
           hiddenProviderLoadBounds(),
@@ -992,19 +1075,28 @@ export default function App() {
     });
   }, []);
 
+  const beginSavedProviderRestore = useCallback((provider: AIProvider) => {
+    if (!pendingRestore.current.has(provider) || restoringProviders.current.has(provider)) return;
+    pendingRestore.current.delete(provider);
+    restoringProviders.current.add(provider);
+    void restoreProvider(provider).catch(() => {
+      // A failed restore stays not-sendable; its header pill offers a manual Open.
+    }).finally(() => {
+      restoringProviders.current.delete(provider);
+      if (pendingRestore.current.size === 0 && restoringProviders.current.size === 0) {
+        setInitialRestoreComplete(true);
+      }
+    });
+  }, [restoreProvider]);
+
   const setPaneRef = useCallback(
     (provider: AIProvider, el: HTMLElement | null) => {
       paneRefs.current[provider] = el;
       if (!el) return;
       void syncBounds(provider);
-      if (pendingRestore.current.has(provider)) {
-        pendingRestore.current.delete(provider);
-        void restoreProvider(provider).finally(() => {
-          if (pendingRestore.current.size === 0) setInitialRestoreComplete(true);
-        });
-      }
+      beginSavedProviderRestore(provider);
     },
-    [restoreProvider, syncBounds],
+    [beginSavedProviderRestore, syncBounds],
   );
 
   const resyncNativeBounds = useCallback(() => {
@@ -1045,35 +1137,22 @@ export default function App() {
       const provider = centerPresentationProvider(presentationRef.current);
       if (!provider) return;
       if (centerSurfaceRef.current === 'native') void syncBounds(provider);
-      if (pendingRestore.current.has(provider)) {
-        pendingRestore.current.delete(provider);
-        void restoreProvider(provider).finally(() => {
-          if (pendingRestore.current.size === 0) setInitialRestoreComplete(true);
-        });
-      }
+      beginSavedProviderRestore(provider);
     },
-    [restoreProvider, syncBounds],
+    [beginSavedProviderRestore, syncBounds],
   );
 
   useEffect(() => {
-    if (!settingsLoaded || initialRestoreComplete || pendingRestore.current.size === 0) return;
-
+    if (!settingsLoaded || initialRestoreComplete) return;
     for (const provider of Array.from(pendingRestore.current)) {
-      const state = presentation[provider];
-      if (state === 'chip') {
-        pendingRestore.current.delete(provider);
-        continue;
-      }
-      const hasPlaceholder = state === 'center' ? Boolean(centerStageRef.current) : Boolean(paneRefs.current[provider]);
-      if (!hasPlaceholder) continue;
-      pendingRestore.current.delete(provider);
-      void restoreProvider(provider).finally(() => {
-        if (pendingRestore.current.size === 0) setInitialRestoreComplete(true);
-      });
+      // Invisible native pages have no React pane to wait for.
+      if (!canRestoreWithoutInspectorPane(presentation[provider], centerSurfaceRef.current, Boolean(centerStageRef.current))) continue;
+      beginSavedProviderRestore(provider);
     }
-
-    if (pendingRestore.current.size === 0) setInitialRestoreComplete(true);
-  }, [centeredProvider, initialRestoreComplete, presentation, restoreProvider, settingsLoaded]);
+    if (pendingRestore.current.size === 0 && restoringProviders.current.size === 0) {
+      setInitialRestoreComplete(true);
+    }
+  }, [beginSavedProviderRestore, centeredProvider, initialRestoreComplete, presentation, settingsLoaded]);
 
   const persistPresentation = useCallback(
     async (next: PresentationByProvider) => {
@@ -1113,6 +1192,9 @@ export default function App() {
         previousHidden: previous,
         nextHidden: next,
         snapshot,
+        getRestoreBounds: () => centerSurfaceRef.current === 'native'
+          ? nonEmptyRect(centerStageRef.current?.getBoundingClientRect())
+          : undefined,
         shouldContinue: shouldContinueNative,
         restoreRemoved: false,
       });
@@ -1126,6 +1208,9 @@ export default function App() {
           previousHidden: next,
           nextHidden: new Set(),
           snapshot,
+          getRestoreBounds: () => centerSurfaceRef.current === 'native'
+            ? nonEmptyRect(centerStageRef.current?.getBoundingClientRect())
+            : undefined,
           shouldContinue: () => centerSurfaceRef.current !== 'native',
         });
       }
@@ -1343,6 +1428,9 @@ export default function App() {
                 previousHidden: next,
                 nextHidden: new Set(),
                 snapshot,
+                getRestoreBounds: () => centerSurfaceRef.current === 'native'
+                  ? nonEmptyRect(centerStageRef.current?.getBoundingClientRect())
+                  : undefined,
                 shouldContinue: () => centerSurfaceRef.current !== 'native',
               });
             }
@@ -1356,6 +1444,9 @@ export default function App() {
       previousHidden: previous,
       nextHidden: next,
       snapshot,
+      getRestoreBounds: () => centerSurfaceRef.current === 'native'
+        ? nonEmptyRect(centerStageRef.current?.getBoundingClientRect())
+        : undefined,
     });
 
     if (!providerSetEquals(previous, next)) {
@@ -1445,11 +1536,13 @@ export default function App() {
     if (centeredProvider && centerSurfaceRef.current === 'native') void driveCenteredProviderToStage(centeredProvider);
   }, [overlayGuardOpen, centeredProvider, driveCenteredProviderToStage]);
 
-  const executeSend = async (trimmed: string, preparedWorkflowTargets?: AIProvider[]) => {
+  const executeSend = async (trimmed: string, preparedWorkflowTargets?: AIProvider[], preparedWorkflowRoles?: ModeRoles) => {
     if (!trimmed) return;
     const brainstorm = presetId === 'brainstorm';
     const workflowTargets = mode === 'free' && !brainstorm
-      ? preparedWorkflowTargets ?? freeModeTargets(targets, statesRef.current)
+      ? presetId === 'simple'
+        ? simpleChatTargets(simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, statesRef.current)
+        : preparedWorkflowTargets ?? freeModeTargets(targets, statesRef.current)
       : undefined;
     if (workflowTargets?.length === 0) return;
     const previousWorkflowExecution = workflowExecutionTailRef.current;
@@ -1467,19 +1560,24 @@ export default function App() {
       }
       const replayContext =
         replayContextSessionRef.current === activeSessionId ? buildConversationReplayContext(messages) : undefined;
+      // History alone is not new Activity. Reveal the panel when this
+      // selected conversation receives its first newly accepted prompt.
+      const previouslySent = sentInSelectedSessionRef.current;
+      sentInSelectedSessionRef.current = true;
+      setActivityPanelOpen((open) => activityPanelAfterSend(open, previouslySent));
       setMessages((current) => [
         ...current,
-        { id: createConversationMessageId('user'), role: 'user', content: trimmed, final: true },
+        { id: createConversationMessageId('user'), role: 'user', content: trimmed, timestamp: Date.now(), final: true },
       ]);
       setIsProcessing(processingAfterSend());
       setProcessTrace(createProcessTrace(mode, workflowTargets ?? [], localeRef.current, presetId));
       const workflowStartedAt = Date.now();
       const snapshotSettings = settingsRef.current;
-      const workflowRoles = defaultRolesForPreset(mode, presetId, snapshotSettings.modeRoles);
+      const workflowRoles = preparedWorkflowRoles ?? defaultRolesForPreset(mode, presetId, snapshotSettings.modeRoles);
       recordEventLog(eventFromWorkflowStart(mode, trimmed.length, workflowTargets?.length));
       const result = await runWorkflow({
         text: trimmed,
-        context: replayContext,
+        context: mergeProjectContext(effectiveProjectStore, replayContext),
         mode,
         presetId,
         roles: workflowRoles,
@@ -1513,17 +1611,49 @@ export default function App() {
 
   const send = async (trimmed: string): Promise<boolean> => {
     if (!trimmed) return false;
+    // Record the implicit initial agent as soon as this conversation is sent.
+    // Otherwise a restarted Simple Chat could silently choose a different
+    // model if login/availability ordering changes.
+    if (presetId === 'simple' && simpleAgent && !savedSimpleAgent) {
+      setSessions((current) => {
+        const existing = current.find((session) => session.id === activeSessionId);
+        if (!existing || existing.singleProvider) return current;
+        return persistConversationSessions(upsertConversationSession(current, {
+          ...existing, mode: 'free', presetId: 'simple', singleProvider: simpleAgent,
+          updatedAt: Date.now(),
+        }));
+      });
+    }
     const brainstorm = presetId === 'brainstorm';
     const serialMode = isSerialMode(mode) ? mode as Exclude<ChatMode, 'free'> : undefined;
     const modeRoles = settingsRef.current.modeRoles;
-    const workflowRoles = brainstorm
-      ? defaultRolesForPreset(mode, presetId, modeRoles)
-      : serialMode
-        ? defaultRolesForPreset(serialMode, undefined, modeRoles)
-        : undefined;
+    const consultRoles = mode === 'consult'
+      ? chooseConsultRoles(
+          modeRoles.consult,
+          availableConsultProviders(
+            statesRef.current,
+            activeProvidersForStandby(settingsRef.current.standbyProvider),
+          ),
+        )
+      : undefined;
+    // Unlike Free mode, Consult must have two independent providers to
+    // compare answers. Do not silently fall back to a single-model review.
+    if (mode === 'consult' && !consultRoles) {
+      setWorkflowStatus('Consult requires two signed-in, ready providers.');
+      return false;
+    }
+    const workflowRoles = mode === 'consult'
+      ? consultRoles
+      : brainstorm
+        ? defaultRolesForPreset(mode, presetId, modeRoles)
+        : serialMode
+          ? defaultRolesForPreset(serialMode, undefined, modeRoles)
+          : undefined;
     const participants = workflowRoles
       ? [...new Set(Object.values(workflowRoles))]
-      : freeModeTargets(targets, statesRef.current);
+      : presetId === 'simple'
+        ? simpleChatTargets(simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, statesRef.current)
+        : freeModeTargets(targets, statesRef.current);
 
     const providersToFreshen = pendingProviderSessionResets(
       pendingProviderResetRef.current,
@@ -1593,14 +1723,18 @@ export default function App() {
       }
     }
 
-    const workflowTargets = serialGraph ? undefined : freeModeTargets(targets, statesRef.current);
+    const workflowTargets = serialGraph
+      ? undefined
+      : presetId === 'simple'
+        ? simpleChatTargets(simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, statesRef.current)
+        : freeModeTargets(targets, statesRef.current);
     if (workflowTargets?.length === 0) {
       setWorkflowStatus(translate('input.sendFailed'));
       setIsProcessing(false);
       return false;
     }
 
-    void executeSend(trimmed, workflowTargets);
+    void executeSend(trimmed, workflowTargets, workflowRoles);
     return true;
   };
 
@@ -1639,7 +1773,7 @@ export default function App() {
     setProcessTrace((current) => (current ? settleProcessTrace(current) : current));
   };
 
-  const startNewConversation = useCallback(() => {
+  const startNewConversation = useCallback((projectId?: string) => {
     if (isProcessing) return;
     const now = Date.now();
     const transition = beginNewConversationSession({
@@ -1648,15 +1782,18 @@ export default function App() {
       messages: conversationMessages(messages),
       mode,
       presetId: conversationPresetId(presetId, mode),
+      projectId,
       now,
     });
     setSessions(persistConversationSessions(transition.sessions));
     setActiveSessionId(transition.active.id);
     replayContextSessionRef.current = undefined;
     setMessages([]);
+    sentInSelectedSessionRef.current = false;
+    setActivityPanelOpen(false);
     setMode('free');
-    setPresetId('free');
-    setPresetDetailsId(undefined);
+    setPresetId('simple');
+    lastMultiPresetRef.current = 'consult';
     setWorkflowStatus('');
     setProcessTrace(undefined);
     setReplayDrawerOpen(false);
@@ -1667,15 +1804,46 @@ export default function App() {
     );
   }, [activeProviders, activeSessionId, isProcessing, messages, mode, presetId, sessions]);
 
+  const assignConversationProject = useCallback((session: ConversationSession, projectId?: string) => {
+    if (isProcessing) return;
+    const assignedId = projectId && projectStore.projects.some((project) => project.id === projectId)
+      ? projectId : undefined;
+    setSessions((current) => {
+      const existing = current.find((candidate) => candidate.id === session.id);
+      if (!existing || existing.projectId === assignedId) return current;
+      const next: ConversationSession = { ...existing, updatedAt: Date.now() };
+      if (assignedId) next.projectId = assignedId;
+      else delete next.projectId;
+      return persistConversationSessions(upsertConversationSession(current, next));
+    });
+  }, [isProcessing, projectStore.projects]);
+
+  const createSidebarProject = useCallback(async (name: string) => {
+    if (isProcessing || !projectsReady) throw new Error('Projects are unavailable while a workflow is active.');
+    if (projectStore.projects.length >= 100) throw new Error('Project limit reached.');
+    const now = Date.now();
+    const projectId = `project-${crypto.randomUUID()}`;
+    const nextStore: ProjectStore = {
+      ...projectStore,
+      activeProjectId: projectId,
+      projects: [...projectStore.projects, { id: projectId, name, instructions: '', createdAt: now, updatedAt: now }],
+    };
+    await host.projects.save(nextStore);
+    setProjectStore(nextStore);
+    // Start a fresh chat within the new project; the previous conversation is archived.
+    startNewConversation(projectId);
+  }, [isProcessing, projectsReady, projectStore, startNewConversation]);
+
   const selectConversationSession = useCallback(
     (session: ConversationSession) => {
       if (isProcessing || session.id === activeSessionId) return;
       setActiveSessionId(session.id);
       replayContextSessionRef.current = session.messages.length > 0 ? session.id : undefined;
       setMessages(bubblesFromSession(session));
+      sentInSelectedSessionRef.current = false;
+      setActivityPanelOpen(activityPanelForSession());
       setMode(session.mode);
       setPresetId(session.presetId ?? session.mode);
-      setPresetDetailsId(undefined);
       setWorkflowStatus('');
       setProcessTrace(undefined);
       setReplayDrawerOpen(false);
@@ -1783,11 +1951,61 @@ export default function App() {
     if (phase === 'end') void persistSettingsPatch({ focusPaneWidth: nextWidth });
   };
 
+  const dragSidebar = (deltaX: number, phase: 'start' | 'move' | 'end') => {
+    if (phase === 'start') {
+      dragStartSidebarWidth.current = sidebarWidth;
+      return;
+    }
+    const containerWidth = gridRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+    const maxWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, containerWidth - 520));
+    const nextWidth = clampSidebarWidth(Math.min(maxWidth, dragStartSidebarWidth.current + deltaX));
+    setSidebarWidth(nextWidth);
+    if (phase === 'end') saveSidebarWidth(nextWidth);
+  };
+
   const enlargeCenter = useCallback(() => {
     const provider = centerPresentationProvider(presentationRef.current);
-    setCenterSurfaceMode('native');
-    if (provider) void changeProviderPresentationRef.current(provider, 'center');
-  }, [setCenterSurfaceMode]);
+    if (!provider) return;
+    // A native WKWebView paints above React regardless of CSS z-index.
+    // Real page lives in a separate, movable OS window, while the workbench
+    // stays in the readable text mode with all of its controls accessible.
+    setProviderWindowError(undefined);
+    setProviderWindowGeometry(undefined);
+    void (async () => {
+      await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
+      const dimensions = await host.provider.openWindow(provider);
+      setProviderWindowGeometry(dimensions);
+    })().catch((error: unknown) => {
+      setProviderWindowError(error instanceof Error ? error.message : String(error));
+    });
+  }, [ensureProviderLoadedHidden]);
+
+  const viewWorkflowProvider = useCallback((provider: AIProvider) => {
+    // Inspect the actual provider page without restarting or claiming a step
+    // has completed. Uses the existing permanent native window and session.
+    setProviderWindowError(undefined);
+    void (async () => {
+      await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
+      setProviderWindowGeometry(await host.provider.openWindow(provider));
+    })().catch((error: unknown) => {
+      setProviderWindowError(error instanceof Error ? error.message : String(error));
+    });
+  }, [ensureProviderLoadedHidden]);
+
+  const openProviderModelSettings = useCallback((provider: AIProvider) => {
+    setModelSettingsProvider(provider);
+    setProviderWindowError(undefined);
+    setProviderWindowGeometry(undefined);
+    // Model and effort menus belong to the provider. Never pretend a local
+    // preference changed the model if the actual page cannot confirm it.
+    void (async () => {
+      await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
+      const geometry = await host.provider.openWindow(provider);
+      setProviderWindowGeometry(geometry);
+    })().catch((error: unknown) => {
+      setProviderWindowError(error instanceof Error ? error.message : String(error));
+    });
+  }, [ensureProviderLoadedHidden]);
 
   const collapseCenter = useCallback(() => {
     const provider = centerPresentationProvider(presentationRef.current);
@@ -1802,6 +2020,25 @@ export default function App() {
     }
   }, [beginPresentationTransition, clearCenterTransitionInFlight, setCenterSurfaceMode]);
 
+  // Native menu shortcut: make the workbench usable even if a login WebView
+  // or a popup has covered every clickable React control.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void host.onReturnToWorkbench(() => {
+      setStageExpanded(false);
+      setMessagesMaximized(false);
+      collapseCenter();
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [collapseCenter]);
+
   const openProviderLogin = useCallback(
     async (provider: AIProvider) => {
       if (!activeProvidersForStandby(settingsRef.current.standbyProvider).includes(provider)) {
@@ -1812,11 +2049,15 @@ export default function App() {
         await nextAnimationFrame();
       }
       if (overlayGuardOpenRef.current) throw new Error('Cannot open provider login while an overlay is active');
-      await nextAnimationFrame();
-      await forceProviderNativeCenter(provider);
-      await host.provider.openLogin(provider);
+      // Open authentication in a movable, native standalone provider window.
+      // Keep the same browser instance/profile so workflows still see login.
+      await changeProviderPresentationRef.current(provider, 'center');
+      await ensureProviderLoadedHidden(provider, hiddenProviderLoadBounds());
+      const dimensions = await host.provider.openWindow(provider, true);
+      setProviderWindowGeometry(dimensions);
+      setCenterSurfaceMode('text');
     },
-    [forceProviderNativeCenter],
+    [ensureProviderLoadedHidden, setCenterSurfaceMode],
   );
 
   const openPreflightLogin = useCallback(
@@ -1867,19 +2108,35 @@ export default function App() {
     setPresentation(settings.presentation);
   };
 
+  const selectSimpleAgent = useCallback((provider: AIProvider) => {
+    if (isProcessing || !activeProviders.includes(provider)) return;
+    setSessions((current) => {
+      const existing = current.find((session) => session.id === activeSessionId);
+      if (!existing || existing.singleProvider === provider) return current;
+      return persistConversationSessions(upsertConversationSession(current, {
+        ...existing, mode: 'free', presetId: 'simple', singleProvider: provider, updatedAt: Date.now(),
+      }));
+    });
+  }, [activeProviders, activeSessionId, isProcessing]);
+
   const selectPreset = useCallback(
     (nextPresetId: WorkflowPresetId) => {
       if (isProcessing) return;
       const nextPreset = presetForId(nextPresetId);
       setMode(nextPreset.graphId);
       setPresetId(nextPreset.id);
-      setPresetDetailsId((current) => (current === nextPreset.id ? undefined : nextPreset.id));
+      if (nextPreset.id !== 'simple') lastMultiPresetRef.current = nextPreset.id;
       if (nextPreset.id === 'brainstorm') {
         setTargetSelection({ targets: [...activeProviders], defaultsInitialized: true, userTouched: false });
       }
     },
     [activeProviders, isProcessing],
   );
+
+  const selectExperience = useCallback((next: 'chat' | 'multi') => {
+    if (isProcessing) return;
+    selectPreset(next === 'chat' ? 'simple' : lastMultiPresetRef.current);
+  }, [isProcessing, selectPreset]);
 
   const persistReplaySnapshot = useCallback((snapshot: ExecutionSnapshot) => {
     const snapshotSettings = settingsRef.current;
@@ -1910,28 +2167,112 @@ export default function App() {
     DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.minFocusPaneWidth,
     layoutWidth - DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.minCenterWidth - DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.resizerWidth,
   );
+  const sidebarMaxWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, layoutWidth - 520));
+  const visibleSidebarWidth = Math.min(sidebarWidth, sidebarMaxWidth);
+  const effectiveFocusWidth = clampFocusPaneWidth(
+    Math.max(focusPaneWidth, sessionSidebarCollapsed ? 420 : visibleSidebarWidth + 180),
+    layoutWidth,
+  );
   const modeBlockedMessage = modeSendBlocked
     ? formatI18n(translate('input.modeNotReady'), { remaining: missingModeProviderCount })
     : undefined;
 
+  const simpleAgentChooser = presetId === 'simple' ? (
+    <div className="workbench-simple-agent flex flex-wrap items-center gap-2.5">
+      <label htmlFor="workbench-simple-agent-select" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+        {translate('preset.simple.agentLabel')}
+      </label>
+      <select id="workbench-simple-agent-select" className="workbench-simple-agent-select rounded-xl border px-3 py-2 text-xs font-semibold"
+        value={simpleAgent ?? ''} disabled={isProcessing} aria-label={translate('preset.simple.agentLabel')}
+        onChange={(event) => selectSimpleAgent(event.target.value as AIProvider)}>
+        {!simpleAgent ? <option value="">{translate(connectionsChecking ? 'connection.stale' : 'preset.simple.noAgent')}</option> : null}
+        {simpleAgent && !simpleTargets.length
+          ? <option value={simpleAgent}>{AI_PROVIDERS[simpleAgent].name} · {translate(connectionsChecking ? 'connection.stale' : 'connection.notReady')}</option>
+          : null}
+        {activeProviders.filter((provider) => isSendable(states[provider])).map((provider) => (
+          <option key={provider} value={provider}>{AI_PROVIDERS[provider].name}</option>
+        ))}
+      </select>
+      <span className="sr-only">{translate('preset.simple.oneAgentNote')}</span>
+    </div>
+  ) : null;
+  const experienceSwitcher = (
+    <div className="workbench-experience-switch inline-flex items-center rounded-full p-1" role="group" aria-label={translate('composer.mode')}>
+      {(['chat', 'multi'] as const).map((choice) => (
+        <button key={choice} type="button" className={`workbench-experience-option rounded-full px-4 py-1.5 text-xs font-semibold ${(presetId === 'simple' ? 'chat' : 'multi') === choice ? 'workbench-experience-selected' : ''}`}
+          aria-pressed={(presetId === 'simple' ? 'chat' : 'multi') === choice}
+          disabled={isProcessing} onClick={() => selectExperience(choice)}>
+          {translate(choice === 'chat' ? 'composer.chat' : 'composer.multi')}
+        </button>
+      ))}
+    </div>
+  );
+  const composer = (
+    <InputBar
+      onSend={send}
+      onCancel={cancelWorkflow}
+      disabled={noSendableProviders}
+      disabledPlaceholder={connectionsChecking ? translate('input.checkingProviders') : undefined}
+      projects={projectStore.projects}
+      currentProjectId={effectiveProjectStore.activeProjectId ?? undefined}
+      projectsDisabled={isProcessing || !projectsReady}
+      onChooseProject={(projectId) => {
+        const session = sessions.find((item) => item.id === activeSessionId);
+        if (session) assignConversationProject(session, projectId);
+      }}
+      onCreateProject={() => setProjectSettingsOpen(true)}
+      sendBlocked={modeSendBlocked}
+      blockedMessage={modeBlockedMessage}
+      isProcessing={isProcessing}
+      locale={locale}
+    />
+  );
+  const multiControls = presetId !== 'simple' ? (
+    <div className="workbench-multi-controls mx-auto flex w-full flex-wrap items-center gap-2 px-2 pt-2 text-xs">
+      <label className="text-zinc-500 dark:text-zinc-400" htmlFor="workbench-multi-workflow">{translate('composer.workflow')}</label>
+      <select id="workbench-multi-workflow" className="workbench-multi-select rounded-lg px-2.5 py-1.5 font-medium"
+        value={presetId} disabled={isProcessing} onChange={(event) => selectPreset(event.target.value as WorkflowPresetId)}>
+        {PRESET_CATALOG.filter((preset) => preset.id !== 'simple').map((preset) => (
+          <option key={preset.id} value={preset.id}>{translate(preset.displayNameKey)}</option>
+        ))}
+      </select>
+      <button type="button" className="workbench-multi-config rounded-lg px-2.5 py-1.5 font-medium" disabled={isProcessing}
+        onClick={() => setWorkflowOptionsOpen(true)}>{translate('composer.configureAgents')}</button>
+      <span className="ml-auto text-zinc-500 dark:text-zinc-400">{formatI18n(translate('preset.readinessAny'), { ready: anySendableTargets.length })}</span>
+    </div>
+  ) : null;
+  const composerStack = (
+    <div className="workbench-composer-stack">
+      {composer}
+      {presetId === 'simple' ? <div className="workbench-chat-controls px-2 pt-2">{simpleAgentChooser}</div> : multiControls}
+    </div>
+  );
+  const newChatWelcome = messages.length === 0 && !isProcessing;
   return (
-    <main className="app-shell h-screen overflow-hidden bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+    <main className="app-shell workbench-shell h-screen overflow-hidden bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div
         ref={gridRef}
         className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)]"
-        style={{ gridTemplateColumns: messagesMaximized ? '0px 0px minmax(0,1fr)' : focusGridTemplateColumns(focusPaneWidth) }}
+        style={{ gridTemplateColumns: messagesMaximized
+          ? '0px 0px minmax(0,1fr)'
+          : providerInspectorOpen
+            ? focusGridTemplateColumns(effectiveFocusWidth)
+            : `${sessionSidebarCollapsed ? '60px' : `${visibleSidebarWidth + 6}px`} 0px minmax(0,1fr)` }}
       >
         <div
           aria-hidden={messagesMaximized || undefined}
-          className={`ai-sister-left-shell flex min-h-0 min-w-0 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 ${
+          className={`ai-sister-left-shell workbench-left-shell flex min-h-0 min-w-0 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 ${
             messagesMaximized ? 'invisible overflow-hidden pointer-events-none' : ''
           }`}
         >
           <ConversationSidebar
+            width={visibleSidebarWidth}
+            brandActive={isProcessing}
             collapsed={sessionSidebarCollapsed}
             sessions={sessions}
+            projects={projectStore.projects}
             activeSessionId={activeSessionId}
-            disabled={isProcessing}
+            disabled={isProcessing || !projectsReady}
             locale={locale}
             labels={{
               toggle: translate('conversation.toggle'),
@@ -1940,66 +2281,40 @@ export default function App() {
               empty: translate('conversation.empty'),
               deleteConversation: translate('conversation.delete'),
               confirmDeleteConversation: translate('conversation.deleteConfirm'),
+              projects: translate('sidebar.projects'),
+              newProject: translate('sidebar.newProject'),
+              projectName: translate('sidebar.projectName'),
+              create: translate('sidebar.create'),
+              cancel: translate('sidebar.cancel'),
+              unassigned: translate('sidebar.unassigned'),
+              moveTo: translate('sidebar.moveTo'),
+              newInProject: translate('sidebar.newInProject'),
+              expand: translate('sidebar.expand'),
+              collapse: translate('sidebar.collapse'),
+              projectSettings: translate('sidebar.projectSettings'),
             }}
             onToggle={() => setSessionSidebarCollapsed((current) => !current)}
             onNewConversation={startNewConversation}
             onSelectSession={selectConversationSession}
             onDeleteSession={deleteConversationSession}
+            onAssignProject={assignConversationProject}
+            onCreateProject={createSidebarProject}
+            onOpenProjectSettings={() => setProjectSettingsOpen(true)}
           />
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {/* 放大檢視時暫時收起選單區讓 webview 吃滿高度；checkpoint / 逾時對話框
-                是 inline 渲染在這個區塊內，出現時必須讓區塊重新顯示，否則使用者按不到。 */}
-            <section
-              id="workflow-control-shelf"
-              aria-label={translate('preset.catalog.aria')}
-              className={`ai-sister-workflow-shelf max-h-[42vh] shrink-0 overflow-auto border-b border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/70 ${
-                stageExpanded && !checkpoint && !(stepTimeout && !stepTimeout.timedOut) ? 'hidden' : ''
-              }`}
-            >
-              <AiSisterEnsembleCard />
-              <PresetCatalog
-                mode={mode}
-                selectedPresetId={presetId}
-                onSelectPreset={selectPreset}
-                locale={locale}
-                states={states}
-                modeRoles={appSettings.modeRoles}
-                activeProviders={activeProviders}
-                disabled={isProcessing}
-                detailsPresetId={presetDetailsId}
-                layout="sidebar"
-              />
-              {mode === 'free' && presetId !== 'brainstorm' ? (
-                <section className="mt-2 rounded border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950">
-                  <div className="mb-2 text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">{translate('input.sendSelectedProviders')}</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <TargetChips providers={activeProviders} states={states} selected={targets} onChange={handleTargetsChange} disabled={isProcessing} locale={locale} />
-                  </div>
-                </section>
-              ) : null}
-              {checkpoint ? (
-                <details className="mt-2 border border-amber-300 bg-white dark:border-amber-900 dark:bg-zinc-950" open>
-                  <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:text-amber-100 dark:hover:bg-amber-950">
-                    {translate('checkpoint.confirmEachStep')}
-                  </summary>
-                  <div className="border-t border-amber-300 px-3 pb-3 dark:border-amber-900">
-                    <CheckpointCard
-                      checkpoint={checkpoint}
-                      draft={checkpointDraft}
-                      onDraftChange={setCheckpointDraft}
-                      onNativeEdit={(provider) => {
-                        void forceProviderNativeCenter(provider);
-                      }}
-                      locale={locale}
-                    />
-                  </div>
-                </details>
-              ) : null}
-              {stepTimeout && !stepTimeout.timedOut ? (
-                <StepTimeoutDialog event={stepTimeout} onClose={() => setStepTimeout(undefined)} locale={locale} />
-              ) : null}
-            </section>
-            <FocusPane
+          {!sessionSidebarCollapsed && !messagesMaximized ? (
+            <div className="workbench-sidebar-resizer w-[6px] shrink-0">
+              <Resizer label={translate('conversation.resizeSidebar')} onDrag={dragSidebar}
+                value={visibleSidebarWidth} min={MIN_SIDEBAR_WIDTH} max={sidebarMaxWidth} />
+            </div>
+          ) : null}
+          {providerInspectorOpen && !messagesMaximized ? (
+            <div className="workbench-inspector-workspace flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h2 className="text-xs font-semibold">{translate('sidebar.agents')}</h2>
+                <button type="button" className="rounded-lg border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700"
+                  onClick={() => setProviderInspectorOpen(false)} aria-label={translate('workbench.hideDetails')}>{translate('workbench.hideDetails')}</button>
+              </div>
+              <FocusPane
               providers={activeProviders}
               centeredProvider={centeredProvider}
               scrollFocusedProvider={scrollFocusedProvider}
@@ -2030,96 +2345,191 @@ export default function App() {
               stageExpanded={stageExpanded}
               onToggleStageExpanded={() => setStageExpanded((current) => !current)}
             />
-          </div>
+            </div>
+          ) : null}
         </div>
 
-        <div
-          aria-hidden={messagesMaximized || undefined}
-          className={`min-h-0 min-w-0 ${messagesMaximized ? 'invisible overflow-hidden pointer-events-none' : ''}`}
-        >
-          <Resizer
-            label={translate('layout.resizeFocusPane')}
-            onDrag={dragFocusPane}
-            value={focusPaneWidth}
-            min={DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.minFocusPaneWidth}
-            max={focusPaneMaxWidth}
-          />
+        <div className={`min-h-0 min-w-0 ${providerInspectorOpen && !messagesMaximized ? '' : 'invisible pointer-events-none'}`}>
+          {providerInspectorOpen && !messagesMaximized ? (
+            <Resizer
+              label={translate('layout.resizeFocusPane')}
+              onDrag={dragFocusPane}
+              value={focusPaneWidth}
+              min={DEFAULT_FOCUS_LAYOUT_CONSTRAINTS.minFocusPaneWidth}
+              max={focusPaneMaxWidth}
+            />
+          ) : null}
         </div>
 
-        <section className="ai-sister-conversation-workspace flex min-h-0 min-w-0 flex-col border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
-          <div className="ai-sister-conversation-toolbar border-b border-zinc-200 dark:border-zinc-800 pb-3">
-            <div className="flex flex-wrap items-start gap-3">
-              {/* The floor is what makes the row wrap: at min-w-0 this block collapses instead, so the
-                  buttons keep squeezing the badge and flex-wrap never fires. */}
-              <div className="min-w-[11rem] flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="ai-sister-mode-badge shrink-0 border border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950 px-2 py-1 text-xs font-medium text-sky-700 dark:text-sky-100">
-                    <span className="mr-1">{presetId === 'brainstorm' ? '✨' : CHAT_MODES[mode].icon}</span>
-                    {presetId === 'brainstorm' ? translate(presetForId(presetId).displayNameKey) : translate(MODE_NAME_KEYS[mode])}
-                  </span>
-                  <span className="min-w-0 truncate text-xs text-zinc-600 dark:text-zinc-400">{workflowStatus || translate('processTrace.settled')}</span>
+        <section className="ai-sister-conversation-workspace workbench-conversation-workspace relative flex min-h-0 min-w-0 flex-col border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
+          <header className="ai-sister-conversation-toolbar workbench-conversation-header border-b border-zinc-200 pb-3 dark:border-zinc-800">
+            <div className="workbench-conversation-header-main flex flex-wrap items-center justify-between gap-3">
+              <div className="workbench-conversation-identity min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2.5">
+                  <h1 className="workbench-conversation-title truncate text-xl font-semibold" title={sessions.find((session) => session.id === activeSessionId)?.title ?? translate('workbench.conversation')}>
+                    {sessions.find((session) => session.id === activeSessionId)?.title ?? translate('workbench.conversation')}
+                  </h1>
+                  {isProcessing ? <span className="workbench-header-live flex items-center gap-1.5"><span className="workbench-live-indicator" aria-hidden="true" /> {translate('workbench.live')}</span> : null}
                 </div>
               </div>
-              {/* One group, so the controls wrap as a block and stay right-aligned on the new row. */}
-              <div className="ml-auto flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  className={`flex h-7 items-center justify-center gap-1.5 border px-2 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
-                    replayDrawerOpen ? 'border-sky-400 bg-sky-50 dark:border-sky-800 dark:bg-sky-950' : 'border-zinc-300 dark:border-zinc-700'
-                  }`}
-                  aria-label={translate('replay.historyToggle')}
-                  title={translate('replay.historyToggle')}
-                  aria-expanded={replayDrawerOpen}
-                  aria-controls="replay-history-panel"
-                  onClick={() => setReplayDrawerOpen((open) => !open)}
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 12a9 9 0 1 0 3-6.7" />
-                    <path d="M3 4v5h5" />
-                    <path d="M12 7v5l3 2" />
+              <div className="workbench-header-actions flex items-center gap-1.5">
+                <button type="button"
+                  className={`workbench-icon-button workbench-primary-activity ${activityPanelOpen ? 'workbench-icon-button-selected' : ''}`}
+                  title={translate('sidebar.activity')} aria-label={translate('sidebar.activity')}
+                  aria-expanded={activityPanelOpen} aria-controls="workbench-activity-drawer"
+                  onClick={() => setActivityPanelOpen((open) => !open)}>
+                  <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
-                  <span>{translate('replay.historyToggle')}</span>
+                  {isProcessing ? <span className="workbench-header-activity-dot" aria-hidden="true" /> : null}
                 </button>
-                <button
-                  type="button"
-                  className="border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => void exportConversation()}
-                  disabled={messages.length === 0 || sharing}
-                >
-                  {translate('header.exportMarkdown')}
-                </button>
-                <button
-                  type="button"
-                  className={`flex h-7 w-7 items-center justify-center border text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
-                    messagesMaximized ? 'border-sky-400 bg-sky-50 dark:border-sky-800 dark:bg-sky-950' : 'border-zinc-300 dark:border-zinc-700'
-                  }`}
-                  aria-label={translate(messagesMaximized ? 'header.restoreMessages' : 'header.maximizeMessages')}
-                  title={translate(messagesMaximized ? 'header.restoreMessages' : 'header.maximizeMessages')}
-                  aria-pressed={messagesMaximized}
-                  onClick={() => setMessagesMaximized((current) => !current)}
-                >
-                  {messagesMaximized ? (
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 3v4a2 2 0 0 1-2 2H3" />
-                      <path d="M21 9h-4a2 2 0 0 1-2-2V3" />
-                      <path d="M3 15h4a2 2 0 0 1 2 2v4" />
-                      <path d="M15 21v-4a2 2 0 0 1 2-2h4" />
+                <div className="relative" onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) setHeaderMoreOpen(false);
+                }}>
+                  <button type="button" className={`workbench-icon-button ${headerMoreOpen ? 'workbench-icon-button-selected' : ''}`}
+                    aria-haspopup="menu" aria-expanded={headerMoreOpen}
+                    aria-label={translate('workbench.moreActions')} title={translate('workbench.moreActions')}
+                    onClick={() => { setHeaderMoreOpen((open) => !open); setAgentMenuOpen(false); }}>
+                    <svg viewBox="0 0 24 24" className="h-[19px] w-[19px]" aria-hidden="true" fill="currentColor">
+                      <circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/>
                     </svg>
-                  ) : (
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 9V3h6" />
-                      <path d="M21 9V3h-6" />
-                      <path d="M3 15v6h6" />
-                      <path d="M21 15v6h-6" />
-                    </svg>
-                  )}
-                </button>
-                <button type="button" className="border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={() => setSettingsOpen(true)}>
-                  {translate('header.settings')}
-                </button>
+                  </button>
+                  {headerMoreOpen ? (
+                    <div className="workbench-header-more-menu absolute right-0 top-full z-40 mt-2 min-w-52 space-y-0.5 rounded-xl p-1.5 shadow-xl"
+                      role="menu" aria-label={translate('workbench.moreActions')}
+                      onKeyDown={(event) => { if (event.key === 'Escape') setHeaderMoreOpen(false); }}>
+                      <button type="button" role="menuitem" className="workbench-menu-item"
+                        onClick={() => { setHeaderMoreOpen(false); setReplayDrawerOpen((open) => !open); }}
+                        aria-expanded={replayDrawerOpen} aria-controls="replay-history-panel">
+                        {translate('replay.historyToggle')}
+                      </button>
+                      <button type="button" role="menuitem" className="workbench-menu-item"
+                        onClick={() => { setHeaderMoreOpen(false); void exportConversation(); }}
+                        disabled={messages.length === 0 || sharing}>{translate('header.exportMarkdown')}</button>
+                      <button type="button" role="menuitem" className="workbench-menu-item"
+                        onClick={() => { setHeaderMoreOpen(false); setMessagesMaximized((open) => !open); }}>
+                        {translate(messagesMaximized ? 'header.restoreMessages' : 'header.maximizeMessages')}
+                      </button>
+                      <button type="button" role="menuitem" className="workbench-menu-item"
+                        onClick={() => { setHeaderMoreOpen(false); setProviderInspectorOpen((open) => !open); }}>
+                        {translate('workbench.providerView')}
+                      </button>
+                      <button type="button" role="menuitem" className="workbench-menu-item"
+                        onClick={() => { setHeaderMoreOpen(false); setSettingsOpen(true); }}>
+                        {translate('header.settings')}
+                      </button>
+                      {import.meta.env.DEV ? (
+                        <button type="button" role="menuitem" className="workbench-menu-item"
+                          onClick={() => { setHeaderMoreOpen(false); setShowDevDiagnostics((open) => !open); }}>
+                          Diagnostics
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
+            <div className="workbench-conversation-header-sub flex flex-wrap items-center gap-2">
+              {!newChatWelcome ? experienceSwitcher : null}
+              {isProcessing || workflowStatus ? (
+                <span className="workbench-conversation-status truncate text-xs text-zinc-500 dark:text-zinc-400">
+                  {workflowStatus || translate('processTrace.awaiting')}
+                </span>
+              ) : null}
+            </div>
+            <div className="workbench-connected-agent-strip mt-3 flex flex-wrap items-center gap-1.5" aria-label={translate('sidebar.agents')}>
+              {activeProviders.map((provider) => {
+                const status = agentHeaderStatus(states[provider], appSettings.openProviders.includes(provider), connectionsChecking);
+                if (!status) return null;
+                const statusLabel = translate(status === 'ready' ? 'connection.ready' : status === 'checking' ? 'connection.stale' : 'connection.noWebview');
+                return (
+                  <button key={provider} type="button" data-agent-status={status}
+                    className="workbench-agent-pill inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs"
+                    onClick={() => {
+                      if (status === 'ready') openProviderModelSettings(provider);
+                      else void openProviderLogin(provider).catch((error: unknown) => setProviderWindowError(error instanceof Error ? error.message : String(error)));
+                    }}
+                    aria-label={`${AI_PROVIDERS[provider].name}: ${statusLabel}`}
+                    title={`${AI_PROVIDERS[provider].name} · ${statusLabel}`}>
+                    <span className="workbench-agent-status-dot" aria-hidden="true"/>
+                    <span>{AI_PROVIDERS[provider].name}</span>
+                    <span className="workbench-agent-status-label">{statusLabel}</span>
+                  </button>
+                );
+              })}
+              <div className="relative">
+                <button type="button" className="workbench-agent-add rounded-full border px-3 py-1.5 text-xs"
+                  aria-haspopup="menu" aria-expanded={agentMenuOpen}
+                  onClick={() => setAgentMenuOpen((open) => !open)}>+ {translate('sidebar.addAgent')}</button>
+                {agentMenuOpen ? (
+                  <div className="workbench-agent-menu absolute left-0 top-full z-30 mt-1 min-w-48 space-y-1 rounded-xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900" role="menu">
+                    {activeProviders.filter((provider) => !agentHeaderStatus(states[provider], appSettings.openProviders.includes(provider), connectionsChecking)).map((provider) => (
+                      <button key={provider} type="button" role="menuitem"
+                        className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        onClick={() => { setAgentMenuOpen(false); void openProviderLogin(provider).catch((error: unknown) => setProviderWindowError(error instanceof Error ? error.message : String(error))); }}>
+                        <span>{AI_PROVIDERS[provider].name}</span>
+                        <span className="text-zinc-500">{translate('sidebar.agentLogin')}</span>
+                      </button>
+                    ))}
+                    <button type="button" role="menuitem" className="w-full rounded-lg border-t border-zinc-200 px-2 py-2 text-left text-xs dark:border-zinc-700"
+                      onClick={() => { setAgentMenuOpen(false); setSettingsOpen(true); }}>{translate('header.settings')}</button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            {modelSettingsProvider && activeProviders.includes(modelSettingsProvider) ? (
+              <div className="workbench-model-controls-popover mt-2">
+                <ProviderModelControls provider={modelSettingsProvider} onOpenProvider={openProviderModelSettings}
+                  onClose={() => setModelSettingsProvider(undefined)}/>
+              </div>
+            ) : null}
+          </header>
+          {checkpoint ? (
+            <details className="workbench-checkpoint-inline mt-3 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950" open>
+              <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-amber-900 dark:text-amber-100">{translate('checkpoint.confirmEachStep')}</summary>
+              <div className="border-t border-amber-300 p-3 dark:border-amber-900">
+                <CheckpointCard checkpoint={checkpoint} draft={checkpointDraft}
+                  onDraftChange={setCheckpointDraft}
+                  onNativeEdit={(provider) => { void forceProviderNativeCenter(provider); }}
+                  locale={locale}/>
+              </div>
+            </details>
+          ) : null}
+          {activityPanelOpen ? (
+            <aside id="workbench-activity-drawer" aria-label={translate('sidebar.activity')} className="workbench-activity-drawer">
+              <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+                <h2 className="text-sm font-semibold">{translate('sidebar.activity')}</h2>
+                <button type="button" className="rounded-lg px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  onClick={() => setActivityPanelOpen(false)} aria-label={translate('workbench.hideDetails')}>×</button>
+              </div>
+              <div className="workbench-activity-drawer-content min-h-0 flex-1 overflow-y-auto p-3">
+                {processTrace && (processTrace.steps.length > 0 || processTrace.currentStatus)
+                  ? <ProcessTrace trace={processTrace} locale={locale} expanded compact={false} states={states}
+                      onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen}/>
+                  : <div className="space-y-2 p-3 text-sm text-zinc-500 dark:text-zinc-400" role="status">
+                       <p>{translate('workbench.activityHint')}</p>
+                       <p className="text-xs">{translate('workbench.noActiveRun')}</p>
+                     </div>}
+              </div>
+            </aside>
+          ) : null}
+          {providerWindowGeometry && import.meta.env.DEV && showDevDiagnostics ? (
+            <div role="status" className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+              <span className="font-semibold">Native page geometry</span>
+              <span>Window {providerWindowGeometry.windowWidth} × {providerWindowGeometry.windowHeight} physical px</span>
+              <span>WebView {providerWindowGeometry.webviewWidth} × {providerWindowGeometry.webviewHeight} physical px</span>
+              <span>Position {providerWindowGeometry.webviewX},{providerWindowGeometry.webviewY}</span>
+              <button type="button" className="ml-auto rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700" onClick={() => setProviderWindowGeometry(undefined)}>
+                Hide
+              </button>
+            </div>
+          ) : null}
+          {providerWindowError ? (
+            <div role="alert" className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+              <span>Could not open the separate provider window: {providerWindowError}</span>
+              <button type="button" onClick={() => setProviderWindowError(undefined)} className="rounded border border-current px-2 py-1">Dismiss</button>
+            </div>
+          ) : null}
           <div
             id="replay-history-panel"
             hidden={!replayDrawerOpen}
@@ -2165,28 +2575,98 @@ export default function App() {
           ) : null}
           <div
             ref={transcriptRef}
-            className="ai-sister-conversation-transcript mt-3 min-h-0 flex-1 overflow-auto border-y border-zinc-200 dark:border-zinc-800 py-3"
+            className={`ai-sister-conversation-transcript workbench-reading-area mt-3 min-h-0 flex-1 overflow-auto border-y border-zinc-200 dark:border-zinc-800 py-4 ${activityPanelOpen ? 'workbench-reading-with-activity' : ''}`}
             onScroll={(event) => {
               transcriptStickToEndRef.current = isTranscriptNearEnd(event.currentTarget);
               handleTranscriptScroll();
             }}
           >
-            <ChatArea messages={messages} locale={locale} states={states} />
-            {import.meta.env.DEV ? <EchoPanel /> : null}
+            {newChatWelcome ? (
+              <div className="workbench-new-chat-screen flex min-h-full flex-col items-center justify-center px-3 py-6">
+                <div className="workbench-new-chat-body mx-auto w-full max-w-2xl">
+                  <h2 className="workbench-new-chat-title text-center text-2xl font-semibold tracking-tight">
+                    {translate(presetId === 'simple' ? 'sidebar.emptyChatTitle' : 'sidebar.emptyTitle')}
+                  </h2>
+                  <div className="workbench-new-chat-mode mt-5 flex justify-center">{experienceSwitcher}</div>
+                  <div className="workbench-new-chat-composer mt-5">{composerStack}</div>
+                </div>
+              </div>
+            ) : (
+              <ChatArea messages={messages} locale={locale} states={states} trace={isProcessing ? processTrace : undefined} />
+            )}
           </div>
-          <div className="ai-sister-conversation-composer shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800">
-            <InputBar
-              onSend={send}
-              onCancel={cancelWorkflow}
-              disabled={noSendableProviders}
-              sendBlocked={modeSendBlocked}
-              blockedMessage={modeBlockedMessage}
-              isProcessing={isProcessing}
-              locale={locale}
-            />
+          {import.meta.env.DEV && showDevDiagnostics ? (
+            <section
+              id="workbench-dev-diagnostics"
+              aria-label="Developer transport diagnostics"
+              className="mt-2 max-h-60 shrink-0 overflow-auto rounded-lg border border-zinc-300 bg-zinc-50 p-2 dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-xs font-medium">Developer transport diagnostics</h3>
+                <button type="button" className="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700" onClick={() => setShowDevDiagnostics(false)}>
+                  Hide
+                </button>
+              </div>
+              <EchoPanel />
+            </section>
+          ) : null}
+          <div className={`ai-sister-conversation-composer workbench-composer-region shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800 ${newChatWelcome ? 'hidden' : ''}`}>
+            {!newChatWelcome ? composerStack : null}
           </div>
         </section>
       </div>
+      {projectSettingsOpen ? (
+        <ModalDialog titleId="workbench-project-editor-title" onEscape={() => setProjectSettingsOpen(false)}
+          onBackdrop={() => setProjectSettingsOpen(false)}
+          panelClassName="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-zinc-300 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 id="workbench-project-editor-title" className="text-lg font-semibold">{translate('sidebar.projectSettings')}</h2>
+            <button type="button" className="rounded-lg border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700"
+              onClick={() => setProjectSettingsOpen(false)}>{translate('sidebar.cancel')}</button>
+          </div>
+          <ProjectPicker store={effectiveProjectStore} onSave={saveProjectStore}
+            disabled={isProcessing || !projectsReady} loadError={projectLoadError}/>
+        </ModalDialog>
+      ) : null}
+      {workflowOptionsOpen ? (
+        <ModalDialog titleId="workbench-mode-title" descriptionId="workbench-mode-description"
+          onEscape={() => setWorkflowOptionsOpen(false)}
+          onBackdrop={() => setWorkflowOptionsOpen(false)}
+          panelClassName="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl border border-zinc-300 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
+        >
+          <div id="workbench-workflow-options" className="flex items-start justify-between gap-4">
+            <div>
+              <h2 id="workbench-mode-title" className="text-xl font-semibold">Choose a workflow</h2>
+              <p id="workbench-mode-description" className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                Compare, review, research, and collaborate with your connected models.
+              </p>
+            </div>
+            <button type="button" className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700" onClick={() => setWorkflowOptionsOpen(false)}>Close</button>
+          </div>
+          <div className="mt-5">
+            <PresetCatalog mode={mode} selectedPresetId={presetId}
+              onSelectPreset={(selected) => {
+                selectPreset(selected);
+                setWorkflowOptionsOpen(false);
+                // Collaborative workflows have editable role assignments.
+                // Simple Chat and Free use the agent/target controls next to
+                // the composer, so don't open unrelated global settings.
+                if (selected !== 'simple' && selected !== 'free') setSettingsOpen(true);
+              }}
+              locale={locale} states={states} modeRoles={appSettings.modeRoles}
+              activeProviders={activeProviders} disabled={isProcessing} layout="dialog"
+            />
+          </div>
+          {mode === 'free' && presetId !== 'brainstorm' ? (
+            <div className="mt-4 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+              <h3 className="mb-2 text-sm font-semibold">{translate('input.sendSelectedProviders')}</h3>
+              <TargetChips providers={activeProviders} states={states} selected={targets} onChange={handleTargetsChange} disabled={isProcessing} locale={locale}/>
+            </div>
+          ) : null}
+          <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">{translate('composer.clickWorkflowToConfigure')}</p>
+          <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Connection status and response completion are separate.</p>
+        </ModalDialog>
+      ) : null}
       {preflight ? (
         <PreflightDialog
           model={buildPreflightDialogModel(preflight.mode, preflight.result, states, locale)}
@@ -2251,19 +2731,28 @@ export function ChatArea({
   messages,
   locale,
   states,
+  trace,
 }: {
   messages: Bubble[];
   locale: Locale;
   states: Record<AIProvider, ProviderState>;
+  trace?: ProcessTraceState;
 }) {
+  const activeSteps = trace?.steps.filter((step) => step.status === 'active' && step.kind !== 'fanout') ?? [];
+  const activeProviders = new Set(activeSteps.map((step) => step.provider).filter((provider): provider is AIProvider => provider !== undefined));
   if (messages.length === 0) {
-    const anyReady = (Object.keys(states) as AIProvider[]).some((provider) => isSendable(states[provider]));
+    const providers = Object.values(states);
+    const anyReady = providers.some((state) => isSendable(state));
+    const anyChecking = providers.some((state) =>
+      (state.webview === 'loaded' || state.webview === 'creating') &&
+      (state.login === 'unknown' || state.dom === 'unknown'),
+    );
     return (
       <div className="grid min-h-32 place-items-center p-6 text-center" role="status">
         <div>
           <div className="text-sm font-medium text-zinc-700 dark:text-zinc-200">{translateKey('chat.noMessages', locale)}</div>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            {translateKey(anyReady ? 'chat.readyPrompt' : 'chat.noProviders', locale)}
+            {translateKey(anyReady ? 'chat.readyPrompt' : anyChecking ? 'chat.reconnecting' : 'chat.noProviders', locale)}
           </p>
         </div>
       </div>
@@ -2273,6 +2762,9 @@ export function ChatArea({
     <div className="space-y-3 p-2">
       {messages.map((message) => {
         const p = message.provider;
+        // While this provider is still working, the decorative waiting scene
+        // replaces its redundant in-flight transcript placeholder.
+        if (message.role === 'ai' && !message.final && p && activeProviders.has(p as AIProvider)) return null;
         const isProvider = typeof p === 'string' && p in AI_PROVIDERS;
         const thinking = isProvider && !message.final && states[p as AIProvider]?.thinking === true;
         const statusLabel =
@@ -2281,11 +2773,10 @@ export function ChatArea({
         return (
           <article
             key={message.id}
-            className="ai-sister-message border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-3"
+            className={`ai-sister-message workbench-message ${message.role === 'user' ? 'workbench-message-user' : 'workbench-message-other'} border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-3`}
             data-provider={isProvider ? p : undefined}
           >
-            <div className="mb-1 flex items-center gap-2">
-              {isProvider ? <AiSisterAvatar provider={p as AIProvider} active={thinking} size="md" /> : null}
+            <div className="workbench-message-header mb-1 flex items-center gap-2">
               <div className="text-xs uppercase text-zinc-500 dark:text-zinc-500">
                 {bubbleAuthorLabel(message)}
                 {message.modeRole ? ` · ${message.modeRole}` : ''}
@@ -2295,14 +2786,23 @@ export function ChatArea({
             {thinking ? (
               <div className="whitespace-pre-wrap text-sm italic text-zinc-500 dark:text-zinc-500">{translateKey('chat.thinking', locale)}</div>
             ) : (
-              <div className="text-sm">
+              <div className="workbench-message-content text-sm">
                 <MarkdownText text={message.content} />
               </div>
             )}
             {message.truncated ? <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">{translateKey('chat.truncated', locale)}</div> : null}
+            {typeof message.timestamp === 'number' && Number.isFinite(message.timestamp) && message.timestamp > 0 && message.timestamp <= 8_640_000_000_000_000 ? (
+              <time className="workbench-message-timestamp mt-2 block text-xs text-zinc-500 dark:text-zinc-400"
+                dateTime={new Date(message.timestamp).toISOString()}>
+                {new Date(message.timestamp).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
+              </time>
+            ) : null}
           </article>
         );
       })}
+      {activeSteps.length > 0 ? (
+        <ThinkingVisualization activeSteps={activeSteps} states={states} locale={locale} />
+      ) : null}
     </div>
   );
 }
@@ -2313,5 +2813,5 @@ function modeFromReplayPlan(plan: ReplayPlan): ChatMode | undefined {
 }
 
 function conversationPresetId(presetId: WorkflowPresetId, mode: ChatMode): WorkflowPresetId | undefined {
-  return presetId === 'brainstorm' && mode === 'free' ? presetId : undefined;
+  return mode === 'free' && (presetId === 'brainstorm' || presetId === 'simple') ? presetId : undefined;
 }

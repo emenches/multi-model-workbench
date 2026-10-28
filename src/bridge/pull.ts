@@ -4,12 +4,27 @@ import { host } from '../host';
 import { publishBridgeMessage } from './bus';
 
 export const DONE_WATCHDOG_MS = 5000;
+export const PULL_RECOVERY_DELAY_MS = 5_000;
+export const PULL_RECOVERY_MAX_ATTEMPTS = 3;
+export const SILENT_PULL_PROBE_INTERVAL_MS = 15_000;
+// Exact read-only diagnostic expression also whitelisted by the native host.
+// It examines our injected objects only, never the site's DOM or user text.
+import { CHATGPT_BRIDGE_HEALTH_JS, CHATGPT_BRIDGE_PEEK_JS } from './nativeBridgeScripts';
+export { CHATGPT_BRIDGE_HEALTH_JS } from './nativeBridgeScripts';
 export const AWAITING_MAX_MS = 10 * 60 * 1000;
 export const AWAITING_ABSOLUTE_MAX_MS = 60 * 60 * 1000;
 
 const lastConsumed = new Map<string, { bootId: string; mid: number }>();
 const pending = new Set<AIProvider>();
 const degraded = new Set<AIProvider>();
+const recoveryTimers = new Map<AIProvider, ReturnType<typeof globalThis.setTimeout>>();
+const recoveryAttempts = new Map<AIProvider, number>();
+type PullFailureKind = 'callback_timeout' | 'callback_closed' | 'webview_unavailable' | 'host_not_ready' | 'document_blocked' | 'invalid_json' | 'invalid_batch' | 'eval_failed';
+const lastPullFailure = new Map<AIProvider, PullFailureKind>();
+// Successful empty callbacks otherwise leave no diagnostic footprint, making
+// silent title reporting indistinguishable from a stalled response pull loop.
+const lastTitleStatusAt = new Map<AIProvider, number>();
+const lastEmptyPullProbeAt = new Map<AIProvider, number>();
 const pollTimers = new Map<AIProvider, ReturnType<typeof globalThis.setInterval>>();
 const pullInflight = new Map<AIProvider, { promise: Promise<void>; force: boolean }>();
 const activeBoot = new Map<AIProvider, string>();
@@ -60,6 +75,9 @@ export function onProviderBootRotation(listener: (provider: AIProvider) => void)
 
 export function handleTitleMessage(message: BridgeMessage): void {
   if (message.transport === 'title' && message.action !== 'STATUS_REPORT') return;
+  if (message.transport === 'title' && message.action === 'STATUS_REPORT' && message.provider) {
+    lastTitleStatusAt.set(message.provider, Date.now());
+  }
   if (message.provider && message.bootId) {
     const current = activeBoot.get(message.provider);
     if (current !== message.bootId) {
@@ -85,6 +103,7 @@ export function handleTitleMessage(message: BridgeMessage): void {
 
 export function recoverProvider(provider: AIProvider): void {
   clearDoneWatchdog(provider);
+  clearPullRecovery(provider);
   if (!degraded.delete(provider)) return;
   publish({
     v: 1,
@@ -112,9 +131,12 @@ export function setProviderAwaiting(provider: AIProvider, awaiting: boolean): vo
   if (awaiting) {
     pending.add(provider);
     ensurePoll(provider);
+    if (degraded.has(provider)) schedulePullRecovery(provider);
     return;
   }
   pending.delete(provider);
+  lastEmptyPullProbeAt.delete(provider);
+  clearPullRecovery(provider);
   const timer = pollTimers.get(provider);
   if (timer !== undefined) globalThis.clearInterval(timer);
   pollTimers.delete(provider);
@@ -168,8 +190,33 @@ async function pullProviderInner(provider: AIProvider, options: { force?: boolea
   const batch = await pullWithRetry(provider);
   if (!batch) {
     markDegraded(provider, 'pull_failed');
+    publish({
+      v: 1,
+      action: 'STATUS_REPORT',
+      provider,
+      payload: {
+        pullDiagnostic: 'failed',
+        pullFailureKind: lastPullFailure.get(provider) ?? 'eval_failed',
+        recoveryAttempt: recoveryAttempts.get(provider) ?? 0,
+      },
+      transport: 'local',
+    });
     return;
   }
+  if (degraded.has(provider)) {
+    publish({
+      v: 1,
+      action: 'STATUS_REPORT',
+      provider,
+      payload: { pullDiagnostic: 'recovered', recoveryAttempt: recoveryAttempts.get(provider) ?? 0 },
+      transport: 'local',
+    });
+  }
+  lastPullFailure.delete(provider);
+  maybeReportSilentEmptyPull(provider, batch);
+  // A successful callback is direct evidence the old provider document is
+  // responsive again. Keep boot/mid watermarks intact; never forge DONE.
+  if (degraded.has(provider)) recoverProvider(provider);
   let maxMid = 0;
   let sawDone = false;
   const providerBoot = activeBoot.get(provider);
@@ -193,19 +240,180 @@ async function pullProviderInner(provider: AIProvider, options: { force?: boolea
   if (sawDone) setProviderAwaiting(provider, false);
 }
 
+// This measures the *native eval callback*, not whether the injected engine
+// exists: its read expression also returns [] when __MAC_BRIDGE__ is absent.
+// Distinguish a reachable WebView with an empty outbox from an unreachable
+// callback without claiming that response extraction is working.
+function maybeReportSilentEmptyPull(provider: AIProvider, batch: BridgeMessage[]): void {
+  if (provider !== 'chatgpt' || !pending.has(provider) || batch.length !== 0) return;
+  const titleAt = lastTitleStatusAt.get(provider);
+  if (titleAt === undefined) return;
+  const now = Date.now();
+  const silentMs = now - titleAt;
+  if (silentMs < SILENT_PULL_PROBE_INTERVAL_MS ||
+      now - (lastEmptyPullProbeAt.get(provider) ?? titleAt) < SILENT_PULL_PROBE_INTERVAL_MS) return;
+  lastEmptyPullProbeAt.set(provider, now);
+  void probeChatGptBridge(provider, Math.floor(silentMs / 1_000) * 1_000);
+  publish({
+    v: 1,
+    action: 'STATUS_REPORT',
+    provider,
+    transport: 'local',
+    payload: {
+      pullDiagnostic: 'eval-ok-empty',
+      statusSilentMs: Math.floor(silentMs / 1_000) * 1_000,
+    },
+  });
+}
+
+
+interface ChatGptBridgeHealth {
+  bridgePresent: boolean;
+  enginePresent: boolean;
+  bootMatches: boolean;
+  adapterInstalled: boolean;
+  statusTicks: number | null;
+  responsePollTicks: number | null;
+  engineAwaiting: boolean;
+  statusEmits: number | null;
+  fillStarts: number | null;
+  fillDones: number | null;
+  titleQueued: number | null;
+  titleStarted: number | null;
+  titleFinished: number | null;
+  capturePhase: string | null;
+  captureResponseNodes: number | null;
+  captureAssistantUnits: number | null;
+  captureLatestUnitDomChars: number | null;
+  captureTextChars: number | null;
+  captureAnchor: boolean;
+  captureGenerationSeen: boolean;
+}
+
+function isChatGptBridgeHealth(value: unknown): value is ChatGptBridgeHealth {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const health = value as Record<string, unknown>;
+  const validTick = (v: unknown) => v === null || (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0);
+  return typeof health.bridgePresent === 'boolean' &&
+    typeof health.enginePresent === 'boolean' &&
+    typeof health.bootMatches === 'boolean' &&
+    typeof health.adapterInstalled === 'boolean' &&
+    validTick(health.statusTicks) &&
+    validTick(health.responsePollTicks) &&
+    typeof health.engineAwaiting === 'boolean' &&
+    validTick(health.statusEmits) &&
+    validTick(health.fillStarts) &&
+    validTick(health.fillDones) &&
+    validTick(health.titleQueued) &&
+    validTick(health.titleStarted) &&
+    validTick(health.titleFinished) &&
+    (health.capturePhase === null ||
+      (typeof health.capturePhase === 'string' && [
+        'waiting-user-anchor', 'assistant-selector-missing', 'candidate-rejected',
+        'completion-turn-missing', 'completion-marker-missing',
+        'completion-marker-present', 'diagnostics-error',
+      ].includes(health.capturePhase))) &&
+    validTick(health.captureResponseNodes) &&
+    validTick(health.captureAssistantUnits) &&
+    validTick(health.captureLatestUnitDomChars) &&
+    validTick(health.captureTextChars) &&
+    typeof health.captureAnchor === 'boolean' &&
+    typeof health.captureGenerationSeen === 'boolean';
+}
+
+async function probeChatGptBridge(provider: AIProvider, statusSilentMs: number): Promise<void> {
+  try {
+    const raw = await host.provider.evalWithCallback(provider, CHATGPT_BRIDGE_HEALTH_JS);
+    const health = parsePullResult(raw);
+    if (!pending.has(provider)) return;
+    if (!isChatGptBridgeHealth(health)) {
+      publish({ v: 1, action: 'STATUS_REPORT', provider, transport: 'local',
+        payload: { pullDiagnostic: 'bridge-probe-invalid', statusSilentMs },
+      });
+      return;
+    }
+    publish({ v: 1, action: 'STATUS_REPORT', provider, transport: 'local',
+      payload: { pullDiagnostic: 'bridge-probe', statusSilentMs,
+        bridgePresent: health.bridgePresent,
+        enginePresent: health.enginePresent,
+        bootMatches: health.bootMatches,
+        adapterInstalled: health.adapterInstalled,
+        statusTicks: health.statusTicks,
+        responsePollTicks: health.responsePollTicks,
+        engineAwaiting: health.engineAwaiting,
+        statusEmits: health.statusEmits,
+        fillStarts: health.fillStarts,
+        fillDones: health.fillDones,
+        titleQueued: health.titleQueued,
+        titleStarted: health.titleStarted,
+        titleFinished: health.titleFinished,
+        capturePhase: health.capturePhase,
+        captureResponseNodes: health.captureResponseNodes,
+        captureAssistantUnits: health.captureAssistantUnits,
+        captureLatestUnitDomChars: health.captureLatestUnitDomChars,
+        captureTextChars: health.captureTextChars,
+        captureAnchor: health.captureAnchor,
+        captureGenerationSeen: health.captureGenerationSeen,
+      },
+    });
+  } catch (error) {
+    if (!pending.has(provider)) return;
+    publish({ v: 1, action: 'STATUS_REPORT', provider, transport: 'local',
+      payload: { pullDiagnostic: 'bridge-probe-failed', statusSilentMs,
+        pullFailureKind: classifyPullFailure(error) },
+    });
+  }
+}
+
 function markDegraded(provider: AIProvider, reason: string): void {
+  const wasDegraded = degraded.has(provider);
   degraded.add(provider);
   clearDoneWatchdog(provider);
   const timer = pollTimers.get(provider);
   if (timer !== undefined) globalThis.clearInterval(timer);
   pollTimers.delete(provider);
-  publish({
-    v: 1,
-    action: 'STATUS_REPORT',
-    provider,
-    payload: { bridge: 'degraded', reason },
-    transport: 'local',
-  });
+  // Emit the degradation transition once, rather than on every failed probe.
+  if (!wasDegraded) {
+    publish({
+      v: 1,
+      action: 'STATUS_REPORT',
+      provider,
+      payload: { bridge: 'degraded', reason },
+      transport: 'local',
+    });
+  }
+  schedulePullRecovery(provider);
+}
+
+// An eval callback may fail transiently during WKWebView navigation or a
+// busy script. Re-probe only while the workflow is waiting, with a bounded
+// retry budget. A successful probe drains the existing outbox; a genuine
+// new-document bootId remains a hard workflow failure.
+function schedulePullRecovery(provider: AIProvider): void {
+  if (!pending.has(provider) || recoveryTimers.has(provider)) return;
+  const attempts = recoveryAttempts.get(provider) ?? 0;
+  if (attempts >= PULL_RECOVERY_MAX_ATTEMPTS) return;
+  const timer = globalThis.setTimeout(() => {
+    recoveryTimers.delete(provider);
+    if (!pending.has(provider) || !degraded.has(provider)) return;
+    recoveryAttempts.set(provider, attempts + 1);
+    publish({
+      v: 1,
+      action: 'STATUS_REPORT',
+      provider,
+      payload: { pullDiagnostic: 'retrying', recoveryAttempt: attempts + 1 },
+      transport: 'local',
+    });
+    void pullProvider(provider, { force: true });
+  }, PULL_RECOVERY_DELAY_MS * (attempts + 1));
+  recoveryTimers.set(provider, timer);
+}
+
+function clearPullRecovery(provider: AIProvider): void {
+  const timer = recoveryTimers.get(provider);
+  if (timer !== undefined) globalThis.clearTimeout(timer);
+  recoveryTimers.delete(provider);
+  recoveryAttempts.delete(provider);
 }
 
 function synthesizeDone(provider: AIProvider, payload: string): Promise<void> {
@@ -247,16 +455,41 @@ export async function pullWithRetry(provider: AIProvider): Promise<BridgeMessage
     try {
       const raw = await host.provider.evalWithCallback(
         provider,
-        'window.__MAC_BRIDGE__ ? window.__MAC_BRIDGE__.peekOutbox() : []',
+        CHATGPT_BRIDGE_PEEK_JS,
       );
-      const parsed = parsePullResult(raw);
-      if (!Array.isArray(parsed)) throw new Error('pull result is not an array');
+      let parsed: unknown;
+      try {
+        parsed = parsePullResult(raw);
+      } catch {
+        lastPullFailure.set(provider, 'invalid_json');
+        if (attempt === 0) await sleep(1000);
+        continue;
+      }
+      if (!Array.isArray(parsed)) {
+        lastPullFailure.set(provider, 'invalid_batch');
+        if (attempt === 0) await sleep(1000);
+        continue;
+      }
+      lastPullFailure.delete(provider);
       return parsed as BridgeMessage[];
-    } catch {
+    } catch (error) {
+      lastPullFailure.set(provider, classifyPullFailure(error));
       if (attempt === 0) await sleep(1000);
     }
   }
   return null;
+}
+
+// Do not include raw WKWebView callback exceptions in diagnostics: they can
+// contain browser or site content. Only recognized, fixed error categories.
+function classifyPullFailure(error: unknown): PullFailureKind {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (/script evaluation is not ready for provider/i.test(message)) return 'host_not_ready';
+  if (/script evaluation is not allowed for the current/i.test(message)) return 'document_blocked';
+  if (/timed out|timeout/i.test(message)) return 'callback_timeout';
+  if (/channel closed|cancelled|canceled/i.test(message)) return 'callback_closed';
+  if (/webview not found|provider webview|window not found/i.test(message)) return 'webview_unavailable';
+  return 'eval_failed';
 }
 
 export function parsePullResult(raw: string): unknown {
@@ -272,6 +505,12 @@ export function resetBridgePullForTests(): void {
   lastConsumed.clear();
   pending.clear();
   degraded.clear();
+  for (const timer of recoveryTimers.values()) globalThis.clearTimeout(timer);
+  recoveryTimers.clear();
+  recoveryAttempts.clear();
+  lastPullFailure.clear();
+  lastTitleStatusAt.clear();
+  lastEmptyPullProbeAt.clear();
   activeBoot.clear();
   lastSeenBoot.clear();
   awaitingEpoch.clear();

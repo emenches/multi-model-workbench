@@ -70,6 +70,76 @@ describe('conversation sessions', () => {
     expect(created.messages[1]).toMatchObject({ authorLabel: 'You' });
   });
 
+  it('persists per-message timestamps and preserves legacy messages without invented dates', () => {
+    const original = createConversationSession({
+      id: 'dated', now: 1234,
+      messages: [
+        { id: 'question', role: 'user', content: 'Question', timestamp: 1_760_000_000_000 },
+        { id: 'answer', role: 'ai', content: 'Reply', timestamp: 1_760_000_010_000 },
+        { id: 'legacy', role: 'ai', content: 'Undated' },
+      ],
+    });
+    const storage = memoryStorage();
+    expect(saveConversationSessions([original], storage)).toBe(true);
+    const messages = loadConversationSessions(storage)[0].messages;
+    expect(messages.map((message) => message.timestamp)).toEqual([1_760_000_000_000, 1_760_000_010_000, undefined]);
+    expect(sessionContentChanged(original, messages, 'free')).toBe(false);
+    expect(sessionContentChanged(original, [{ ...messages[0], timestamp: 3 }, ...messages.slice(1)], 'free')).toBe(true);
+  });
+
+  it('roundtrips a simple chat agent without changing legacy Free chats', () => {
+    const simple = createConversationSession({
+      id: 'simple-chat', mode: 'free', presetId: 'simple',
+      singleProvider: 'gemini', now: 42,
+    });
+    const old = session('legacy-free', 13);
+    const store = memoryStorage();
+    expect(saveConversationSessions([simple, old], store)).toBe(true);
+    const loaded = loadConversationSessions(store);
+    expect(loaded.find((item) => item.id === 'simple-chat')).toMatchObject({
+      presetId: 'simple', singleProvider: 'gemini', mode: 'free',
+    });
+    expect(loaded.find((item) => item.id === 'legacy-free')?.singleProvider).toBeUndefined();
+  });
+
+  it('ignores invalid single-provider values and preserves explicit Simple Chat choice', () => {
+    expect(normalizeConversationSession({
+      ...session('invalid', 10), presetId: 'simple', singleProvider: 'not-a-provider',
+    })?.singleProvider).toBeUndefined();
+    expect(normalizeConversationSession({
+      ...session('valid', 10), presetId: 'simple', singleProvider: 'chatgpt',
+    })?.singleProvider).toBe('chatgpt');
+    expect(normalizeConversationSession({
+      ...session('multi', 10), presetId: 'free', singleProvider: 'claude',
+    })?.singleProvider).toBeUndefined();
+  });
+
+  it('preserves project assignment while keeping older chats unassigned', () => {
+    const assigned = createConversationSession({ id: 'assigned', projectId: 'project-one', now: 100 });
+    const old = session('legacy', 90);
+    const store = memoryStorage();
+    expect(saveConversationSessions([old, assigned], store)).toBe(true);
+    const loaded = loadConversationSessions(store);
+    expect(loaded.find((value) => value.id === 'assigned')?.projectId).toBe('project-one');
+    expect(loaded.find((value) => value.id === 'legacy')?.projectId).toBeUndefined();
+  });
+
+  it('switches project assignments on an empty draft without creating a duplicate', () => {
+    const current = session('blank', 10, { projectId: 'prior', messages: [] });
+    const assigned = beginNewConversationSession({
+      sessions: [current], activeSessionId: current.id, messages: [],
+      mode: 'free', projectId: 'new-project', now: 20,
+    });
+    expect(assigned.active.projectId).toBe('new-project');
+    expect(assigned.sessions).toHaveLength(1);
+    const general = beginNewConversationSession({
+      sessions: assigned.sessions, activeSessionId: current.id, messages: [],
+      mode: 'free', now: 30,
+    });
+    expect(general.active.projectId).toBeUndefined();
+    expect(general.sessions).toHaveLength(1);
+  });
+
   it('uses a normalized first user message title and falls back for missing content', () => {
     expect(titleFromFirstUserMessage([{ role: 'user', content: '  Explain\n  this\tcode  ' }])).toBe(
       'Explain this code',

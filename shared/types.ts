@@ -14,7 +14,7 @@ export interface AIConnection {
 
 export type ChatMode = 'free' | 'debate' | 'consult' | 'coding' | 'roundtable';
 
-export type WorkflowPresetId = ChatMode | 'brainstorm';
+export type WorkflowPresetId = ChatMode | 'brainstorm' | 'simple';
 
 export interface DebateRoles {
   pro: AIProvider;
@@ -81,6 +81,8 @@ export type MessageAction =
   | 'SEND_MESSAGE'
   | 'RESPONSE_CHUNK'
   | 'RESPONSE_DONE'
+  | 'WORKFLOW_STEP_CONFIRMED'
+  | 'WORKFLOW_STEP_FAILED'
   | 'OPEN_LOGIN'
   | 'GET_CONNECTIONS'
   | 'CONNECTIONS_UPDATE'

@@ -47,6 +47,77 @@ export function encodeTitleFrame(bootId: string, seq: number, payload: unknown):
   return frame;
 }
 
+// The title channel is intentionally capped at 900 characters. Optional
+// ChatGPT capture telemetry can exceed this during generation; never let an
+// oversized status silence native readiness/heartbeat and done-ready hints.
+// Full diagnostics remain available through the sanctioned read-only probe.
+const COMPACT_STATUS_FIELDS = [
+  'dom', 'login', 'thinking', 'bridge', 'adapter', 'reason',
+  'bulkReady', 'doneReady', 'fill', 'fillChars', 'fillMs',
+  'statusErrorStage', 'capturePhase',
+  // Compact, text-free capture facts distinguish a missing embedded reply from
+  // an over-strict candidate filter even while regular title reporting works.
+  'captureResponseNodes', 'captureAssistantUnits',
+  'captureLatestUnitDomChars', 'captureLatestUnitFrames',
+  'captureDilRendererFrames', 'captureTextChars',
+  'captureAnchor', 'captureGenerationSeen',
+] as const;
+
+export function encodeBoundedStatusTitleFrame<T extends { action: string; payload?: unknown }>(
+  bootId: string,
+  seq: number,
+  message: T,
+): { frame: string; compacted: boolean } {
+  try {
+    return { frame: encodeTitleFrame(bootId, seq, message), compacted: false };
+  } catch (error) {
+    // Fail loudly for encoding errors unrelated to overflow and for messages
+    // that aren't status hints. A failed answer must never be silently dropped.
+    if (message.action !== 'STATUS_REPORT' ||
+        !(error instanceof Error) ||
+        !/^title frame exceeds 900 chars$/.test(error.message)) throw error;
+
+    const input = message.payload && typeof message.payload === 'object' && !Array.isArray(message.payload)
+      ? message.payload as Record<string, unknown>
+      : {};
+    const payload: Record<string, string | number | boolean | null> = {};
+    for (const field of COMPACT_STATUS_FIELDS) {
+      const value = input[field];
+      if (typeof value === 'string') {
+        payload[field] = value.slice(0, 48);
+      } else if (typeof value === 'boolean') {
+        payload[field] = value;
+      } else if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
+        payload[field] = value;
+      } else if (field === 'thinking' && value === null) {
+        payload[field] = null;
+      }
+    }
+    try {
+      return {
+        frame: encodeTitleFrame(bootId, seq, { ...message, payload }),
+        compacted: true,
+      };
+    } catch (compactError) {
+      if (!(compactError instanceof Error) ||
+          !/^title frame exceeds 900 chars$/.test(compactError.message)) throw compactError;
+      // The optional bounded fields together can still exceed the cap if
+      // several strings are long. Keep a tiny, fixed safety/transport hint.
+      // Never drop positive bulk/done signals or terminal status.
+      const core: Record<string, string | number | boolean | null> = {};
+      for (const field of ['dom', 'login', 'thinking', 'bridge', 'bulkReady', 'doneReady'] as const) {
+        const value = payload[field];
+        if (typeof value === 'string') core[field] = value.slice(0, 24);
+        else if (typeof value === 'number' || typeof value === 'boolean' || value === null) core[field] = value;
+      }
+      return {
+        frame: encodeTitleFrame(bootId, seq, { ...message, payload: core }),
+        compacted: true,
+      };
+    }
+  }
+}
+
 export function decodeTitleFrame(title: string): DecodedTitleFrame | null {
   if (!title.startsWith(TITLE_PREFIX)) return null;
   const parts = title.slice(TITLE_PREFIX.length).split('|');

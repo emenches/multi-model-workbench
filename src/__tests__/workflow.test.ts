@@ -156,6 +156,87 @@ describe('workflow engine', () => {
     await expect(promise).resolves.toEqual({ response: 'real final', turn: 1 });
   });
 
+  it('emits turn-specific confirmation only when an active waiter accepts the provider answer', async () => {
+    const confirmed: BridgeMessage[] = [];
+    onBridgeMessage((message) => {
+      if (message.action === 'WORKFLOW_STEP_CONFIRMED') confirmed.push(message);
+    });
+    // Orphan DONE must never mark a workflow step complete.
+    publishBridgeMessage(done('gemini', 'stale result'));
+    expect(confirmed).toHaveLength(0);
+
+    const pending = sendAndWait('gemini', 'fresh prompt');
+    await Promise.resolve();
+    publishBridgeMessage(done('gemini', 'not authoritative', 'title'));
+    expect(confirmed).toHaveLength(0);
+    publishBridgeMessage(done('gemini', 'verified result', 'pull'));
+    await expect(pending).resolves.toEqual({ response: 'verified result', turn: 1 });
+    expect(confirmed).toEqual([{
+      v: 1, action: 'WORKFLOW_STEP_CONFIRMED', provider: 'gemini',
+      payload: { turn: 1, text: 'verified result' }, transport: 'local',
+    }]);
+    publishBridgeMessage(done('gemini', 'late result'));
+    expect(confirmed).toHaveLength(1);
+  });
+
+  it('exposes a provider error as a failed step, not as a completed answer', async () => {
+    const events: BridgeMessage[] = [];
+    onBridgeMessage((message) => {
+      if (message.action === 'WORKFLOW_STEP_CONFIRMED' || message.action === 'WORKFLOW_STEP_FAILED') {
+        events.push(message);
+      }
+    });
+    const pending = sendAndWait('chatgpt', 'a prompt with a provider error');
+    await Promise.resolve();
+    publishBridgeMessage(done('chatgpt', '[Error: provider response could not be captured]', 'pull'));
+    await expect(pending).resolves.toEqual({
+      response: '[Error: provider response could not be captured]',
+      turn: 1,
+    });
+    expect(events).toEqual([{
+      v: 1, action: 'WORKFLOW_STEP_FAILED', provider: 'chatgpt',
+      transport: 'local', payload: { turn: 1, reason: 'provider response could not be captured' },
+    }]);
+  });
+
+  it.each(['ChatGPT said:', '#### ChatGPT said:', '**ChatGPT said:**'])(
+    'rejects a ChatGPT heading-only DONE instead of confirming a completed Consult step: %s',
+    async (heading) => {
+      const events: BridgeMessage[] = [];
+      onBridgeMessage((message) => {
+        if (message.action === 'WORKFLOW_STEP_CONFIRMED' || message.action === 'WORKFLOW_STEP_FAILED') {
+          events.push(message);
+        }
+      });
+      const pending = sendAndWait('chatgpt', 'some prompt');
+      const rejection = pending.catch((error: unknown) => error);
+      await Promise.resolve();
+      publishBridgeMessage(done('chatgpt', heading, 'pull'));
+      const error = await rejection;
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('heading instead of an answer');
+      expect(events.some((event) => event.action === 'WORKFLOW_STEP_CONFIRMED')).toBe(false);
+      expect(events).toContainEqual(expect.objectContaining({
+        action: 'WORKFLOW_STEP_FAILED',
+        provider: 'chatgpt',
+      }));
+    },
+  );
+
+  it('does not accept a temporary ChatGPT response-load message as a completed Consult answer', async () => {
+    const events: BridgeMessage[] = [];
+    onBridgeMessage((message) => {
+      if (message.action === 'WORKFLOW_STEP_CONFIRMED') events.push(message);
+    });
+    const errorPromise = sendAndWait('chatgpt', 'some prompt').catch((error: unknown) => error);
+    await Promise.resolve();
+    publishBridgeMessage(done('chatgpt', "This response couldn't load", 'pull'));
+    const error = await errorPromise;
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('temporary response-load');
+    expect(events).toHaveLength(0);
+  });
+
   it('registers the waiter before sending so a synchronous DONE from send resolves', async () => {
     vi.mocked(host.provider.send).mockImplementationOnce(async () => {
       publishBridgeMessage(done('claude', 'fast'));
@@ -541,7 +622,12 @@ describe('workflow engine', () => {
       expect(prompt).toContain('primary language of the user-authored prose');
       expect(prompt).toContain('Traditional Chinese (zh-TW) (the app interface language fallback)');
       expect(prompt.startsWith('<response-language-policy')).toBe(true);
-      expect(prompt.endsWith('Explain dependency injection in simple terms.')).toBe(true);
+      // The original question remains intact, then a final language reminder
+      // deliberately follows it to prevent later workflow steps drifting
+      // into the language of other model responses or prompt templates.
+      expect(prompt).toContain('Explain dependency injection in simple terms.\n\n[Final response-language instruction]');
+      expect(prompt).toContain('primary language of the ORIGINAL USER QUESTION');
+      expect(prompt.endsWith('[/Final response-language instruction]')).toBe(true);
     }
 
     vi.mocked(host.provider.send).mockClear();
@@ -568,6 +654,7 @@ describe('workflow engine', () => {
     ).toBe(true);
     expect(serialPrompts.every((prompt) => prompt.includes('Do not infer it from these workflow instructions, other AI responses'))).toBe(true);
     expect(serialPrompts.every((prompt) => prompt.startsWith('<response-language-policy'))).toBe(true);
+    expect(serialPrompts.every((prompt) => prompt.endsWith('[/Final response-language instruction]'))).toBe(true);
   });
 
   it('replays restored conversation context without replacing the current snapshot question', async () => {

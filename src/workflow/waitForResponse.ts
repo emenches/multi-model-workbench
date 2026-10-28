@@ -1,6 +1,6 @@
 import type { AIProvider, BridgeMessage } from '../../shared/types';
 import { AI_PROVIDERS } from '../../shared/constants';
-import { onBridgeMessage } from '../bridge/bus';
+import { onBridgeMessage, publishBridgeMessage } from '../bridge/bus';
 import { AWAITING_ABSOLUTE_MAX_MS, AWAITING_MAX_MS, onProviderBootRotation, setProviderAwaiting } from '../bridge/pull';
 import { ProviderPageReloadedError } from './providerResponse';
 import { clearActiveTurn } from './state';
@@ -44,9 +44,54 @@ function handleBridgeMessage(message: BridgeMessage): void {
   if (message.transport !== 'pull' && message.transport !== 'local') return;
   for (const waiter of [...waiters.values()]) {
     if (waiter.provider !== message.provider) continue;
-    settle(waiter, 'resolve', payloadText(message.payload));
+    const answer = payloadText(message.payload);
+    // Defense in depth: native ChatGPT may expose a stable Chat/Work
+    // heading and terminal controls before the actual response body is
+    // readable. A heading-only DONE is not a successful Consult result.
+    if (message.provider === 'chatgpt' && isChatGptHeadingOnly(answer)) {
+      settle(waiter, 'reject', new Error('ChatGPT returned a heading instead of an answer; response capture was incomplete'));
+      return;
+    }
+    if (message.provider === 'chatgpt' && isChatGptTransientLoadFailure(answer)) {
+      // This should be filtered inside the injected engine before it emits
+      // DONE. If not, reject rather than passing a temporary UI error to the
+      // next model as a verified answer.
+      settle(waiter, 'reject', new Error('ChatGPT returned a temporary response-load message instead of an answer'));
+      return;
+    }
+    settle(waiter, 'resolve', answer);
+    // Provider-side "[Error: ...]" is data consumed by the workflow's
+    // existing recovery logic, never a successfully completed answer.
+    const providerError = /^\[Error:\s*([\s\S]*?)\]$/.exec(answer.trim());
+    publishBridgeMessage(providerError ? {
+      v: 1,
+      action: 'WORKFLOW_STEP_FAILED',
+      provider: waiter.provider,
+      transport: 'local',
+      payload: { turn: waiter.turn, reason: providerError[1].slice(0, 240) },
+    } : {
+      v: 1,
+      action: 'WORKFLOW_STEP_CONFIRMED',
+      provider: waiter.provider,
+      transport: 'local',
+      payload: { turn: waiter.turn, text: answer },
+    });
     return;
   }
+}
+
+function isChatGptHeadingOnly(value: string): boolean {
+  return /^(?:#{1,6}\s+)?(?:\*{1,2})?chatgpt\s+said\s*[:：]?(?:\*{1,2})?$/i.test(value.trim());
+}
+
+function isChatGptTransientLoadFailure(value: string): boolean {
+  const text = value.trim()
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^\*{1,2}/, '')
+    .replace(/\*{1,2}$/, '')
+    .replace(/^chatgpt\s+said\s*[:：]?\s*/i, '')
+    .trim();
+  return /^this response couldn['’]t load\.?$/i.test(text);
 }
 
 function payloadText(payload: unknown): string {
@@ -125,8 +170,19 @@ function settle(waiter: Waiter, type: 'resolve' | 'reject', value: string | Erro
   waiters.delete(key(waiter.provider, waiter.turn));
   clearActiveTurn(waiter.provider, waiter.turn);
   setProviderAwaiting(waiter.provider, false);
-  if (type === 'resolve') waiter.resolve(value as string);
-  else waiter.reject(value as Error);
+  if (type === 'resolve') {
+    waiter.resolve(value as string);
+  } else {
+    const failure = value as Error;
+    waiter.reject(failure);
+    publishBridgeMessage({
+      v: 1,
+      action: 'WORKFLOW_STEP_FAILED',
+      provider: waiter.provider,
+      transport: 'local',
+      payload: { turn: waiter.turn, reason: failure.message.slice(0, 240) },
+    });
+  }
 }
 
 export function rejectWaiter(provider: AIProvider, turn: number, reason: Error): void {
