@@ -1,4 +1,7 @@
 use std::path::{Path, PathBuf};
+use std::io::Write as _;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -259,10 +262,7 @@ fn write_atomic_before_replace(
         std::process::id(),
         seq
     ));
-    if let Err(error) = std::fs::write(&tmp_path, bytes) {
-        let _ = std::fs::remove_file(&tmp_path);
-        return Err(error.to_string());
-    }
+    write_exclusive_temp_file(&tmp_path, bytes)?;
     if let Err(error) = before_replace() {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(error);
@@ -270,6 +270,23 @@ fn write_atomic_before_replace(
     if let Err(error) = replace_file(&tmp_path, path) {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(error);
+    }
+    Ok(())
+}
+
+// Exclusive creation is necessary, but only files opened by this process
+// may be cleaned up after failure. Never unlink an existing collision.
+fn write_exclusive_temp_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    // An exclusive-open failure means this process never owned the path.
+    let mut file = options.open(path).map_err(|error| error.to_string())?;
+    if let Err(error) = file.write_all(bytes) {
+        drop(file);
+        let _ = std::fs::remove_file(path);
+        return Err(error.to_string());
     }
     Ok(())
 }
@@ -308,7 +325,8 @@ fn replace_file(tmp_path: &Path, path: &Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn settings_get(app: AppHandle) -> Result<serde_json::Value, String> {
+pub async fn settings_get(app: AppHandle, webview: tauri::Webview) -> Result<serde_json::Value, String> {
+    crate::webviews::ensure_control_webview(&webview)?;
     let _lifecycle_guard = lock_provider_lifecycle()?;
     let path = settings_path(&app)?;
     let mut settings = normalize_settings_value(read_settings_for_provider_guard(&path));
@@ -327,7 +345,10 @@ pub async fn settings_get(app: AppHandle) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn settings_set(app: AppHandle, settings: serde_json::Value) -> Result<(), String> {
+pub async fn settings_set(
+    app: AppHandle, webview: tauri::Webview, settings: serde_json::Value,
+) -> Result<(), String> {
+    crate::webviews::ensure_control_webview(&webview)?;
     let _lifecycle_guard = lock_provider_lifecycle()?;
     let path = settings_path(&app)?;
     let previous = read_settings(&path).unwrap_or_else(|_| Value::Object(Map::new()));
@@ -396,7 +417,29 @@ pub async fn export_markdown(
 }
 
 // Open an external URL in the OS default browser from the control pane. Tauri does not route
-// `<a target="_blank">` clicks to the OS browser, so the frontend calls this instead. https-only.
+// `<a target="_blank">` clicks to the OS browser, so the frontend calls this instead.
+// Parse the *entire* URL, rejecting userinfo and nonstandard ports. String
+// prefix checks alone can accept misleading URLs such as https://user@host.
+fn validated_external_url(value: &str) -> Result<tauri::Url, String> {
+    // WHATWG URL parsing normalizes some malformed authority forms, e.g.
+    // https:///host. Reject them before parsing to avoid surprising links.
+    let authority = value.strip_prefix("https://")
+        .ok_or_else(|| "only HTTPS links may be opened".to_string())?;
+    if authority.starts_with('/') || authority.starts_with('\\') {
+        return Err("invalid HTTPS URL authority".into());
+    }
+    let url = tauri::Url::parse(value).map_err(|_| "invalid external URL")?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+    {
+        return Err("only standard HTTPS URLs without credentials may be opened".to_string());
+    }
+    Ok(url)
+}
+
 #[tauri::command]
 pub async fn open_external_url(
     app: AppHandle,
@@ -404,9 +447,7 @@ pub async fn open_external_url(
     url: String,
 ) -> Result<(), String> {
     crate::webviews::ensure_control_webview(&webview)?;
-    if !url.starts_with("https://") {
-        return Err("only https URLs may be opened".to_string());
-    }
+    let url = validated_external_url(&url)?;
     app.opener()
         .open_url(url.as_str(), None::<&str>)
         .map_err(|error| error.to_string())
@@ -417,7 +458,7 @@ mod tests {
     use super::{
         active_providers_for_settings, ensure_provider_active_value, normalize_settings_value,
         read_settings, read_settings_for_provider_guard, write_atomic_before_replace,
-        write_settings,
+        write_exclusive_temp_file, write_settings, validated_external_url,
     };
     use serde_json::json;
     use std::path::PathBuf;
@@ -432,6 +473,25 @@ mod tests {
             NEXT_ID.fetch_add(1, Ordering::SeqCst),
             name
         ))
+    }
+
+    #[test]
+    fn external_url_requires_parsed_https_without_hidden_credentials() {
+        for url in [
+            "javascript:alert(1)",
+            "http://example.com/",
+            "https://user:pass@example.com/",
+            "https://name@example.com/path",
+            "https://example.com:8443/",
+            "https://example.com.evil.example@evil.test/",
+            "https:///no-host",
+            "file:///etc/passwd",
+        ] {
+            assert!(validated_external_url(url).is_err(), "{url}");
+        }
+        let url = validated_external_url("https://github.com/example/repo/issues/1?tab=files")
+            .expect("safe browser link");
+        assert_eq!(url.host_str(), Some("github.com"));
     }
 
     #[test]
@@ -480,6 +540,35 @@ mod tests {
         }
         assert!(ensure_provider_active_value(&settings, "meta").is_err());
 
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn exclusive_temp_collision_preserves_the_existing_file() {
+        let path = unique_path("temp-collision");
+        std::fs::write(&path, b"existing data").expect("make colliding file");
+        assert!(write_exclusive_temp_file(&path, b"replacement").is_err());
+        assert_eq!(std::fs::read(&path).expect("read existing file"), b"existing data");
+        std::fs::remove_file(path).expect("remove test file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_writes_are_private_even_with_a_permissive_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = unique_path("permissions");
+        write_settings(&path, &json!({ "sensitive": "local-only" }))
+            .expect("private settings write");
+        let mode = std::fs::metadata(&path)
+            .expect("written settings file metadata")
+            .permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "sensitive files must be owner-only");
+        write_settings(&path, &json!({ "sensitive": "updated" }))
+            .expect("private replace");
+        let replaced_mode = std::fs::metadata(&path)
+            .expect("replaced settings metadata")
+            .permissions().mode() & 0o777;
+        assert_eq!(replaced_mode, 0o600, "replacement must remain private");
         let _ = std::fs::remove_file(path);
     }
 
