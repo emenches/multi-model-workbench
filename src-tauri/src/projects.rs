@@ -103,8 +103,10 @@ mod tests {
     }
     #[test]
     fn rejects_missing_active_project() {
-        let mut store = ProjectStore::default();
-        store.active_project_id = Some("not-found".into());
+        let store = ProjectStore {
+            active_project_id: Some("not-found".into()),
+            ..ProjectStore::default()
+        };
         assert!(validate(&store).is_err());
     }
 }
