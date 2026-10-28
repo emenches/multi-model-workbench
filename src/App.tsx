@@ -2288,7 +2288,7 @@ export default function App() {
         ))}
       </select>
       <button type="button" className="workbench-multi-config rounded-lg px-2.5 py-1.5 font-medium" disabled={isProcessing}
-        onClick={() => setWorkflowOptionsOpen(true)}>{translate('composer.configureAgents')}</button>
+        onClick={() => (presetId === 'free' ? setWorkflowOptionsOpen(true) : setSettingsOpen(true))}>{translate('composer.configureAgents')}</button>
       <span className="ml-auto text-zinc-500 dark:text-zinc-400">{formatI18n(translate('preset.readinessAny'), { ready: anySendableTargets.length })}</span>
     </div>
   ) : null;
@@ -2836,7 +2836,7 @@ export function ChatArea({
               </div>
             )}
             {message.truncated ? <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">{translateKey('chat.truncated', locale)}</div> : null}
-            {typeof message.timestamp === 'number' && Number.isFinite(message.timestamp) && message.timestamp > 0 ? (
+            {typeof message.timestamp === 'number' && Number.isFinite(message.timestamp) && message.timestamp > 0 && message.timestamp <= 8_640_000_000_000_000 ? (
               <time className="workbench-message-timestamp mt-2 block text-xs text-zinc-500 dark:text-zinc-400"
                 dateTime={new Date(message.timestamp).toISOString()}>
                 {new Date(message.timestamp).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
