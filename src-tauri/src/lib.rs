@@ -17,6 +17,10 @@ const MINIMIZE_PROVIDER_PAGE: &str = "minimize-provider-page";
 const CLAUDE_TEST_DEFAULT: &str = "claude-raw-default";
 #[cfg(all(target_os = "macos", debug_assertions))]
 const CLAUDE_TEST_FRESH: &str = "claude-raw-fresh";
+#[cfg(all(target_os = "macos", debug_assertions))]
+const CLAUDE_TEST_CHILD_VISIBLE: &str = "claude-child-visible";
+#[cfg(all(target_os = "macos", debug_assertions))]
+const CLAUDE_TEST_CHILD_HIDDEN_FIRST: &str = "claude-child-hidden-first";
 
 /// Deliberately minimal comparison with the user's working Swift WKWebView probe.
 /// These windows have no Workbench init scripts, navigation callbacks, title
@@ -48,6 +52,44 @@ fn open_raw_claude_test(app: &tauri::AppHandle, fresh_store: bool) -> tauri::Res
         builder
     };
     let window = builder.build()?;
+    window.set_focus()
+}
+
+/// Compare the successful standalone Tauri WebViewWindow against Workbench's
+/// architecture: a child WebView inside a dedicated native window.
+///
+/// The only difference between these two child tests is whether the parent
+/// starts visible or hidden. Both avoid injected scripts and navigation hooks.
+#[cfg(all(target_os = "macos", debug_assertions))]
+fn open_child_claude_test(app: &tauri::AppHandle, hidden_first: bool) -> tauri::Result<()> {
+    use tauri::{WebviewUrl, PhysicalPosition, window::WindowBuilder, webview::WebviewBuilder};
+
+    let label = if hidden_first { CLAUDE_TEST_CHILD_HIDDEN_FIRST } else { CLAUDE_TEST_CHILD_VISIBLE };
+    if let Some(window) = app.get_window(label) {
+        window.show()?;
+        window.set_focus()?;
+        return Ok(());
+    }
+    let title = if hidden_first {
+        "Claude login test - child WebKit, hidden-first host"
+    } else {
+        "Claude login test - child WebKit, visible host"
+    };
+    let window = WindowBuilder::new(app, label)
+        .title(title)
+        .inner_size(940.0, 700.0)
+        .visible(!hidden_first)
+        .build()?;
+    let url = "https://claude.ai/".parse().expect("fixed Claude HTTPS URL");
+    let identifier = if hidden_first { *b"WBChildHidden001" } else { *b"WBChildVisible01" };
+    let webview = window.add_child(
+        WebviewBuilder::new(format!("{label}-webview"), WebviewUrl::External(url))
+            .data_store_identifier(identifier),
+        PhysicalPosition::new(0, 0),
+        window.inner_size()?,
+    )?;
+    webview.show()?;
+    window.show()?;
     window.set_focus()
 }
 
@@ -88,8 +130,12 @@ pub fn run() {
                     "Claude raw WebKit - default profile", true, None::<&str>)?;
                 let fresh_store = MenuItem::with_id(app.handle(), CLAUDE_TEST_FRESH,
                     "Claude raw WebKit - fresh profile", true, None::<&str>)?;
+                let child_visible = MenuItem::with_id(app.handle(), CLAUDE_TEST_CHILD_VISIBLE,
+                    "Claude child WebKit - visible host", true, None::<&str>)?;
+                let child_hidden_first = MenuItem::with_id(app.handle(), CLAUDE_TEST_CHILD_HIDDEN_FIRST,
+                    "Claude child WebKit - hidden-first host", true, None::<&str>)?;
                 menu.append(&Submenu::with_items(app.handle(), "Claude Login Tests", true,
-                    &[&original_store, &fresh_store])?)?;
+                    &[&original_store, &fresh_store, &child_visible, &child_hidden_first])?)?;
             }
             app.set_menu(menu)?;
             // SPEC §5 hot-update: refresh adapters at startup and every 6h (best-effort, off the UI thread).
@@ -117,6 +163,17 @@ pub fn run() {
                 if let Some(fresh_store) = raw_claude_test {
                     if let Err(error) = open_raw_claude_test(app, fresh_store) {
                         eprintln!("[Claude raw WebKit test] window creation failed: {error}");
+                    }
+                    return;
+                }
+                let child_claude_test = match event.id().0.as_str() {
+                    CLAUDE_TEST_CHILD_VISIBLE => Some(false),
+                    CLAUDE_TEST_CHILD_HIDDEN_FIRST => Some(true),
+                    _ => None,
+                };
+                if let Some(hidden_first) = child_claude_test {
+                    if let Err(error) = open_child_claude_test(app, hidden_first) {
+                        eprintln!("[Claude child WebKit test] window creation failed: {error}");
                     }
                     return;
                 }
