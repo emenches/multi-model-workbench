@@ -89,6 +89,7 @@ void listen<string>('claude-auth-tab:handoff', (event) => {
     'Login link opened in Claude',
     'Link could not open in Claude',
     'Claude tab is unavailable',
+    'Gmail account opened in Email tab',
   ].includes(event.payload) ? event.payload : '';
 });
 document.addEventListener('keydown', event => {
