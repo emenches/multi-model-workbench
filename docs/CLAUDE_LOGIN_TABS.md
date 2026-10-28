@@ -11,7 +11,7 @@ extension or model API:
   iCloud Mail, Outlook, or another HTTPS webmail site.
 
 The toolbar is a *local* Tauri app WebView at the top of the provider's native
-window (48 logical pixels high), not a DOM overlay injected into Claude.
+window (76 logical points high, with larger 44pt controls), not a DOM overlay injected into Claude.
 It has three commands (open email, switch tab, close email). Claude and
 the email website **never receive those commands or any Tauri IPC
 permissions**. The third-party email view has no Workbench content-script,
@@ -25,7 +25,21 @@ Safari/Chrome or from the separate Swift test probe.
 
 When a user clicks an `https://claude.ai/...` URL from webmail (same-tab
 navigation or a new-window request), the email WebView cancels that
-navigation and hands it to the **existing Claude WebView**. The app never
+navigation and hands it to the **existing Claude WebView**.
+
+**Important popup fix:** the original prototype denied non-Claude
+`window.open` links and navigated elsewhere, including initial
+`about:blank` popups. Email providers often open a blank popup, then
+navigate it through a tracking URL to Claude. That made a click appear
+to do nothing. The new version lets HTTPS/blank email popups open as
+**actual WebKit child windows with the original opener configuration**
+and watches their navigation, including a bounded nested-popup case.
+When they reach the exact `https://claude.ai` origin, Workbench
+hands the link to the original Claude WebView and closes the temporary
+popup. It never records the path or query of those URLs.
+
+The toolbar receives a short fixed result such as *Login link opened in
+Claude* and never receives the magic-link value. The app never
 logs, stores, emits, or displays the full URL (it may contain a bearer
 magic-login token). The Claude tab becomes visible. Other HTTPS navigation
 stays inside the email view. A user can also explicitly paste a Claude URL
@@ -43,10 +57,17 @@ the toolbar immediately after use.
   tab doesn't destroy Claude or reset its login challenge.
 - Other email hosts do not share existing Safari/Chrome sign-in sessions.
   The user may need to log into webmail inside Workbench once.
-- Email providers requiring true popup windows for OAuth may not work
-  yet, since email's `window.open` is kept in the tab rather than
-  constructing an opener-linked popup. If this occurs, use a webmail
-  provider that supports in-tab login or the explicit pasted-link route.
+- Email links that request a new window now get an actual opener-linked
+  WebKit popup; this is more compatible with email-provider tracking
+  redirects and popup-dependent OAuth. Its behavior still requires
+  validation on macOS.
+- If a link click still fails, **right-click the link → Copy Link
+  Address**, click the Email tab's address field, paste it privately,
+  and press Go. The toolbar will clear the pasted URL immediately.
+  Never share a magic-link URL in a bug report.
+- Native diagnostic logs are restricted to fixed events plus URL
+  **scheme and hostname**; no path, query, fragment, or authentication
+  token is written to logs.
 - A Workbench-controlled embedded browser **is not a technical guarantee
   that an app cannot access website credentials**. This design minimizes
   access but requires security review before public release.
@@ -86,3 +107,25 @@ Tests in `src-tauri/src/claude_login_tabs.rs` cover exact Claude origin
 matching and refusal of unsafe URL schemes/authority credentials. This
 PR requires a real macOS Tauri compile and end-to-end login test before
 merging.
+
+
+## 2026-10-27 follow-up: email link click originally did nothing
+
+After opening webmail successfully, the user clicked the actual magic link
+but saw no response. The first implementation returned
+`NewWindowResponse::Deny` for every email `window.open` and tried to
+navigate the mail tab manually, which loses its popup opener and may swallow
+a blank-then-redirect flow. This branch now creates a real popup with
+`window_features(features)` (which reuses the opener's WebKit
+configuration on macOS) and transfers only exact Claude-origin
+navigations to the original Claude tab.
+
+The native tab strip was increased from 48pt to 76pt in response to the
+user's screenshot. The user should now test **clicking the link once**,
+not just pasting it. If the link still fails, request only sanitized local
+Terminal lines beginning `[Claude email browser]`. Never request or
+record the link or any authentication codes.
+
+This is a **draft**, not a confirmed macOS fix; compiling, opening an
+email-generated popup and completing Claude login still require the user's
+local test.
