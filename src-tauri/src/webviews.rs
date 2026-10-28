@@ -3126,6 +3126,46 @@ mod tests {
     }
 
     #[test]
+    fn typed_provider_commands_never_accept_arbitrary_javascript() {
+        for action in ["eval", "javascript", "cookie", "navigate", "reload", "execute"] {
+            assert!(super::build_provider_control_script("chatgpt", action, None, None).is_err());
+        }
+        assert!(super::provider_bridge_read_script("document.cookie").is_err());
+        assert!(super::provider_bridge_read_script("location").is_err());
+        assert_eq!(
+            super::provider_bridge_read_script("peek").unwrap(),
+            super::CHATGPT_BRIDGE_PEEK_JS
+        );
+        assert_eq!(
+            super::provider_bridge_read_script("health").unwrap(),
+            super::CHATGPT_BRIDGE_HEALTH_JS
+        );
+        assert!(super::build_provider_control_script("chatgpt", "ack", None, Some(0)).is_err());
+        assert!(super::build_provider_control_script("chatgpt", "ack", None, Some(9_007_199_254_740_992)).is_err());
+        assert!(super::build_provider_control_script("chatgpt", "send", Some("x"), Some(1)).is_err());
+        assert!(super::build_provider_control_script("chatgpt", "stop", Some("x"), None).is_err());
+        assert!(super::build_provider_control_script("chatgpt", "send", Some(&"x".repeat(1024 * 1024 + 1)), None).is_err());
+    }
+
+    #[test]
+    fn typed_send_encodes_untrusted_text_as_data_not_script_source() {
+        let prompt = r#"</script>\");window.alert('injection');//"#;
+        let script = super::build_provider_control_script("claude", "send", Some(prompt), None)
+            .expect("valid send");
+        let payload = script
+            .strip_prefix("window.__MAC_BRIDGE__ && window.__MAC_BRIDGE__.dispatch(")
+            .and_then(|rest| rest.strip_suffix(");"))
+            .expect("fixed JS dispatcher");
+        let data: serde_json::Value = serde_json::from_str(payload).expect("valid data payload");
+        assert_eq!(data["action"], "SEND_MESSAGE");
+        assert_eq!(data["provider"], "claude");
+        assert_eq!(data["payload"]["text"], prompt);
+        let fill = super::build_provider_control_script("claude", "fill", Some(prompt), None).unwrap();
+        assert!(fill.contains("FILL_DRAFT"));
+        assert!(!fill.contains("SEND_MESSAGE"));
+    }
+
+    #[test]
     fn provider_browser_args_keep_hidden_automation_responsive() {
         assert!(PROVIDER_BROWSER_ARGS.contains("--disable-background-timer-throttling"));
         assert!(PROVIDER_BROWSER_ARGS.contains("--disable-renderer-backgrounding"));
