@@ -164,6 +164,8 @@ export const en: Record<I18nKey, string> = {
   'composer.multi': 'Multi-agent',
   'composer.workflow': 'Workflow',
   'composer.configureAgents': 'Agents & settings',
+  'composer.clickWorkflowToConfigure': 'Select a workflow card to edit which AI fills each role. You can configure a workflow before every agent is connected.',
+  'conversation.resizeSidebar': 'Resize conversation sidebar',
   'input.stop': 'Stop',
   'input.sendHint': 'Enter to send · Shift+Enter for a new line',
   'input.send': 'Send',
