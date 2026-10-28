@@ -143,6 +143,11 @@ fn send_magic_link_to_claude(app: AppHandle, url: tauri::Url, popup_label: Optio
             if let Some(claude) = navigate_app.get_webview(CLAUDE_LABEL) {
                 if claude.navigate(url).is_ok() {
                     let _ = show_claude(&navigate_app);
+                    let _ = navigate_app.emit_to(
+                        TOOLBAR_LABEL,
+                        "claude-auth-tab:handoff",
+                        "Login link opened in Claude",
+                    );
                     if let Some(label) = popup_label {
                         if let Some(popup) = navigate_app.get_webview_window(&label) {
                             let _ = popup.close();
@@ -150,9 +155,17 @@ fn send_magic_link_to_claude(app: AppHandle, url: tauri::Url, popup_label: Optio
                     }
                     eprintln!("[Claude email browser] Handoff requested");
                 } else {
+                    let _ = navigate_app.emit_to(
+                        TOOLBAR_LABEL, "claude-auth-tab:handoff",
+                        "Link could not open in Claude",
+                    );
                     eprintln!("[Claude email browser] Handoff navigation could not start");
                 }
             } else {
+                let _ = navigate_app.emit_to(
+                    TOOLBAR_LABEL, "claude-auth-tab:handoff",
+                    "Claude tab is unavailable",
+                );
                 eprintln!("[Claude email browser] Original Claude tab is unavailable");
             }
         });
@@ -170,7 +183,7 @@ fn create_email_popup(
     app: &AppHandle,
     target: tauri::Url,
     features: tauri::webview::NewWindowFeatures,
-) -> NewWindowResponse {
+) -> NewWindowResponse<tauri::Wry> {
     if is_claude_link(&target) {
         send_magic_link_to_claude(app.clone(), target, None);
         return NewWindowResponse::Deny;
