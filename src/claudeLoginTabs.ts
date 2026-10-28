@@ -83,6 +83,14 @@ void listen<string>('claude-auth-tab:selected', (event) => {
   if (active === 'claude') address.value = '';
   render();
 });
+void listen<string>('claude-auth-tab:handoff', (event) => {
+  // Only a fixed, token-free status string crosses this boundary.
+  status.textContent = [
+    'Login link opened in Claude',
+    'Link could not open in Claude',
+    'Claude tab is unavailable',
+  ].includes(event.payload) ? event.payload : '';
+});
 document.addEventListener('keydown', event => {
   if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'l') {
     if (active === 'email') { event.preventDefault(); address.focus(); address.select(); }
