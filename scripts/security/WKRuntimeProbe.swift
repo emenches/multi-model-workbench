@@ -63,6 +63,7 @@ final class Probe: NSObject, WKURLSchemeHandler, WKNavigationDelegate, WKUIDeleg
 func check(_ value: @autoclosure () -> Bool, _ what: String) {
     guard value() else { fputs("FAIL: \(what)\n", stderr); exit(1) }
     print("PASS: \(what)")
+    fflush(stdout)
 }
 
 func wait(_ condition: () -> Bool, seconds: TimeInterval = 12) -> Bool {
@@ -132,7 +133,7 @@ let injection = try String(contentsOfFile: source, encoding: .utf8)
 let emailProbe = Probe()
 let (emailView, emailWindow) = makeView(emailProbe, mode: "email", injection: injection)
 check(wait({ emailProbe.loads >= 1 }), "email WKWebView loads actual Cogitor click-injection script")
-let emailHasToolbarHandler = try evaluate(emailView, "typeof window.webkit.messageHandlers.privilegedToolbarOnly") as? String
+let emailHasToolbarHandler = try evaluate(emailView, "typeof (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.privilegedToolbarOnly)") as? String
 check(emailHasToolbarHandler == "undefined", "email WebView lacks privileged toolbar message handler")
 let toolbarHasHandler = try evaluate(toolbarView, "typeof window.webkit.messageHandlers.privilegedToolbarOnly") as? String
 check(toolbarHasHandler == "object", "toolbar-only handler is available in its own WebView")
