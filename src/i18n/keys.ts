@@ -147,6 +147,8 @@ export const I18N_KEYS = [
   'composer.multi',
   'composer.workflow',
   'composer.configureAgents',
+  'composer.clickWorkflowToConfigure',
+  'conversation.resizeSidebar',
   'input.stop',
   'input.sendHint',
   'input.send',
