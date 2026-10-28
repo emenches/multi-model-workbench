@@ -2555,7 +2555,10 @@ export default function App() {
                 {processTrace && (processTrace.steps.length > 0 || processTrace.currentStatus)
                   ? <ProcessTrace trace={processTrace} locale={locale} expanded compact={false} states={states}
                       onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen}/>
-                  : <p className="p-3 text-xs text-zinc-500 dark:text-zinc-400">{translate('workbench.noActiveRun')}</p>}
+                  : <div className="space-y-2 p-3 text-sm text-zinc-500 dark:text-zinc-400" role="status">
+                       <p>{translate('workbench.activityHint')}</p>
+                       <p className="text-xs">{translate('workbench.noActiveRun')}</p>
+                     </div>}
               </div>
             </aside>
           ) : null}
