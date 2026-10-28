@@ -97,7 +97,9 @@ describe('App workflow controls', () => {
     expect(html).toContain('workbench-connected-agent-strip');
     expect(html).toContain('workbench-sidebar-resizer');
     expect(html).toContain('aria-label="Resize conversation sidebar"');
-    expect(html).toContain('id="workbench-activity-drawer"');
+    // A new chat starts clean. Activity appears when the first prompt begins.
+    expect(html).not.toContain('id="workbench-activity-drawer"');
+    expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('Checking agent connections');
     expect(html).toContain('workbench-new-chat-screen');
     expect(html).toContain('What would you like to chat about?');
