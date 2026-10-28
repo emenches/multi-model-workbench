@@ -106,7 +106,8 @@ fn list_snapshots_in_dir(dir: &Path) -> Result<Vec<SnapshotListEntry>, String> {
     files
         .into_iter()
         .map(|file| {
-            let text = crate::settings::read_bounded_utf8(&file.path, MAX_SNAPSHOT_BYTES)?;
+            let text = crate::settings::read_bounded_utf8(&file.path, MAX_SNAPSHOT_BYTES)
+                .map_err(|error| error.to_string())?;
             Ok(snapshot_list_entry(file.id, &text))
         })
         .collect()
