@@ -39,12 +39,13 @@ pub fn run() {
             let minimize = MenuItem::with_id(app.handle(), MINIMIZE_PROVIDER_PAGE,
                 "Minimize Provider Page", true, Some("CmdOrCtrl+Shift+M"))?;
             let escape = MenuItem::with_id(app.handle(), RETURN_TO_WORKBENCH,
-                "Return to Workbench (Close Login)", true, Some("CmdOrCtrl+Shift+0"))?;
+                "Return to Cogitor (Close Login)", true, Some("CmdOrCtrl+Shift+0"))?;
             menu.append(&Submenu::with_items(
-                app.handle(), "Workbench", true, &[&minimize, &escape],
+                app.handle(), "Cogitor", true, &[&minimize, &escape],
             )?)?;
             app.set_menu(menu)?;
-            // SPEC §5 hot-update: refresh adapters at startup and every 6h (best-effort, off the UI thread).
+            // Remote selector checks are opt-in. The native adapter refresh rejects
+            // network access and restores bundled selectors while disabled.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 adapters::refresh_all_adapters(handle.clone(), false).await;
