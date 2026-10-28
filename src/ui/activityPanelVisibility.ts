@@ -1,9 +1,10 @@
-/** Empty sessions hide Activity; sessions with messages reveal it by default. */
-export function activityPanelForSession(messageCount: number): boolean {
-  return messageCount > 0;
+/** Activity begins closed for every selected conversation, including history. */
+export function activityPanelForSession(): boolean {
+  return false;
 }
 
-/** Auto-open only for the first accepted prompt. After that, respect Close. */
-export function activityPanelAfterSend(currentlyOpen: boolean, messageCountBeforeSend: number): boolean {
-  return messageCountBeforeSend === 0 || currentlyOpen;
+/** Open on the first accepted send in the currently selected conversation.
+ *  After that, preserve a user's manual decision to close the panel. */
+export function activityPanelAfterSend(currentlyOpen: boolean, alreadySentInSelectedSession: boolean): boolean {
+  return !alreadySentInSelectedSession || currentlyOpen;
 }
