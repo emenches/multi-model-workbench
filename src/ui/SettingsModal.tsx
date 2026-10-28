@@ -18,11 +18,13 @@ import {
   MODE_ROLE_LABEL_KEYS,
   MODE_ROLE_MODE_LABEL_KEYS,
   assignModeRole,
+  assignReadyModeRoles,
   replaceModeRoleProvider,
   type ModeRoleAssignments,
 } from './modeRoleAssignment';
 import { compareVersions, fetchLatestRelease } from './updateCheck';
 import { host } from '../host';
+import { isSendable } from '../workflow/sendability';
 import {
   filterEventLogByProvider,
   formatEventLogText,
@@ -542,6 +544,23 @@ export function SettingsModal({
                     {t(MODE_ROLE_MODE_LABEL_KEYS[roleMode])}
                   </summary>
                   <div className="grid grid-cols-2 gap-2 border-t border-zinc-200 p-3 dark:border-zinc-800">
+                    <div className="col-span-2 flex flex-wrap items-center justify-between gap-2 pb-1">
+                      <p className="max-w-md text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                        {t('settings.modeRolesReadyDescription')}
+                      </p>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-lg border border-sky-500/30 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-sky-300 dark:hover:bg-sky-950"
+                        onClick={() => {
+                          const ready = activeProvidersForStandby(draft.standbyProvider)
+                            .filter((provider) => isSendable(providerStates[provider]));
+                          updateDraft({ modeRoles: assignReadyModeRoles(draft.modeRoles, roleMode, ready) });
+                        }}
+                        disabled={providerSelectionDisabled || activeProvidersForStandby(draft.standbyProvider).filter((provider) => isSendable(providerStates[provider])).length < (roleMode === 'consult' ? 2 : 1)}
+                      >
+                        {t('settings.useReadyAgents')}
+                      </button>
+                    </div>
                     {MODE_ROLE_FIELDS[roleMode].map((role) => (
                       <label key={role} className="block text-xs text-zinc-600 dark:text-zinc-400">
                         <span className="mb-1 block">{t(MODE_ROLE_LABEL_KEYS[roleMode][role])}</span>
