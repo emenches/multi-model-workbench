@@ -136,6 +136,16 @@ export function SettingsModal({
   }, [activeModeRoleSettings, open]);
 
   useEffect(() => {
+    if (!open || !activeModeRoleSettings) return;
+    // Card clicks lead straight to the relevant editor, not the top of
+    // unrelated general preferences. Wait for the modal and details to mount.
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('settings-collaboration-roles')?.scrollIntoView({ block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, activeModeRoleSettings, draft]);
+
+  useEffect(() => {
     const modalSession = ++modalSessionRef.current;
     if (!open) return;
     if (closeTimerRef.current !== undefined) {
@@ -504,7 +514,7 @@ export function SettingsModal({
               </div>
             </section>
 
-            <section className="space-y-3 border-t border-zinc-200 dark:border-zinc-800 pt-4">
+            <section id="settings-collaboration-roles" className="space-y-3 border-t border-zinc-200 dark:border-zinc-800 pt-4">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('settings.modeRoles')}</h3>
               <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-500">{t('settings.modeRolesDescription')}</p>
               {orderedRoleModes.map((roleMode) => (
