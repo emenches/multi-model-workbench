@@ -1332,6 +1332,8 @@ pub async fn provider_open(
             // Only a validated conversation route may launch the read-only
             // composer probe, and no script runs on login/account pages.
             if title_provider == "claude"
+                && !title.starts_with("\u{200B}MAC1|")
+                && current_state("claude").login != "logged_in"
                 && webview.url().ok().is_some_and(|url| claude_conversation_url(&url))
             {
                 schedule_claude_bridge_install(&title_app, &webview);
