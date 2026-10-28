@@ -141,7 +141,7 @@ export function ConversationSidebar({
       <div className="workbench-sidebar-brand flex items-center gap-2 border-b border-zinc-200 px-3 py-3 dark:border-zinc-800">
         <button type="button" className="workbench-brand-button grid h-9 w-9 shrink-0 place-items-center rounded-xl hover:bg-white dark:hover:bg-zinc-800"
           aria-label={labels.toggle} title={labels.toggle} onClick={onToggle}>
-          <CogitorMark active={brandActive} className="default-brand-icon h-8 w-8" />
+          <CogitorMark active={brandActive} className="default-brand-icon h-6 w-6" />
         </button>
         {!collapsed ? (
           <span className="min-w-0">
