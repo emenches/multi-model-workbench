@@ -339,6 +339,8 @@ export const en: Record<I18nKey, string> = {
   'theme.aiSister.badge': 'Final commemorative edition',
   'theme.aiSister.title': 'AI-Sister Commemorative Edition',
   'theme.aiSister.subtitle': 'Four voices, one last round.',
+  'settings.adapterUpdatesEnabled': 'Enable remote adapter updates (optional)',
+  'settings.adapterUpdatesDescription': 'Off by default for security. When enabled, Cogitor periodically downloads provider selectors from a remote source; these can affect which parts of AI pages are read. Use only a trusted source.',
   'settings.adapterBaseUrl': 'Adapter base URL',
   'settings.durableSnapshots': 'Durable snapshots',
   'settings.durableSnapshotsDescription':
