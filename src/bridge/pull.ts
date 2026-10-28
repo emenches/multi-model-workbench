@@ -9,7 +9,8 @@ export const PULL_RECOVERY_MAX_ATTEMPTS = 3;
 export const SILENT_PULL_PROBE_INTERVAL_MS = 15_000;
 // Exact read-only diagnostic expression also whitelisted by the native host.
 // It examines our injected objects only, never the site's DOM or user text.
-export const CHATGPT_BRIDGE_HEALTH_JS = '(function(){var b=window.__MAC_BRIDGE__;var e=window.__MAC_ENGINE__;var d=b&&b.diagnostics;var n=function(v){return Number.isSafeInteger(v)&&v>=0?v:null};var p=function(v){return typeof v==="string"&&/^(?:waiting-user-anchor|assistant-selector-missing|candidate-rejected|completion-turn-missing|completion-marker-missing|completion-marker-present|diagnostics-error)$/.test(v)?v:null};return {bridgePresent:!!b,enginePresent:!!e,bootMatches:!!b&&!!e&&b.bootId===e.bootId,adapterInstalled:!!e&&typeof e.adapterVersion==="number"&&e.adapterVersion>0,statusTicks:!!e?n(e.statusTicks):null,responsePollTicks:!!e?n(e.responsePollTicks):null,engineAwaiting:!!e&&e.waitingForResponse===true,statusEmits:!!e?n(e.statusEmits):null,fillStarts:!!e?n(e.fillStarts):null,fillDones:!!e?n(e.fillDones):null,titleQueued:!!d?n(d.queued):null,titleStarted:!!d?n(d.started):null,titleFinished:!!d?n(d.finished):null,capturePhase:!!e?p(e.capturePhase):null,captureResponseNodes:!!e?n(e.captureResponseNodes):null,captureAssistantUnits:!!e?n(e.captureAssistantUnits):null,captureLatestUnitDomChars:!!e?n(e.captureLatestUnitDomChars):null,captureTextChars:!!e?n(e.captureTextChars):null,captureAnchor:!!e&&e.captureAnchor===true,captureGenerationSeen:!!e&&e.captureGenerationSeen===true};})()';
+import { CHATGPT_BRIDGE_HEALTH_JS, CHATGPT_BRIDGE_PEEK_JS } from './nativeBridgeScripts';
+export { CHATGPT_BRIDGE_HEALTH_JS } from './nativeBridgeScripts';
 export const AWAITING_MAX_MS = 10 * 60 * 1000;
 export const AWAITING_ABSOLUTE_MAX_MS = 60 * 60 * 1000;
 
@@ -454,7 +455,7 @@ export async function pullWithRetry(provider: AIProvider): Promise<BridgeMessage
     try {
       const raw = await host.provider.evalWithCallback(
         provider,
-        'window.__MAC_BRIDGE__ ? window.__MAC_BRIDGE__.peekOutbox() : []',
+        CHATGPT_BRIDGE_PEEK_JS,
       );
       let parsed: unknown;
       try {
