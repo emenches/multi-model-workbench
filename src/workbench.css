@@ -1311,15 +1311,8 @@ html:not(.ai-sister) .workbench-shell [role="menuitem"]:focus-visible {
   html:not(.ai-sister) .workbench-shell .workbench-new-chat-workflow { transition: none; }
 }
 
-/* Allow a little more room for project names and conversation titles.
-   The same token sizes both the nav and its matching CSS-grid track. */
-.workbench-shell { --wb-sidebar-width: 252px; }
-@media (max-width: 1090px) {
-  .workbench-shell { --wb-sidebar-width: 220px; }
-}
-@media (max-width: 760px) {
-  .workbench-shell { --wb-sidebar-width: 200px; }
-}
+/* Conversation sidebar width is now user-controlled by the shared
+   grid track and the drag separator. The collapsed rail remains 60px. */
 html:not(.ai-sister) .workbench-shell .workbench-agent-pill {
   gap: 6px;
   white-space: nowrap;
@@ -1585,4 +1578,13 @@ html:not(.ai-sister) .workbench-shell .workbench-session-sidebar:not(.w-\[60px\]
   width: auto;
   min-width: 0;
   flex: 1 1 0%;
+}
+
+html:not(.ai-sister) .workbench-shell .workbench-composer-textarea {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+html:not(.ai-sister) .workbench-shell .workbench-trace-step button,
+html:not(.ai-sister) .workbench-shell .workbench-trace-compact-item {
+  font-size: .875rem;
 }
