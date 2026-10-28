@@ -124,6 +124,41 @@ export function migrateLegacyModeRoleAssignments(
   return migrated;
 }
 
+/**
+ * Explicit user action for filling serial workflow roles with the providers
+ * that are actually Ready. Preserve already-ready selections; reuse providers
+ * only for later sequential roles. Consult's first two parallel roles must
+ * remain on distinct providers.
+ */
+export function assignReadyModeRoles(
+  assignments: ModeRoleAssignments,
+  mode: keyof ModeRoleAssignments,
+  readyProviders: readonly AIProvider[],
+): ModeRoleAssignments {
+  const available = [...new Set(readyProviders)];
+  if (available.length === 0 || (mode === 'consult' && available.length < 2)) return assignments;
+  const current = assignments[mode] as unknown as Record<string, AIProvider>;
+  const next: Record<string, AIProvider> = {};
+  const count = new Map<AIProvider, number>();
+  const choose = (excluded?: AIProvider): AIProvider =>
+    available.filter((provider) => provider !== excluded)
+      .sort((left, right) => (count.get(left) ?? 0) - (count.get(right) ?? 0))[0] ?? available[0];
+
+  for (const role of MODE_ROLE_FIELDS[mode]) {
+    const preferred = current[role];
+    const mustDiffer = mode === 'consult' && role === 'second' ? next.first : undefined;
+    const provider = available.includes(preferred) && preferred !== mustDiffer
+      ? preferred
+      : choose(mustDiffer);
+    next[role] = provider;
+    count.set(provider, (count.get(provider) ?? 0) + 1);
+  }
+  return {
+    ...assignments,
+    [mode]: next,
+  } as ModeRoleAssignments;
+}
+
 export function assignModeRole(
   assignments: ModeRoleAssignments,
   mode: keyof ModeRoleAssignments,
