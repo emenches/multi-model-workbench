@@ -320,6 +320,8 @@ export const I18N_KEYS = [
   'theme.aiSister.badge',
   'theme.aiSister.title',
   'theme.aiSister.subtitle',
+  'settings.adapterUpdatesEnabled',
+  'settings.adapterUpdatesDescription',
   'settings.adapterBaseUrl',
   'settings.durableSnapshots',
   'settings.durableSnapshotsDescription',
