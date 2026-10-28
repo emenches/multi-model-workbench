@@ -23,7 +23,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "verify": "pnpm build:injected && pnpm typecheck && pnpm lint && pnpm test && pnpm agent:verify && node scripts/check-adapters.mjs",
-    "brand:icons": "tauri icon src/assets/app-icon.svg --output src-tauri/icons"
+    "brand:icons": "node scripts/generate-cogitor-icons.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
