@@ -68,6 +68,24 @@ describe('WCAG AA Cogitor dark palette contrast', () => {
     }
   });
 
+  it('keeps keyboard-accessible composer focus neutral, without a doubled blue typing ring', () => {
+    const focusedComposer = [...styles.matchAll(
+      /html:not\(\.ai-sister\) \.workbench-shell \.workbench-composer:focus-within\s*\{([^}]*)\}/g,
+    )];
+    expect(focusedComposer).toHaveLength(1);
+    const rule = focusedComposer[0][1];
+    expect(rule).toContain('border-color: var(--wb-accessible-field-border');
+    expect(rule).not.toMatch(/outline|box-shadow|rgba\(/);
+
+    // Dark-theme global keyboard focus remains enabled for interactive controls,
+    // but the textarea has an equally specific final override to avoid twin rings.
+    expect(styles).toMatch(
+      /html\.dark:not\(\.ai-sister\) \.workbench-shell \.workbench-composer-textarea:focus-visible\s*\{\s*outline:\s*none;\s*box-shadow:\s*none;/,
+    );
+    expect(styles).toContain('outline: 2px solid var(--wb-accessible-focus);');
+    expect(contrast(field, surface)).toBeGreaterThanOrEqual(3);
+  });
+
   it('targets gray text, dialogs, controls, and keyboard focus without touching provider webviews', () => {
     expect(styles).toContain('WCAG 2.2 AA dark theme contrast pass');
     expect(styles).toContain('.dark\\:text-zinc-500');

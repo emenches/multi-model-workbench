@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - preview/cogitor-unified-macos
+      - fix/claude-left-click-magic-link
   workflow_dispatch:
 
 permissions:
