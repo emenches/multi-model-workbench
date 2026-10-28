@@ -194,6 +194,20 @@ function renderInline(text: string, keyPrefix: string, allowLinks = true, depth 
       continue;
     }
 
+    // Common short lead-ins are structural labels even when a provider emits
+    // plain text instead of Markdown. Emphasize only the label; never rewrite
+    // response content or interpret arbitrary prose as a heading.
+    if ((cursor === 0 || text[cursor - 1] === '\n') && depth < 20) {
+      const leadIn = /^(Try|Tip|Note|Example|Key takeaway|Best for|Why it works):(?=\s|$)/i.exec(text.slice(cursor));
+      if (leadIn) {
+        flushPlainText();
+        const label = leadIn[0];
+        nodes.push(<strong key={nextKey()} className="font-semibold">{label}</strong>);
+        cursor += label.length;
+        continue;
+      }
+    }
+
     if (character === '\\' && cursor + 1 < text.length && /[\\`*_[\]()<>]/.test(text[cursor + 1])) {
       plainText += text[cursor + 1];
       cursor += 2;
