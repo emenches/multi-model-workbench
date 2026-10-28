@@ -83,6 +83,10 @@ describe('M4b UI helpers', () => {
   it('normalizes and merges settings defensively', () => {
     const legacyPublishTokenKey = ['hack', 'mdToken'].join('');
 
+    expect(normalizeSettings({ adapterBaseUrl: 'https://example.test/adapters' }).adapterUpdatesEnabled).toBe(false);
+    expect(normalizeSettings({ adapterUpdatesEnabled: 'true' }).adapterUpdatesEnabled).toBe(false);
+    expect(mergeSettings(defaultSettings(), { adapterUpdatesEnabled: true }).adapterUpdatesEnabled).toBe(true);
+    expect(mergeSettings(normalizeSettings({ adapterUpdatesEnabled: true }), { adapterUpdatesEnabled: false }).adapterUpdatesEnabled).toBe(false);
     expect(defaultSettings()).toMatchObject({
       language: 'system',
       responseLanguage: 'auto',
@@ -94,6 +98,7 @@ describe('M4b UI helpers', () => {
       openProviders: [],
       telemetry: 'none',
       snapshotPersistence: false,
+      adapterUpdatesEnabled: false,
       snapshotRedactionTier: 'metadata-only',
       presentation: defaultPresentation(),
     });
