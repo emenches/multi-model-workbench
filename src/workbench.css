@@ -1543,3 +1543,46 @@ html:not(.ai-sister) .workbench-shell .workbench-new-chat-composer {
     transform: none;
   }
 }
+
+/* Cogitor readability pass: use ChatGPT-scale conversation text while
+   respecting the existing root font-size setting. */
+html:not(.ai-sister) .workbench-shell .workbench-message-content {
+  font-size: 1rem;
+  line-height: 1.65;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-header .uppercase {
+  font-size: .8125rem;
+}
+html:not(.ai-sister) .workbench-shell .workbench-message-timestamp {
+  font-size: .75rem;
+  color: var(--wb-secondary);
+  line-height: 1.4;
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-row .workbench-session-item,
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-project button {
+  font-size: .875rem;
+}
+html:not(.ai-sister) .workbench-shell .workbench-simple-agent-select,
+html:not(.ai-sister) .workbench-shell .workbench-multi-select {
+  font-size: .875rem;
+}
+html:not(.ai-sister) .workbench-shell .workbench-activity-drawer,
+html:not(.ai-sister) .workbench-shell .workbench-process-trace {
+  font-size: .875rem;
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-resizer {
+  touch-action: none;
+  position: relative;
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-resizer > [role="separator"] {
+  background: transparent;
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-resizer:hover > [role="separator"],
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-resizer:focus-within > [role="separator"] {
+  background: var(--wb-accent);
+}
+html:not(.ai-sister) .workbench-shell .workbench-session-sidebar:not(.w-\[60px\]) {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 0%;
+}
