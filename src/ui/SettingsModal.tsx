@@ -553,10 +553,10 @@ export function SettingsModal({
                         className="shrink-0 rounded-lg border border-sky-500/30 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-sky-300 dark:hover:bg-sky-950"
                         onClick={() => {
                           const ready = activeProvidersForStandby(draft.standbyProvider)
-                            .filter((provider) => isSendable(providerStates[provider]));
+                            .filter((provider) => Boolean(providerStates[provider]) && isSendable(providerStates[provider]));
                           updateDraft({ modeRoles: assignReadyModeRoles(draft.modeRoles, roleMode, ready) });
                         }}
-                        disabled={providerSelectionDisabled || activeProvidersForStandby(draft.standbyProvider).filter((provider) => isSendable(providerStates[provider])).length < (roleMode === 'consult' ? 2 : 1)}
+                        disabled={providerSelectionDisabled || activeProvidersForStandby(draft.standbyProvider).filter((provider) => Boolean(providerStates[provider]) && isSendable(providerStates[provider])).length < (roleMode === 'consult' ? 2 : 1)}
                       >
                         {t('settings.useReadyAgents')}
                       </button>
