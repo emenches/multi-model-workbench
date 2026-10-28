@@ -119,10 +119,11 @@ fn send_magic_link_to_claude(app: AppHandle, url: tauri::Url) {
     // token. Schedule outside the WKNavigationDelegate callback so WebKit
     // never navigates reentrantly during its own policy decision.
     tauri::async_runtime::spawn(async move {
+        let navigate_app = app.clone();
         let _ = app.run_on_main_thread(move || {
-            if let Some(claude) = app.get_webview(CLAUDE_LABEL) {
+            if let Some(claude) = navigate_app.get_webview(CLAUDE_LABEL) {
                 if claude.navigate(url).is_ok() {
-                    let _ = show_claude(&app);
+                    let _ = show_claude(&navigate_app);
                 }
             }
         });
@@ -149,7 +150,9 @@ fn ensure_mail(app: &AppHandle, url: tauri::Url) -> Result<tauri::Webview, Strin
                     return false;
                 }
                 // Email pages may use SSO. No arbitrary local protocols.
-                target.scheme() == "https" || target.scheme() == "about"
+                target.scheme() == "https"
+                    || (target.scheme() == "about"
+                        && matches!(target.path(), "blank" | "srcdoc"))
             })
             .on_new_window(move |target, _features| {
                 if is_claude_link(&target) {
@@ -158,9 +161,15 @@ fn ensure_mail(app: &AppHandle, url: tauri::Url) -> Result<tauri::Webview, Strin
                     // Keep user-initiated links inside the email tab. This
                     // may not support SSO flows requiring a true popup; that
                     // case must be tested separately on macOS.
-                    if let Some(mail) = popup_app.get_webview(MAIL_LABEL) {
-                        let _ = mail.navigate(target);
-                    }
+                    let app = popup_app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let navigate_app = app.clone();
+                        let _ = app.run_on_main_thread(move || {
+                            if let Some(mail) = navigate_app.get_webview(MAIL_LABEL) {
+                                let _ = mail.navigate(target);
+                            }
+                        });
+                    });
                 }
                 NewWindowResponse::Deny
             }),
