@@ -1,15 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Multi-AI Chat">
-  <defs>
-    <linearGradient id="orange" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff9500"/><stop offset="1" stop-color="#ff6b00"/></linearGradient>
-    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#20d39b"/><stop offset="1" stop-color="#00a97a"/></linearGradient>
-    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3aa0ff"/><stop offset="1" stop-color="#1677ea"/></linearGradient>
-    <linearGradient id="pink" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff2d6f"/><stop offset="1" stop-color="#eb0057"/></linearGradient>
-    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#a04ce8"/><stop offset="1" stop-color="#7430c5"/></linearGradient>
-  </defs>
-  <rect width="512" height="512" fill="none"/>
-  <circle cx="151" cy="151" r="116" fill="url(#orange)"/>
-  <circle cx="361" cy="151" r="116" fill="url(#green)"/>
-  <circle cx="151" cy="361" r="116" fill="url(#blue)"/>
-  <circle cx="361" cy="361" r="116" fill="url(#pink)"/>
-  <circle cx="256" cy="256" r="54" fill="url(#purple)"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Cogitor orbital mark">
+  <!-- Flat brand master: no gradients, blur, shadows, or animation in exported app icons. -->
+  <rect width="512" height="512" rx="104" fill="#1A1612"/>
+  <g fill="none" stroke="#EFE6D3" stroke-width="19" stroke-linecap="round">
+    <path d="M 297 101 A 160 160 0 0 1 395 336"/>
+    <path d="M 341 392 A 160 160 0 0 1 101 297"/>
+    <path d="M 101 215 A 160 160 0 0 1 215 101"/>
+  </g>
+  <circle cx="256" cy="256" r="83" fill="#E38B45"/>
+  <circle cx="285" cy="217" r="13" fill="#EFE6D3"/>
+  <circle cx="256" cy="96" r="23" fill="#E38B45"/>
+  <circle cx="96" cy="256" r="21" fill="#EFE6D3"/>
+  <circle cx="359" cy="379" r="21" fill="#E38B45"/>
 </svg>
