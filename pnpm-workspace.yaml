@@ -5,6 +5,8 @@ onlyBuiltDependencies:
 overrides:
   # GHSA-mrhx-c7xc-m3w5; patched Zod for eslint-plugin-react-hooks.
   zod: 4.6.6
+  # GHSA-w74x-v6f9-j3xg and related URI parsing advisories.
+  fast-uri: 3.1.9
   # GHSA-rj75-hqrm-r3gf; remove when these parents require the patched parser.
   'tailwindcss@3>postcss-selector-parser': 7.1.6
   'postcss-nested@6>postcss-selector-parser': 7.1.6
