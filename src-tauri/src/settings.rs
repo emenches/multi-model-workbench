@@ -243,24 +243,22 @@ fn normalize_presentation_value(value: Option<&Value>, standby_provider: &str) -
 
 // Bound reads of user-content persistence files before allocating their
 // contents. Reject symlinks and do not truncate, delete, or rewrite older data.
-pub(crate) fn read_bounded_utf8(path: &Path, max_bytes: usize) -> Result<String, String> {
-    let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+pub(crate) fn read_bounded_utf8(path: &Path, max_bytes: usize) -> std::io::Result<String> {
+    use std::io::{Error, ErrorKind, Read};
+    let metadata = std::fs::symlink_metadata(path)?;
     if !metadata.file_type().is_file() {
-        return Err("persisted data path must be a regular file".into());
+        return Err(Error::new(ErrorKind::InvalidData, "persisted data path must be a regular file"));
     }
     if metadata.len() > max_bytes as u64 {
-        return Err(format!("saved file exceeds the {max_bytes}-byte limit"));
+        return Err(Error::new(ErrorKind::InvalidData, "saved file exceeds the size limit"));
     }
-    let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
+    let file = std::fs::File::open(path)?;
     let mut bytes = Vec::new();
-    use std::io::Read;
-    file.take(max_bytes as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
+    file.take(max_bytes as u64 + 1).read_to_end(&mut bytes)?;
     if bytes.len() > max_bytes {
-        return Err(format!("saved file exceeds the {max_bytes}-byte limit"));
+        return Err(Error::new(ErrorKind::InvalidData, "saved file exceeds the size limit"));
     }
-    String::from_utf8(bytes).map_err(|error| error.to_string())
+    String::from_utf8(bytes).map_err(|error| Error::new(ErrorKind::InvalidData, error))
 }
 
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
