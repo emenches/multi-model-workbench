@@ -283,6 +283,34 @@ mod tests {
     }
 
     #[test]
+    fn oversize_snapshot_fails_without_pruning_or_overwriting() {
+        let dir = unique_dir("oversize");
+        let id = "snap-safe";
+        save_snapshot_to_dir(&dir, id, r#"{"original":true}"#, SNAPSHOT_RETENTION)
+            .expect("write existing snapshot");
+        let oversized = "x".repeat(MAX_SNAPSHOT_BYTES + 1);
+        assert!(save_snapshot_to_dir(&dir, id, &oversized, SNAPSHOT_RETENTION).is_err());
+        assert_eq!(load_snapshot_from_dir(&dir, id).unwrap(), Some(r#"{"original":true}"#.into()));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_snapshot_is_not_followed() {
+        use std::os::unix::fs::symlink;
+        let dir = unique_dir("symlink");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let outside = unique_dir("external").with_extension("json");
+        std::fs::write(&outside, br#"{"private":true}"#).expect("outside file");
+        symlink(&outside, dir.join("link.json")).expect("link");
+        assert!(list_snapshots_in_dir(&dir).unwrap().is_empty());
+        assert!(load_snapshot_from_dir(&dir, "link").is_err());
+        assert_eq!(std::fs::read(&outside).unwrap(), br#"{"private":true}"#);
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_file(outside);
+    }
+
+    #[test]
     fn retention_prunes_to_newest_n_by_mtime_and_name() {
         let dir = unique_dir("retention");
         for index in 0..5 {
