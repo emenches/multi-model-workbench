@@ -341,6 +341,8 @@ export const de: Record<I18nKey, string> = {
   'theme.aiSister.badge': 'Finale AI-Sister Gedenkausgabe',
   'theme.aiSister.title': 'AI-Sister Gedenkausgabe',
   'theme.aiSister.subtitle': 'Vier Stimmen, eine letzte Runde.',
+  'settings.adapterUpdatesEnabled': 'Remote Adapter-Updates aktivieren (optional)',
+  'settings.adapterUpdatesDescription': 'Aus Sicherheitsgründen standardmäßig deaktiviert. Bei Aktivierung lädt Cogitor regelmäßig Selektoren von einem externen Server. Diese können beeinflussen, welche Inhalte von KI-Seiten gelesen werden. Nur vertrauenswürdige Quellen verwenden.',
   'settings.adapterBaseUrl': 'Adapter-Basis-URL',
   'settings.durableSnapshots': 'Dauerhafte Snapshots',
   'settings.durableSnapshotsDescription':
