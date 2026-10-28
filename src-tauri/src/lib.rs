@@ -21,6 +21,10 @@ const CLAUDE_TEST_FRESH: &str = "claude-raw-fresh";
 const CLAUDE_TEST_CHILD_VISIBLE: &str = "claude-child-visible";
 #[cfg(all(target_os = "macos", debug_assertions))]
 const CLAUDE_TEST_CHILD_HIDDEN_FIRST: &str = "claude-child-hidden-first";
+#[cfg(all(target_os = "macos", debug_assertions))]
+const CLAUDE_TEST_BUILDER_OPTIONS: &str = "claude-builder-options";
+#[cfg(all(target_os = "macos", debug_assertions))]
+const CLAUDE_TEST_NAVIGATION_POLICY: &str = "claude-navigation-policy";
 
 /// Deliberately minimal comparison with the user's working Swift WKWebView probe.
 /// These windows have no Workbench init scripts, navigation callbacks, title
@@ -93,6 +97,70 @@ fn open_child_claude_test(app: &tauri::AppHandle, hidden_first: bool) -> tauri::
     window.set_focus()
 }
 
+/// Add Workbench's provider browser options *or* navigation policy to
+/// otherwise-clean, hidden-first child WKWebViews. Comparing these isolated
+/// variants with the proven bare child is safer than patching login detection.
+#[cfg(all(target_os = "macos", debug_assertions))]
+fn open_variant_claude_test(app: &tauri::AppHandle, navigation_policy: bool) -> tauri::Result<()> {
+    use tauri::{
+        WebviewUrl, PhysicalPosition, window::WindowBuilder, webview::WebviewBuilder,
+        utils::config::BackgroundThrottlingPolicy,
+    };
+
+    let label = if navigation_policy { CLAUDE_TEST_NAVIGATION_POLICY } else { CLAUDE_TEST_BUILDER_OPTIONS };
+    if let Some(window) = app.get_window(label) {
+        window.show()?;
+        window.set_focus()?;
+        return Ok(());
+    }
+
+    let title = if navigation_policy {
+        "Claude login test - production navigation policy only"
+    } else {
+        "Claude login test - production builder options only"
+    };
+    let window = WindowBuilder::new(app, label)
+        .title(title)
+        .inner_size(940.0, 700.0)
+        .visible(false)
+        .build()?;
+    let url = "https://claude.ai/".parse().expect("fixed Claude HTTPS URL");
+    let store = if navigation_policy { *b"WBNavHooksCase01" } else { *b"WBBuilderOpts001" };
+    let builder = WebviewBuilder::new(format!("{label}-webview"), WebviewUrl::External(url))
+        .data_store_identifier(store);
+    let builder = if navigation_policy {
+        // Mirroring the normal provider's current on_navigation authorization
+        // decision, without recording URLs or modifying login/auth documents.
+        // No provider scripts, permission shim, custom browser flags or JS eval.
+        builder.on_navigation(|url| {
+            if url.host_str() == Some("mac-bridge.invalid") {
+                return false;
+            }
+            adapters::url_allowed_for_provider("claude", url).unwrap_or(false)
+                || adapters::url_allowed_for_sso("claude", url).unwrap_or(false)
+        })
+    } else {
+        // Normal Workbench provider WebView builder options, minus init scripts
+        // and callbacks. macOS ignores data_directory, but duplicate the API
+        // call to isolate any remaining constructor-level differences.
+        let data_dir = app.path().app_data_dir()?.join("webviews").join("claude-test-builder");
+        std::fs::create_dir_all(&data_dir)?;
+        builder
+            .data_directory(data_dir)
+            .auto_resize()
+            .background_throttling(BackgroundThrottlingPolicy::Disabled)
+            .additional_browser_args("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows")
+    };
+    let webview = window.add_child(
+        builder,
+        PhysicalPosition::new(0, 0),
+        window.inner_size()?,
+    )?;
+    webview.show()?;
+    window.show()?;
+    window.set_focus()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProviderMenuAction {
     Minimize,
@@ -134,8 +202,13 @@ pub fn run() {
                     "Claude child WebKit - visible host", true, None::<&str>)?;
                 let child_hidden_first = MenuItem::with_id(app.handle(), CLAUDE_TEST_CHILD_HIDDEN_FIRST,
                     "Claude child WebKit - hidden-first host", true, None::<&str>)?;
+                let builder_options = MenuItem::with_id(app.handle(), CLAUDE_TEST_BUILDER_OPTIONS,
+                    "Claude child - Workbench browser options", true, None::<&str>)?;
+                let navigation_policy = MenuItem::with_id(app.handle(), CLAUDE_TEST_NAVIGATION_POLICY,
+                    "Claude child - Workbench navigation policy", true, None::<&str>)?;
                 menu.append(&Submenu::with_items(app.handle(), "Claude Login Tests", true,
-                    &[&original_store, &fresh_store, &child_visible, &child_hidden_first])?)?;
+                    &[&original_store, &fresh_store, &child_visible, &child_hidden_first,
+                      &builder_options, &navigation_policy])?)?;
             }
             app.set_menu(menu)?;
             // SPEC §5 hot-update: refresh adapters at startup and every 6h (best-effort, off the UI thread).
@@ -174,6 +247,17 @@ pub fn run() {
                 if let Some(hidden_first) = child_claude_test {
                     if let Err(error) = open_child_claude_test(app, hidden_first) {
                         eprintln!("[Claude child WebKit test] window creation failed: {error}");
+                    }
+                    return;
+                }
+                let variant = match event.id().0.as_str() {
+                    CLAUDE_TEST_BUILDER_OPTIONS => Some(false),
+                    CLAUDE_TEST_NAVIGATION_POLICY => Some(true),
+                    _ => None,
+                };
+                if let Some(navigation_policy) = variant {
+                    if let Err(error) = open_variant_claude_test(app, navigation_policy) {
+                        eprintln!("[Claude browser options/navigation test] window creation failed: {error}");
                     }
                     return;
                 }
