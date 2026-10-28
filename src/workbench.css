@@ -1621,3 +1621,14 @@ html:not(.ai-sister) .workbench-shell .cogitor-mark--thinking .cogitor-mark__cor
     transform: none !important;
   }
 }
+
+/* Compact standard macOS-style brand row, independent of Dock icon scale. */
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-brand {
+  min-height: 48px;
+  padding-block: 6px;
+  gap: 6px;
+}
+html:not(.ai-sister) .workbench-shell .workbench-sidebar-brand .cogitor-mark {
+  width: 24px;
+  height: 24px;
+}
