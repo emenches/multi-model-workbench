@@ -60,7 +60,7 @@ navigation.addEventListener('submit', async (event) => {
     hasEmail = true;
     // A pasted Claude magic link is handed directly to the native Claude view.
     // Never display or retain the pasted link in the toolbar afterwards.
-    const isClaude = /^https:\/\/claude\.ai(?:\/|\?|#|$)/i.test(address.value.trim());
+    const isClaude = /^(?:https:\/\/)?claude\.ai(?:\/|\?|#|$)/i.test(address.value.trim());
     address.value = '';
     active = isClaude ? 'claude' : 'email';
     status.textContent = '';
