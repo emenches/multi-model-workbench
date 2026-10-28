@@ -6,6 +6,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
 const SNAPSHOT_RETENTION: usize = 50;
+const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotListEntry {
@@ -86,6 +87,9 @@ fn save_snapshot_to_dir(
     retention: usize,
 ) -> Result<(), String> {
     let path = snapshot_path(dir, snapshot_id)?;
+    if snapshot_json.len() > MAX_SNAPSHOT_BYTES {
+        return Err("snapshot exceeds the size limit".into());
+    }
     crate::settings::write_atomic(&path, snapshot_json.as_bytes())?;
     prune_snapshots(dir, retention)
 }
@@ -102,7 +106,7 @@ fn list_snapshots_in_dir(dir: &Path) -> Result<Vec<SnapshotListEntry>, String> {
     files
         .into_iter()
         .map(|file| {
-            let text = std::fs::read_to_string(&file.path).map_err(|error| error.to_string())?;
+            let text = crate::settings::read_bounded_utf8(&file.path, MAX_SNAPSHOT_BYTES)?;
             Ok(snapshot_list_entry(file.id, &text))
         })
         .collect()
@@ -110,7 +114,7 @@ fn list_snapshots_in_dir(dir: &Path) -> Result<Vec<SnapshotListEntry>, String> {
 
 fn load_snapshot_from_dir(dir: &Path, snapshot_id: &str) -> Result<Option<String>, String> {
     let path = snapshot_path(dir, snapshot_id)?;
-    match std::fs::read_to_string(path) {
+    match crate::settings::read_bounded_utf8(&path, MAX_SNAPSHOT_BYTES) {
         Ok(text) => Ok(Some(text)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.to_string()),
@@ -190,7 +194,11 @@ fn snapshot_file(entry: std::fs::DirEntry) -> Result<Option<SnapshotFile>, Strin
     if validate_snapshot_id(id).is_err() {
         return Ok(None);
     }
+    // Do not follow a symlink in the private snapshots directory.
     let metadata = entry.metadata().map_err(|error| error.to_string())?;
+    if entry.file_type().map_err(|error| error.to_string())?.is_symlink() {
+        return Ok(None);
+    }
     if !metadata.is_file() {
         return Ok(None);
     }
