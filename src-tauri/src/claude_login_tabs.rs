@@ -20,6 +20,7 @@ const WINDOW_LABEL: &str = "provider-page-claude";
 const TOOLBAR_LOGICAL_HEIGHT: f64 = 76.0;
 const DEFAULT_WEBMAIL: &str = "https://mail.google.com/";
 const MAIL_POPUP_PREFIX: &str = "claude-email-popup-";
+const MAX_EMAIL_POPUPS: usize = 6;
 static MAIL_POPUP_SEQUENCE: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
@@ -192,11 +193,20 @@ fn create_email_popup(
         note_browser_event("popup refused", &target);
         return NewWindowResponse::Deny;
     }
+    // Prevent email pages from opening an unbounded number of browser windows.
+    let open_popups = app.webview_windows().keys()
+        .filter(|label| label.starts_with(MAIL_POPUP_PREFIX))
+        .count();
+    if open_popups >= MAX_EMAIL_POPUPS {
+        eprintln!("[Claude email browser] Popup limit reached");
+        return NewWindowResponse::Deny;
+    }
     // Every popup is its own WebView with ZERO Tauri IPC permissions and no
     // Workbench JavaScript injection. Only navigation metadata is observed.
     let index = MAIL_POPUP_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let label = format!("{MAIL_POPUP_PREFIX}{index}");
     let nav_app = app.clone();
+    let nested_app = app.clone();
     let label_for_nav = label.clone();
     let builder = tauri::WebviewWindowBuilder::new(
         app,
@@ -219,6 +229,11 @@ fn create_email_popup(
         let allowed = safe_browser_navigation(destination);
         if !allowed { note_browser_event("popup navigation refused", destination); }
         allowed
+    })
+    // Some email tracking pages create yet another window after the initial
+    // blank popup. Do not swallow that follow-up browser request either.
+    .on_new_window(move |url, features| {
+        create_email_popup(&nested_app, url, features)
     });
     match builder.build() {
         Ok(window) => {
