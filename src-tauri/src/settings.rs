@@ -413,7 +413,22 @@ pub async fn export_markdown(
 }
 
 // Open an external URL in the OS default browser from the control pane. Tauri does not route
-// `<a target="_blank">` clicks to the OS browser, so the frontend calls this instead. https-only.
+// `<a target="_blank">` clicks to the OS browser, so the frontend calls this instead.
+// Parse the *entire* URL, rejecting userinfo and nonstandard ports. String
+// prefix checks alone can accept misleading URLs such as https://user@host.
+fn validated_external_url(value: &str) -> Result<tauri::Url, String> {
+    let url = tauri::Url::parse(value).map_err(|_| "invalid external URL")?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+    {
+        return Err("only standard HTTPS URLs without credentials may be opened".to_string());
+    }
+    Ok(url)
+}
+
 #[tauri::command]
 pub async fn open_external_url(
     app: AppHandle,
@@ -421,9 +436,7 @@ pub async fn open_external_url(
     url: String,
 ) -> Result<(), String> {
     crate::webviews::ensure_control_webview(&webview)?;
-    if !url.starts_with("https://") {
-        return Err("only https URLs may be opened".to_string());
-    }
+    let url = validated_external_url(&url)?;
     app.opener()
         .open_url(url.as_str(), None::<&str>)
         .map_err(|error| error.to_string())
@@ -434,7 +447,7 @@ mod tests {
     use super::{
         active_providers_for_settings, ensure_provider_active_value, normalize_settings_value,
         read_settings, read_settings_for_provider_guard, write_atomic_before_replace,
-        write_settings,
+        write_settings, validated_external_url,
     };
     use serde_json::json;
     use std::path::PathBuf;
@@ -449,6 +462,25 @@ mod tests {
             NEXT_ID.fetch_add(1, Ordering::SeqCst),
             name
         ))
+    }
+
+    #[test]
+    fn external_url_requires_parsed_https_without_hidden_credentials() {
+        for url in [
+            "javascript:alert(1)",
+            "http://example.com/",
+            "https://user:pass@example.com/",
+            "https://name@example.com/path",
+            "https://example.com:8443/",
+            "https://example.com.evil.example@evil.test/",
+            "https:///no-host",
+            "file:///etc/passwd",
+        ] {
+            assert!(validated_external_url(url).is_err(), "{url}");
+        }
+        let url = validated_external_url("https://github.com/example/repo/issues/1?tab=files")
+            .expect("safe browser link");
+        assert_eq!(url.host_str(), Some("github.com"));
     }
 
     #[test]
