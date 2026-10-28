@@ -7,7 +7,7 @@ describe('provider route instrumentation', () => {
     expect(shouldPatchHistory('grok')).toBe(false);
   });
 
-  it('keeps Gemini and Meta route instrumentation while preserving Claude's native router', () => {
+  it('keeps Gemini and Meta route instrumentation while preserving Claude native routing', () => {
     expect(shouldPatchHistory('claude')).toBe(false);
     expect(shouldPatchHistory('gemini')).toBe(true);
     expect(shouldPatchHistory('meta')).toBe(true);
