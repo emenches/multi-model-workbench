@@ -121,6 +121,10 @@ describe('App workflow controls', () => {
   it('renders Cogitor branding without the former alternate theme', () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, { language: 'en', children: createElement(App) }));
     expect(html).toContain('app-shell');
+    expect(html).toContain('cogitor-wordmark');
+    expect(html).toContain('COGITOR');
+    expect(html).toContain('cogitor-mark');
+    expect(html).toContain('data-active="false"');
     expect(html).not.toContain('ai-sister-brand-mark');
     expect(html).not.toContain('AI-Sister Edition');
     expect(html).not.toContain('ai-sister-avatar');
