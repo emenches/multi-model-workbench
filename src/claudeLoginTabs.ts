@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { claudeAuthHost } from './host/claudeAuth';
 
 // This isolated toolbar never reads the Claude/email pages, cookies,
 // session tokens, or authentication codes. Its input handles only a URL
@@ -31,7 +30,7 @@ function fail(error: unknown) {
 }
 async function showClaude() {
   try {
-    await invoke('claude_auth_tab_switch', { tab: 'claude' });
+    await claudeAuthHost.switchTab('claude');
     active = 'claude';
     status.textContent = '';
     render();
@@ -40,10 +39,10 @@ async function showClaude() {
 async function showEmail() {
   try {
     if (!hasEmail) {
-      await invoke('claude_auth_tab_open_email', { address: address.value.trim() || 'https://mail.google.com/' });
+      await claudeAuthHost.openEmail(address.value.trim() || 'https://mail.google.com/');
       hasEmail = true;
     } else {
-      await invoke('claude_auth_tab_switch', { tab: 'email' });
+      await claudeAuthHost.switchTab('email');
     }
     active = 'email';
     status.textContent = '';
@@ -56,7 +55,7 @@ email.addEventListener('click', () => { void showEmail(); });
 navigation.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    await invoke('claude_auth_tab_open_email', { address: address.value.trim() });
+    await claudeAuthHost.openEmail(address.value.trim());
     hasEmail = true;
     // A pasted Claude magic link is handed directly to the native Claude view.
     // Never display or retain the pasted link in the toolbar afterwards.
@@ -69,7 +68,7 @@ navigation.addEventListener('submit', async (event) => {
 });
 closeEmail.addEventListener('click', async () => {
   try {
-    await invoke('claude_auth_tab_close_email');
+    await claudeAuthHost.closeEmail();
     hasEmail = false;
     active = 'claude';
     address.value = '';
@@ -78,19 +77,19 @@ closeEmail.addEventListener('click', async () => {
   } catch (error) { fail(error); }
 });
 
-void listen<string>('claude-auth-tab:selected', (event) => {
-  active = event.payload === 'email' ? 'email' : 'claude';
+void claudeAuthHost.onSelected((selected) => {
+  active = selected === 'email' ? 'email' : 'claude';
   if (active === 'claude') address.value = '';
   render();
 });
-void listen<string>('claude-auth-tab:handoff', (event) => {
+void claudeAuthHost.onHandoff((handoff) => {
   // Only a fixed, token-free status string crosses this boundary.
   status.textContent = [
     'Login link opened in Claude',
     'Link could not open in Claude',
     'Claude tab is unavailable',
     'Gmail account opened in Email tab',
-  ].includes(event.payload) ? event.payload : '';
+  ].includes(handoff) ? handoff : '';
 });
 document.addEventListener('keydown', event => {
   if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'l') {
