@@ -1,5 +1,4 @@
 mod adapters;
-#[cfg(target_os = "macos")]
 mod claude_login_tabs;
 mod bridge;
 mod projects;
@@ -88,11 +87,8 @@ pub fn run() {
             let _ = app.emit_to("main", "workbench://return", ());
         })
         .invoke_handler(tauri::generate_handler![
-            #[cfg(target_os = "macos")]
             claude_login_tabs::claude_auth_tab_open_email,
-            #[cfg(target_os = "macos")]
             claude_login_tabs::claude_auth_tab_switch,
-            #[cfg(target_os = "macos")]
             claude_login_tabs::claude_auth_tab_close_email,
             webviews::provider_open,
             webviews::provider_open_window,
