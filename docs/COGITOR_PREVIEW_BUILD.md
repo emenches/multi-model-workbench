@@ -72,7 +72,7 @@ look, launch the preview directly from its mounted DMG instead of copying it to
 Use System Settings → Privacy & Security → Open Anyway only if you recognize
 and trust the build you just created.
 
-**What to test:** Activity drawer hidden for a new chat, auto-open after first send, then manual Close respected; balanced chat/sidebar text size; drag
+**What to test:** Activity hidden for both fresh and restored conversations until their first new prompt, then manual Close respected; 15px response text with tightened Markdown layout; drag
 sidebar wider/narrower and restart; message timestamps and history;
 Coding/Debate/Roundtable with 3 providers filling 4 sequential roles; Consult
 with 2 distinct initial roles; and existing Claude/Gmail login magic links.
