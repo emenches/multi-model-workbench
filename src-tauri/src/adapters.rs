@@ -519,6 +519,13 @@ fn build_source_url(base: Option<&str>, provider: &str) -> Result<String, String
         Some(base) => format!("{}/{provider}.json", base.trim_end_matches('/')),
         None => format!("{DEFAULT_ADAPTER_BASE}/{provider}.json"),
     };
+    // Prevent WHATWG URL normalization of a missing/malformed authority,
+    // such as https:///example.com, into an unexpected valid host.
+    let authority = url.strip_prefix("https://")
+        .ok_or_else(|| "adapter source must use HTTPS".to_string())?;
+    if authority.starts_with('/') || authority.starts_with('\\') {
+        return Err("invalid adapter source URL authority".into());
+    }
     let parsed = tauri::Url::parse(&url)
         .map_err(|_| "invalid adapter source URL".to_string())?;
     if !plain_https_url(&parsed)
@@ -806,6 +813,7 @@ mod tests {
         );
         for base in [
             "http://example.com/adapters",
+            "https:///example.com/adapters",
             "https://user:pass@example.com/adapters",
             "https://user@example.com/adapters",
             "https://example.com:8443/adapters",
