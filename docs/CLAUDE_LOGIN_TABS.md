@@ -129,3 +129,60 @@ record the link or any authentication codes.
 This is a **draft**, not a confirmed macOS fix; compiling, opening an
 email-generated popup and completing Claude login still require the user's
 local test.
+
+
+## 2026-10-27: Gmail account switching + toolbar clipping
+
+User feedback: The 76-point toolbar's buttons were clipped at the lower
+edge on their Mac, and Gmail's account selector opened the correct mailbox
+in a separate WebKit popup window, leaving the Email tab on the wrong
+account.
+
+### Changes
+
+- A **Gmail-only mailbox-route handoff** routes exact
+  `https://mail.google.com/mail/...` destinations back to the original
+  Email tab when they originate from `window.open` (including redirect
+  from an initial `about:blank` popup). The temporary window is closed
+  after the Email tab accepts the navigation. The Email tab retains its
+  own session and remains in the Workbench Claude window. The original
+  Claude login WebView is never destroyed or reparented.
+- Popups to `accounts.google.com` and other account-authorization pages
+  are deliberately **not** swallowed; these can require true opener-linked
+  windows. Existing handling for links into exact `https://claude.ai`
+  still routes them to the original Claude tab.
+- No Gmail account ID, mailbox URL path/query, email text, cookie,
+  password, or Claude magic link is logged or sent to Workbench's main
+  UI. Only fixed, token-free status signals are shown.
+- The 76pt native toolbar stays the same overall height, but its HTML
+  layout uses `100dvh`, viewport-constrained control heights and
+  reduced responsive padding, preventing CSS/text zoom from pushing
+  large tab buttons outside the host WebView.
+
+### Test
+
+```sh
+git fetch origin
+git switch feature/claude-login-tabs
+git pull --ff-only origin feature/claude-login-tabs
+pnpm tauri dev
+```
+
+1. Open Claude login, then **+ Email**.
+2. Open Gmail's Google account menu and select the desired account.
+   The correct mailbox should replace the Email tab's content without
+   leaving the Workbench Claude window.
+3. If Google still opens a separate popup, use the Email tab's address
+   field to open `https://mail.google.com/mail/u/1/` (or `/u/0/`,
+   `/u/2/` depending on account order) manually in that same tab.
+   This chooses an existing signed-in Gmail account; it does not import
+   credentials or switch Claude's session.
+4. After retrieving the fresh Claude email, click the magic link.
+   The Claude tab should activate and complete the original login.
+5. Verify a single prompt reaches Claude and its reply is captured in
+   Workbench. Do not resend automatically if the response appears only
+   on Claude's own page.
+
+**Still requires local Mac verification.** Neither the account-switch
+handoff nor the toolbar clipping fix has been compiled/run on macOS
+in this environment; this remains a draft until confirmed by the user.
