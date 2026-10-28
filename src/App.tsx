@@ -415,7 +415,9 @@ export default function App() {
   const [messagesMaximized, setMessagesMaximized] = useState(false);
   const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
   const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
-  const [activityPanelOpen, setActivityPanelOpen] = useState(() => activityPanelForSession(initialConversation.active.messages.length));
+  const [activityPanelOpen, setActivityPanelOpen] = useState(() => activityPanelForSession());
+  // A restored conversation may contain history but no new Activity in this view.
+  const sentInSelectedSessionRef = useRef(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [headerMoreOpen, setHeaderMoreOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
@@ -1620,9 +1622,11 @@ export default function App() {
       }
       const replayContext =
         replayContextSessionRef.current === activeSessionId ? buildConversationReplayContext(messages) : undefined;
-      // First accepted prompt starts the session: reveal the real Activity
-      // timeline now, not while composing. Later sends honor a manual Close.
-      setActivityPanelOpen((open) => activityPanelAfterSend(open, messages.length));
+      // History alone is not new Activity. Reveal the panel when this
+      // selected conversation receives its first newly accepted prompt.
+      const previouslySent = sentInSelectedSessionRef.current;
+      sentInSelectedSessionRef.current = true;
+      setActivityPanelOpen((open) => activityPanelAfterSend(open, previouslySent));
       setMessages((current) => [
         ...current,
         { id: createConversationMessageId('user'), role: 'user', content: trimmed, timestamp: Date.now(), final: true },
@@ -1847,6 +1851,7 @@ export default function App() {
     setActiveSessionId(transition.active.id);
     replayContextSessionRef.current = undefined;
     setMessages([]);
+    sentInSelectedSessionRef.current = false;
     setActivityPanelOpen(false);
     setMode('free');
     setPresetId('simple');
@@ -1897,7 +1902,8 @@ export default function App() {
       setActiveSessionId(session.id);
       replayContextSessionRef.current = session.messages.length > 0 ? session.id : undefined;
       setMessages(bubblesFromSession(session));
-      setActivityPanelOpen(activityPanelForSession(session.messages.length));
+      sentInSelectedSessionRef.current = false;
+      setActivityPanelOpen(activityPanelForSession());
       setMode(session.mode);
       setPresetId(session.presetId ?? session.mode);
       setWorkflowStatus('');
