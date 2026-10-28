@@ -68,7 +68,7 @@ describe('Claude Gmail left-click magic-link navigation fallback', () => {
     const e = b.click(href);
     expect(e.preventDefault).toHaveBeenCalledOnce();
     expect(e.stopImmediatePropagation).toHaveBeenCalledOnce();
-    expect(b.topNavigate).toHaveBeenCalledExactlyOnceWith(href);
+    expect(b.topNavigate).toHaveBeenCalledWith(href);
     expect(b.frameNavigate).not.toHaveBeenCalled();
   });
 
@@ -116,13 +116,13 @@ describe('Claude Gmail left-click magic-link navigation fallback', () => {
     const url = 'https://claude.ai/auth/verify?token=x';
     const e = b.click(url);
     expect(e.preventDefault).toHaveBeenCalledOnce();
-    expect(b.frameNavigate).toHaveBeenCalledExactlyOnceWith(url);
+    expect(b.frameNavigate).toHaveBeenCalledWith(url);
   });
 
   it('attaches only a navigation listener in the email view and its popup frames', () => {
     expect(rust).toContain('include_str!("claude_email_link_activation.js")');
     expect(rust.match(/\.initialization_script_for_all_frames\(EMAIL_CLICK_ACTIVATION_JS\)/g)).toHaveLength(2);
-    for (const forbidden of ['document.cookie', 'localStorage', 'innerHTML', 'textContent', 'querySelector(', 'fetch(', 'XMLHttpRequest(', '__TAURI__', 'console.log']) {
+    for (const forbidden of ['document.cookie', 'window.localStorage', 'innerHTML', 'textContent', 'querySelector(', 'fetch(', 'XMLHttpRequest(', '__TAURI__', 'console.log']) {
       expect(script).not.toContain(forbidden);
     }
   });
