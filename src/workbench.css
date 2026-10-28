@@ -1623,89 +1623,69 @@ html:not(.ai-sister) .workbench-shell .cogitor-mark--thinking .cogitor-mark__cor
 }
 
 
-/* Cogitor UI typography scale — font sizes use rem so the existing user
-   font-size preference scales navigation, controls and the reading surface.
-   Chat and project names are intentionally more prominent than metadata. */
+/* Cogitor typography: readable body copy without inflating every compact UI
+   label. Prefer specific component selectors rather than overriding all Tailwind
+   .text-sm/.text-xs classes: those also size icons, timestamps and menus. */
 html:not(.ai-sister) .workbench-shell {
-  --wb-type-primary: 1.0625rem; /* 17px at default settings */
-  --wb-type-control: 1rem;      /* 16px */
-  --wb-type-meta: .875rem;      /* 14px */
+  --wb-type-body: 1rem;       /* 16px chat + composer */
+  --wb-type-navigation: .875rem; /* 14px chats/projects/actions */
+  --wb-type-meta: .75rem;     /* 12px timestamps/status */
 }
-html:not(.ai-sister) .workbench-shell :is(.text-xs, .text-\[0\.65rem\], .text-\[0\.6875rem\], .text-\[0\.7rem\], .text-\[0\.75rem\]) {
-  font-size: var(--wb-type-meta);
-}
-html:not(.ai-sister) .workbench-shell .text-sm {
-  font-size: var(--wb-type-control);
-}
-html:not(.ai-sister) .workbench-shell .text-base {
-  font-size: var(--wb-type-primary);
+html:not(.ai-sister) .workbench-shell .workbench-message-content,
+html:not(.ai-sister) .workbench-shell .workbench-composer-textarea {
+  font-size: var(--wb-type-body);
+  line-height: 1.55;
 }
 html:not(.ai-sister) .workbench-shell .workbench-session-row .workbench-session-item {
-  min-height: 45px;
-  padding-block: 9px;
-  font-size: var(--wb-type-primary);
+  min-height: 38px;
+  padding-block: 7px;
+  font-size: var(--wb-type-navigation);
 }
 html:not(.ai-sister) .workbench-shell .workbench-session-row .workbench-session-item > span {
   font-size: inherit;
   line-height: 1.4;
 }
 html:not(.ai-sister) .workbench-shell .workbench-sidebar-project > button:first-child {
-  min-height: 43px;
-  font-size: var(--wb-type-primary);
+  min-height: 38px;
+  font-size: var(--wb-type-navigation);
   line-height: 1.4;
 }
-html:not(.ai-sister) .workbench-shell :is(.workbench-sidebar-section-title h2, .workbench-sidebar-heading) {
-  font-size: var(--wb-type-meta);
-  line-height: 1.45;
-  letter-spacing: .075em;
-}
 html:not(.ai-sister) .workbench-shell .workbench-new-conversation {
-  min-height: 46px;
-  font-size: var(--wb-type-primary);
+  min-height: 40px;
+  font-size: var(--wb-type-navigation);
 }
-html:not(.ai-sister) .workbench-shell :is(.workbench-new-chat-menu button, .workbench-project-create input, .workbench-project-create button) {
-  font-size: var(--wb-type-control);
+html:not(.ai-sister) .workbench-shell :is(
+  .workbench-new-chat-menu button,
+  .workbench-project-create input,
+  .workbench-project-create button,
+  .workbench-simple-agent-select,
+  .workbench-multi-select,
+  .workbench-mode-select,
+  .workbench-composer-menu-item,
+  .workbench-agent-pill,
+  .workbench-activity-drawer
+) {
+  font-size: var(--wb-type-navigation);
 }
-html:not(.ai-sister) .workbench-shell .workbench-session-project-control {
-  font-size: var(--wb-type-meta);
-}
-html:not(.ai-sister) .workbench-shell .workbench-message-content,
-html:not(.ai-sister) .workbench-shell .workbench-composer-textarea {
-  font-size: var(--wb-type-primary);
-}
-html:not(.ai-sister) .workbench-shell :is(.workbench-message-header .uppercase, .workbench-message-timestamp) {
+html:not(.ai-sister) .workbench-shell :is(
+  .workbench-sidebar-section-title h2,
+  .workbench-sidebar-heading,
+  .workbench-session-project-control,
+  .workbench-message-header .uppercase,
+  .workbench-message-timestamp,
+  .workbench-header-eyebrow,
+  .workbench-agent-status-label,
+  .workbench-composer-hint,
+  .workbench-trace-compact-time
+) {
   font-size: var(--wb-type-meta);
 }
 html:not(.ai-sister) .workbench-shell .workbench-conversation-title {
-  font-size: clamp(1.125rem, 1.5vw, 1.375rem);
-}
-html:not(.ai-sister) .workbench-shell :is(.workbench-icon-button, .workbench-action-label, .workbench-composer-menu-item, .workbench-mode-select, .workbench-agent-pill, .workbench-agent-add, .workbench-simple-agent-select, .workbench-multi-select, .workbench-multi-config, .workbench-experience-option) {
-  font-size: var(--wb-type-control);
-}
-html:not(.ai-sister) .workbench-shell :is(.workbench-header-eyebrow, .workbench-agent-status-label, .workbench-composer-hint, .workbench-trace-compact-time) {
-  font-size: var(--wb-type-meta);
-}
-html:not(.ai-sister) .workbench-shell .workbench-process-trace :is(button, .workbench-trace-compact-item) {
-  font-size: var(--wb-type-meta);
-}
-html:not(.ai-sister) .workbench-shell .workbench-activity-drawer {
-  font-size: var(--wb-type-control);
+  font-size: clamp(1.125rem, 1.2vw, 1.25rem);
 }
 html:not(.ai-sister) .workbench-shell .cogitor-wordmark {
-  font-size: 1rem;
-  letter-spacing: .15em;
-}
-
-/* Settings and workflow dialogs render in a portal outside workbench-shell.
-   Apply the same hierarchy there, never to native provider web pages. */
-html:not(.ai-sister) .workbench-dialog-backdrop :is(.text-xs, .text-\[0\.65rem\], .text-\[0\.6875rem\], .text-\[0\.75rem\]) {
   font-size: .875rem;
-}
-html:not(.ai-sister) .workbench-dialog-backdrop .text-sm {
-  font-size: 1rem;
-}
-html:not(.ai-sister) .workbench-dialog-backdrop .text-base {
-  font-size: 1.0625rem;
+  letter-spacing: .15em;
 }
 html:not(.ai-sister) .workbench-dialog-backdrop :is(button, input, select, textarea) {
   line-height: 1.45;
