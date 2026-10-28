@@ -694,6 +694,11 @@ fn emit_notice(
 }
 
 async fn refresh_one(app: &tauri::AppHandle, provider: &str, allow_downgrade: bool) {
+    // Consent may have been revoked during a previous provider's HTTP request.
+    // Never reactivate cached overrides for another provider after revocation.
+    if !settings::adapter_updates_enabled(app) {
+        return;
+    }
     let before_cache_version = overlay_version(provider);
     hydrate_from_cache(app, provider);
     if overlay_version(provider) > before_cache_version {
