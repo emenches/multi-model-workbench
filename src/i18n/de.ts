@@ -166,6 +166,8 @@ export const de: Record<I18nKey, string> = {
   'composer.multi': 'Multi-Agent',
   'composer.workflow': 'Ablauf',
   'composer.configureAgents': 'Agenten & Einstellungen',
+  'composer.clickWorkflowToConfigure': 'Wähle einen Workflow, um die KI für jede Rolle festzulegen. Die Einrichtung ist auch ohne alle Verbindungen möglich.',
+  'conversation.resizeSidebar': 'Chat-Seitenleiste anpassen',
   'input.stop': 'Stopp',
   'input.sendHint': 'Enter zum Senden · Shift+Enter für eine neue Zeile',
   'input.send': 'Senden',
