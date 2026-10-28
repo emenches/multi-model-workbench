@@ -11,6 +11,8 @@ final class Probe: NSObject, WKURLSchemeHandler, WKNavigationDelegate, WKUIDeleg
     var messages: [String] = []
     var errors: [String] = []
     var mode = "toolbar"
+    var productionToolbarHTML: String?
+    var hostileResponses = 0
 
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         guard let url = task.request.url else {
@@ -19,8 +21,9 @@ final class Probe: NSObject, WKURLSchemeHandler, WKNavigationDelegate, WKUIDeleg
         let body: String
         switch url.host {
         case "toolbar.test":
-            body = "<!doctype html><html><body><h1>Toolbar</h1><iframe id='hostile' src='cogitorfixture://hostile.test/frame'></iframe></body></html>"
+            body = productionToolbarHTML ?? "<!doctype html><html><body><h1>Toolbar</h1><iframe id='hostile' src='cogitorfixture://hostile.test/frame'></iframe></body></html>"
         case "hostile.test":
+            hostileResponses += 1
             body = "<!doctype html><html><body>Hostile frame<script>window.hostileFixture = true</script></body></html>"
         case "mail.test":
             body = """
@@ -138,6 +141,16 @@ check(emailHasToolbarHandler == "undefined", "email WebView lacks privileged too
 let toolbarHasHandler = try evaluate(toolbarView, "typeof window.webkit.messageHandlers.privilegedToolbarOnly") as? String
 check(toolbarHasHandler == "object", "toolbar-only handler is available in its own WebView")
 
+// Load the exact production toolbar HTML into real WKWebView and verify its
+// meta CSP blocks hostile subframes before URLSchemeHandler serves them.
+let production = Probe()
+production.productionToolbarHTML = try String(contentsOfFile: "claude-login-tabs.html", encoding: .utf8)
+let (productionView, productionWindow) = makeView(production, mode: "toolbar")
+check(wait({ production.loads >= 1 }), "actual bundled Cogitor toolbar HTML loads in WKWebView")
+_ = try evaluate(productionView, "(() => { const f = document.createElement('iframe'); f.src = 'cogitorfixture://hostile.test/frame'; document.body.appendChild(f); return true; })()")
+_ = wait({ production.hostileResponses > 0 }, seconds: 1.0)
+check(production.hostileResponses == 0, "real WebKit CSP forbids hostile iframe inside bundled toolbar")
+
 // Untrusted synthetic events must not be accepted as human clicks by WebKit.
 let forgery = try evaluate(emailView, """
 (function () {
@@ -167,5 +180,5 @@ let spoofed = try evaluate(emailView, """
 """)
 check(spoofed as? Bool == false, "host spoofing does not activate click handoff")
 
-_ = (toolbarWindow, emailWindow) // retain windows until test completes
+_ = (toolbarWindow, emailWindow, productionWindow) // retain windows until test completes
 print("WK_RUNTIME_PROBE_ALL_PASSED")
