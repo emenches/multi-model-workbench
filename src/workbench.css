@@ -1604,8 +1604,7 @@ html:not(.ai-sister) .workbench-shell .cogitor-mark {
   display: block;
   flex: none;
 }
-html:not(.ai-sister) .workbench-shell .cogitor-mark__core,
-html:not(.ai-sister) .workbench-shell .cogitor-mark__highlight {
+html:not(.ai-sister) .workbench-shell .cogitor-mark__core {
   transform-box: fill-box;
   transform-origin: center;
 }
@@ -1613,13 +1612,11 @@ html:not(.ai-sister) .workbench-shell .cogitor-mark__highlight {
   0%, 100% { transform: scale(0.985); opacity: 0.94; }
   50% { transform: scale(1.025); opacity: 1; }
 }
-html:not(.ai-sister) .workbench-shell .cogitor-mark--thinking .cogitor-mark__core,
-html:not(.ai-sister) .workbench-shell .cogitor-mark--thinking .cogitor-mark__highlight {
+html:not(.ai-sister) .workbench-shell .cogitor-mark--thinking .cogitor-mark__core {
   animation: cogitor-thinking-breathe 2.8s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  html:not(.ai-sister) .workbench-shell .cogitor-mark__core,
-  html:not(.ai-sister) .workbench-shell .cogitor-mark__highlight {
+  html:not(.ai-sister) .workbench-shell .cogitor-mark__core {
     animation: none !important;
     transform: none !important;
   }
