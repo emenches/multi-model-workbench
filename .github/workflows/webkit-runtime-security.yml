@@ -1,0 +1,59 @@
+name: WKWebView native security probes
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/security/WKRuntimeProbe.swift'
+      - 'src-tauri/src/claude_email_link_activation.js'
+      - 'src-tauri/src/claude_login_tabs.rs'
+      - 'claude-login-tabs.html'
+      - '.github/workflows/webkit-runtime-security.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-webkit:
+    name: Native WebKit browser engine adversarial probes
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source without credential persistence
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile real AppKit/WebKit harness against macOS SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift --version
+          xcrun swiftc -swift-version 5 \
+            -framework AppKit -framework WebKit \
+            scripts/security/WKRuntimeProbe.swift \
+            -o "$RUNNER_TEMP/wk-runtime-security"
+      - name: Run isolated adversarial browser-engine probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No Apple Developer keys, connected accounts, provider cookies,
+          # real magic links, third-party network endpoints, or GUI automation.
+          "$RUNNER_TEMP/wk-runtime-security" \
+            src-tauri/src/claude_email_link_activation.js
+      - name: Confirm Tauri permission scoping matches the probed design
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          default = json.loads(Path('src-tauri/capabilities/default.json').read_text())
+          toolbar = json.loads(Path('src-tauri/capabilities/claude-login-toolbar.json').read_text())
+          assert default['webviews'] == ['main'], 'unexpected general-purpose native IPC grants'
+          assert toolbar['webviews'] == ['claude-login-toolbar'], 'unexpected toolbar permission scope'
+          expected = {'allow-claude-auth-tab-open-email', 'allow-claude-auth-tab-switch',
+                      'allow-claude-auth-tab-close-email'}
+          assert {x for x in toolbar['permissions'] if x.startswith('allow-')} == expected
+          assert 'frame-src \x27none\x27' in Path('claude-login-tabs.html').read_text()
+          print('PASS: native capability scope and toolbar frame policy')
+          PY
