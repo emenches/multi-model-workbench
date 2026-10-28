@@ -2710,9 +2710,10 @@ export default function App() {
               onSelectPreset={(selected) => {
                 selectPreset(selected);
                 setWorkflowOptionsOpen(false);
-                // Overview first; clicking a tile opens configuration for
-                // that chosen workflow, with its role editor expanded when relevant.
-                setSettingsOpen(true);
+                // Collaborative workflows have editable role assignments.
+                // Simple Chat and Free use the agent/target controls next to
+                // the composer, so don't open unrelated global settings.
+                if (selected !== 'simple' && selected !== 'free') setSettingsOpen(true);
               }}
               locale={locale} states={states} modeRoles={appSettings.modeRoles}
               activeProviders={activeProviders} disabled={isProcessing} layout="dialog"
