@@ -241,6 +241,28 @@ fn normalize_presentation_value(value: Option<&Value>, standby_provider: &str) -
     Value::Object(map)
 }
 
+// Bound reads of user-content persistence files before allocating their
+// contents. Reject symlinks and do not truncate, delete, or rewrite older data.
+pub(crate) fn read_bounded_utf8(path: &Path, max_bytes: usize) -> Result<String, String> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if !metadata.file_type().is_file() {
+        return Err("persisted data path must be a regular file".into());
+    }
+    if metadata.len() > max_bytes as u64 {
+        return Err(format!("saved file exceeds the {max_bytes}-byte limit"));
+    }
+    let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    use std::io::Read;
+    file.take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() > max_bytes {
+        return Err(format!("saved file exceeds the {max_bytes}-byte limit"));
+    }
+    String::from_utf8(bytes).map_err(|error| error.to_string())
+}
+
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     write_atomic_before_replace(path, bytes, || Ok(()))
 }
