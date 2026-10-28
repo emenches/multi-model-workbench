@@ -606,8 +606,32 @@ fn hydrate_from_cache(app: &tauri::AppHandle, provider: &str) {
     }
 }
 
+// A validated HTTPS source must not redirect to HTTP, local services, a
+// different host, credentials, or a custom port. Reject before following.
+fn safe_adapter_redirect(url: &reqwest::Url, expected_host: &str) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some(expected_host)
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+}
+
 async fn fetch_adapter_text(url: &str) -> Result<String, String> {
+    let source = reqwest::Url::parse(url).map_err(|_| "invalid adapter source URL")?;
+    let source_host = source.host_str()
+        .ok_or_else(|| "adapter source must have a host".to_string())?
+        .to_owned();
     let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+            // Bound redirect chains independently of reqwest's defaults.
+            if attempt.previous().len() >= 5
+                || !safe_adapter_redirect(attempt.url(), &source_host)
+            {
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        }))
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|error| error.to_string())?;
@@ -734,6 +758,24 @@ fn login_url_matches(login: &str, url: &tauri::Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adapter_redirects_stay_on_the_original_https_host() {
+        let host = "raw.githubusercontent.com";
+        assert!(safe_adapter_redirect(
+            &reqwest::Url::parse("https://raw.githubusercontent.com/a/b.json").unwrap(),
+            host,
+        ));
+        for url in [
+            "http://raw.githubusercontent.com/a/b.json",
+            "https://other.example/a/b.json",
+            "https://user@raw.githubusercontent.com/a/b.json",
+            "https://raw.githubusercontent.com:8443/a/b.json",
+            "https://127.0.0.1/a/b.json",
+        ] {
+            assert!(!safe_adapter_redirect(&reqwest::Url::parse(url).unwrap(), host), "{url}");
+        }
+    }
 
     #[test]
     fn adapter_source_urls_are_plain_https_without_hidden_authorities() {
