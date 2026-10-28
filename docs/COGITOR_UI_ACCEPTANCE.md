@@ -4,8 +4,8 @@
 
 ## Requested user experience
 - App/native title and sidebar say **Cogitor**. Keep the original Tauri app identifier and data storage keys to preserve signed-in provider sessions and conversation history.
-- The Activity panel opens by default and shows actual workflow steps when a workflow runs. No fabricated progress or activity.
-- Transcript body uses at least 16px effective text at the default settings, retains user font preferences, and remains readable in the compact app window.
+- Activity stays closed on a fresh, empty chat; the first accepted prompt opens it automatically and displays real workflow steps. Returning to an existing conversation with messages opens it by default. Later prompts respect a manual Close. No fabricated progress or activity.
+- Transcript body and composer use 16px effective text; sidebar navigation and control labels target 14px, secondary labels 12px, and all rem sizing follows user font preferences.
 - The project/chat sidebar defaults to 304px, can be resized 220–480px by pointer or keyboard arrows/Home/End, and saves its user preference. Collapsing and expanding should not reset the saved width. Conversation titles remain tooltipped when truncated.
 - User questions and AI messages show the local creation timestamp below each bubble. Save/reopen retains the original times. Historic messages without timestamps show no invented date.
 - Clicking Coding/Debate/Consult/Roundtable/Brainstorm in workflow selection opens the existing role-assignment editor for that mode. The editor may be entered even if some agents are not Ready.
@@ -13,7 +13,7 @@
 - Save persists custom role assignments, and the next workflow honors them. Do not silently run a workflow with missing required providers if no valid assignment exists.
 
 ## Desktop smoke test before merge
-1. Cold-start Cogitor. Verify Activity is initially open, sidebar is wider, icon/title remains correct, no white flash, and Claude session is still signed in.
+1. Cold-start Cogitor on an empty chat. Verify Activity is closed, then send a prompt and confirm it opens. Close Activity and send again to verify it stays closed. Reopen a previous conversation and confirm it defaults open. Check sidebar size, icon/title, and Claude login.
 2. Resize sidebar to narrow and wide positions, reload, collapse/reopen, verify retained width. Navigate 20+ conversations including long titles and project nesting.
 3. Send a simple chat message, confirm a question timestamp and an answer timestamp. Open another chat, return, restart, confirm neither time was replaced by current time.
 4. Click the **Agents & settings** action with Coding selected. Confirm its role editor is expanded and visible. Configure a fourth Coding role to reuse one of the 3 Ready providers; save; run Coding; inspect all steps in Activity.
