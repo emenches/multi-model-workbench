@@ -86,7 +86,7 @@ describe('M4b UI helpers', () => {
     expect(defaultSettings()).toMatchObject({
       language: 'system',
       responseLanguage: 'auto',
-      theme: 'light',
+      theme: 'dark',
       layoutMode: 'focus',
       focusPaneWidth: DEFAULT_FOCUS_PANE_WIDTH,
       columnWidths: { left: 280, right: 280 },
@@ -136,10 +136,10 @@ describe('M4b UI helpers', () => {
       snapshotRedactionTier: 'hashes',
     });
 
-    expect(normalizeSettings({}).theme).toBe('light');
-    expect(normalizeSettings({ theme: 'system' }).theme).toBe('light');
+    expect(normalizeSettings({}).theme).toBe('dark');
+    expect(normalizeSettings({ theme: 'system' }).theme).toBe('dark');
     expect(normalizeSettings({ theme: 'dark' }).theme).toBe('dark');
-    expect(normalizeSettings({ theme: 'ai-sister' }).theme).toBe('ai-sister');
+    expect(normalizeSettings({ theme: 'ai-sister' }).theme).toBe('dark');
   });
 
   it('migrates focus pane width from the legacy left column width', () => {
