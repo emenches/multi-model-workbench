@@ -101,6 +101,7 @@ import { buildPreflightDialogModel } from './ui/preflightModel';
 import { preflightFromResult, type PreflightSubject } from './ui/preflightFromResult';
 import { processingAfterSend, processingAfterSettle, processingAfterWorkflowStatus } from './ui/processing';
 import { Resizer } from './ui/Resizer';
+import { activityPanelAfterSend, activityPanelForSession } from './ui/activityPanelVisibility';
 import { SettingsModal } from './ui/SettingsModal';
 import {
   activeProvidersForStandby,
@@ -414,7 +415,7 @@ export default function App() {
   const [messagesMaximized, setMessagesMaximized] = useState(false);
   const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
   const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
-  const [activityPanelOpen, setActivityPanelOpen] = useState(true);
+  const [activityPanelOpen, setActivityPanelOpen] = useState(() => activityPanelForSession(initialConversation.active.messages.length));
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [headerMoreOpen, setHeaderMoreOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
@@ -1619,6 +1620,9 @@ export default function App() {
       }
       const replayContext =
         replayContextSessionRef.current === activeSessionId ? buildConversationReplayContext(messages) : undefined;
+      // First accepted prompt starts the session: reveal the real Activity
+      // timeline now, not while composing. Later sends honor a manual Close.
+      setActivityPanelOpen((open) => activityPanelAfterSend(open, messages.length));
       setMessages((current) => [
         ...current,
         { id: createConversationMessageId('user'), role: 'user', content: trimmed, timestamp: Date.now(), final: true },
@@ -1843,6 +1847,7 @@ export default function App() {
     setActiveSessionId(transition.active.id);
     replayContextSessionRef.current = undefined;
     setMessages([]);
+    setActivityPanelOpen(false);
     setMode('free');
     setPresetId('simple');
     lastMultiPresetRef.current = 'consult';
@@ -1892,6 +1897,7 @@ export default function App() {
       setActiveSessionId(session.id);
       replayContextSessionRef.current = session.messages.length > 0 ? session.id : undefined;
       setMessages(bubblesFromSession(session));
+      setActivityPanelOpen(activityPanelForSession(session.messages.length));
       setMode(session.mode);
       setPresetId(session.presetId ?? session.mode);
       setWorkflowStatus('');
