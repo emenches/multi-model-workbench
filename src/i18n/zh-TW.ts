@@ -154,6 +154,8 @@ export const zhTW: Record<I18nKey, string> = {
   'composer.multi': '多代理程式',
   'composer.workflow': '工作流程',
   'composer.configureAgents': '代理程式與設定',
+  'composer.clickWorkflowToConfigure': '選擇工作流程即可設定各角色使用的 AI；不必先連線所有 AI 就能設定。',
+  'conversation.resizeSidebar': '調整對話側邊欄寬度',
   'input.stop': '停止',
   'input.sendHint': 'Enter 傳送 · Shift+Enter 換行',
   'input.send': '送出',
