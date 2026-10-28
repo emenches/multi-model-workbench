@@ -166,6 +166,8 @@ export const ja: Record<I18nKey, string> = {
   'composer.multi': '複数エージェント',
   'composer.workflow': 'ワークフロー',
   'composer.configureAgents': 'エージェントと設定',
+  'composer.clickWorkflowToConfigure': 'ワークフローを選択すると、各役割のAIを設定できます。すべてのAIを接続する前でも設定できます。',
+  'conversation.resizeSidebar': 'チャットのサイドバー幅を変更',
   'input.stop': '停止',
   'input.sendHint': 'Enter で送信 · Shift+Enter で改行',
   'input.send': '送信',
