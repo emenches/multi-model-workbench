@@ -81,3 +81,61 @@ should **not** share magic links, codes, session cookies or credential logs.
 - Tauri WebView data directories are unsupported on macOS; data store identifiers
   are supported on macOS 14+:
   https://v2.tauri.app/reference/config/
+
+
+## Results from 2026-10-27
+
+The user reports **both** original bare Tauri WebViewWindow probes accepted
+Claude email login:
+
+- **Fresh isolated profile: passed.**
+- **Default profile: passed.**
+
+The separate bare Swift WKWebView probe also passed. The normal Workbench
+provider window still failed, including the script-deferral hypothesis in PR
+#40. This means a Tauri browser and Tauri's default WebKit data store are
+**both compatible with Claude authentication** in this environment. It
+does **not** prove that provider-level child windows or Workbench's other
+WebView settings are compatible.
+
+### Second experiment: child WebViews
+
+The same debug-only **Claude Login Tests** menu now has two additional entries.
+These are closer to how Workbench actually embeds provider pages:
+
+| New menu item | WebView creation | Parent window visibility |
+| --- | --- | --- |
+| **Claude child WebKit - visible host** | `WindowBuilder` + `add_child(WebviewBuilder)` | Visible when child is created |
+| **Claude child WebKit - hidden-first host** | Same child WebView API | Hidden while child is created; shown afterward |
+
+Each uses its own stable, separate 16-byte WebKit data-store identifier.
+These are **not** the normal Workbench Claude provider window. Neither test
+adds provider-specific scripts, shims, callbacks, custom browser args,
+background-throttling overrides, or automation. Both start at
+`https://claude.ai/` and do not read page content, cookies or credentials.
+
+To run on macOS, from the Workbench repo:
+```sh
+git fetch origin
+git switch test/claude-untainted-tauri-webview
+pnpm tauri dev
+```
+
+Choose **Claude Login Tests → Claude child WebKit - visible host** and check
+whether Claude advances to the magic-link step. Repeat with
+**Claude child WebKit - hidden-first host**. Use only a consenting test login
+and don't share links/codes. The test does not require completing login:
+the acceptance/rejection of the email form is the signal of interest.
+
+- **Both pass:** Window architecture and hidden-first creation are less
+  likely to explain the original failure; the next controlled comparison
+  should cover the provider's builder options and navigation callbacks.
+- **Visible passes, hidden-first fails:** Investigate initial visibility
+  and page-start timing before changing any login logic.
+- **Both fail:** Investigate child WebView construction or WebKit data store
+  selection versus `WebviewWindowBuilder`; isolate them in the next test.
+- **Visible fails, hidden-first passes:** Investigate timing/window focus and
+  load ordering; confirm in a fresh run before drawing conclusions.
+
+These scenarios are hypotheses, not proven root causes. No production fix
+is being merged as a result of these diagnostic-only windows.
