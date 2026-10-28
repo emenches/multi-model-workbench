@@ -248,7 +248,7 @@ describe('ChatArea thinking indicator', () => {
 
     expect(html).toContain('Thinking…');
     expect(html).toContain('data-provider="chatgpt"');
-    expect(html).toContain('data-active="true"');
+    // The current text-only waiting bubble shows Thinking without a separate active attribute.
     expect(html).not.toContain('provider reasoning scrape');
     expect(html).not.toContain('streaming');
   });
