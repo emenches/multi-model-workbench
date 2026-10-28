@@ -106,6 +106,20 @@ mod tests {
     }
 
     #[test]
+    fn oversized_checkpoint_is_rejected_without_mutating_the_file() {
+        let dir = unique_dir("oversize");
+        let path = session_checkpoint_path_in_dir(&dir);
+        let oversized = "x".repeat(MAX_SESSION_CHECKPOINT_BYTES + 1);
+        assert!(save_session_checkpoint_to_path(&path, &oversized).is_err());
+        assert!(!path.exists(), "reject before writing");
+        std::fs::create_dir_all(&dir).expect("create test dir");
+        std::fs::write(&path, oversized.as_bytes()).expect("write legacy file");
+        assert!(load_session_checkpoint_from_path(&path).is_err());
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), oversized.len() as u64);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn load_when_absent_returns_none() {
         let dir = unique_dir("missing");
         let path = session_checkpoint_path_in_dir(&dir);
