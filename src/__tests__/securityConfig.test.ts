@@ -8,6 +8,10 @@ describe('Tauri control-pane security boundary', () => {
     expect(capability).toMatchObject({ webviews: ['main'] });
     expect(capability).not.toHaveProperty('windows');
     expect(capability).not.toHaveProperty('remote');
+    expect(capability.permissions).not.toContain('allow-provider-eval');
+    expect(capability.permissions).not.toContain('allow-provider-eval-with-callback');
+    expect(capability.permissions).toContain('allow-provider-control-action');
+    expect(capability.permissions).toContain('allow-provider-bridge-read');
   });
 
   it('isolates the Claude login toolbar from provider webviews and privileged native commands', () => {

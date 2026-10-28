@@ -18,7 +18,7 @@
 3. Send a simple chat message, confirm a question timestamp and an answer timestamp. Open another chat, return, restart, confirm neither time was replaced by current time.
 4. Click the **Agents & settings** action with Coding selected. Confirm its role editor is expanded and visible. Configure a fourth Coding role to reuse one of the 3 Ready providers; save; run Coding; inspect all steps in Activity.
 5. Test Debate, Roundtable, Brainstorm with role reuse. Test Consult with two providers and confirm initial responses remain independent. Simulate one provider becoming signed out and confirm no silent unsafe fallback.
-6. Verify Gmail account switching and Claude right-click **Open** magic-link handoff remain as previously accepted. Do not share tokens/screenshots of email content.
+6. In the Gmail Email tab, switch to the intended Google account. Send a fresh Claude email login link, then **ordinary left-click** it inside the email. Confirm it switches to the ORIGINAL Claude tab and completes sign-in without opening a separate Claude account window. Also check right-click **Open** still works, other Gmail links and Google account switching are unaffected, and a subsequent 3-agent Consult captures responses. Do not share tokens/screenshots of email content. This manual test is mandatory before PR #48 is merged or the security-gated cleanup starts.
 7. Check minimum window (900px) and larger screens, window resize while Activity is open, and pointer/keyboard sidebar adjustments.
 
 ## Color contrast and keyboard accessibility
