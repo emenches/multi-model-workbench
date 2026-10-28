@@ -1175,6 +1175,10 @@ fn chatgpt_renderer_replaced_top_level(
 
 const MAX_PROVIDER_POPUPS: usize = 8;
 
+fn provider_popup_budget_available(count: usize) -> bool {
+    count < MAX_PROVIDER_POPUPS
+}
+
 // Popups are *not* trusted just because their first URL was an allowed IdP.
 // Recheck every subsequent navigation to avoid redirecting the native auth
 // browser to arbitrary HTTPS or local pages.
@@ -1637,7 +1641,7 @@ pub async fn provider_open(
                     let open_popups = popup_app.webview_windows().keys()
                         .filter(|label| label.starts_with("provider-popup-"))
                         .count();
-                    if open_popups >= MAX_PROVIDER_POPUPS {
+                    if !provider_popup_budget_available(open_popups) {
                         return NewWindowResponse::Deny;
                     }
                     let recovery_epoch = grok_auth_popup_may_complete_login(&popup_provider, &url)
