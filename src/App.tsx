@@ -2317,6 +2317,7 @@ export default function App() {
           }`}
         >
           <ConversationSidebar
+            width={visibleSidebarWidth}
             collapsed={sessionSidebarCollapsed}
             sessions={sessions}
             projects={projectStore.projects}
