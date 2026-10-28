@@ -53,6 +53,23 @@ second line
     expect(html.match(/rel="noopener noreferrer"/g)).toHaveLength(2);
   });
 
+  it('preserves bold and italic Markdown, and emphasizes a plain-text recommendation label', () => {
+    const html = renderMarkdown('**Key finding** with *nuance*.\nTry: another soundtrack');
+    expect(html).toContain('>Key finding</strong>');
+    expect(html).toContain('>nuance</em>');
+    expect(html).toContain('>Try:</strong>');
+    expect(html).toContain('another soundtrack');
+    expect(html).not.toContain('<script');
+  });
+
+  it('renders loosely spaced numbered recommendations as one continuous list', () => {
+    const html = renderMarkdown('3. First recommendation\n\n4. Second recommendation\n\nA concluding paragraph.');
+    expect(html.match(/<ol/g)).toHaveLength(1);
+    expect(html.match(/<li/g)).toHaveLength(2);
+    expect(html).toContain('start="3"');
+    expect(html).toContain('A concluding paragraph.');
+  });
+
   it('keeps fenced code literal and preserves its newlines', () => {
     const html = renderMarkdown('```tsx\n<script>alert("x")</script>\nconst value = "**not bold**";\n```');
 
