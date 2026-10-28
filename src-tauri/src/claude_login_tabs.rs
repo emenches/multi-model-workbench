@@ -55,6 +55,7 @@ pub(crate) fn content_bounds(
     ))
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn layout(app: &AppHandle, window: &tauri::Window) {
     let Ok(size) = window.inner_size() else { return; };
     let height = toolbar_height(window, size.height);
@@ -71,6 +72,7 @@ pub(crate) fn layout(app: &AppHandle, window: &tauri::Window) {
     }
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn ensure_toolbar(app: &AppHandle, window: &tauri::Window) -> Result<(), String> {
     if app.get_webview(TOOLBAR_LABEL).is_some() { return Ok(()); }
     let total = window.inner_size().map_err(|e| e.to_string())?;
@@ -391,6 +393,7 @@ pub(crate) async fn claude_auth_tab_close_email(
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn close_tabs(app: &AppHandle) {
     for label in [MAIL_LABEL, TOOLBAR_LABEL] {
         if let Some(view) = app.get_webview(label) {
