@@ -460,6 +460,21 @@ pub(crate) fn adapter_base_url(app: &AppHandle) -> Result<Option<String>, String
         .map(str::to_string))
 }
 
+// Exported conversations may contain sensitive account or chat details.
+// Use owner-only atomic writes rather than the OS default (often 0644 on Unix).
+// Do not follow an existing symlink selected by the save dialog.
+fn write_markdown_export(path: &Path, content: &str) -> Result<(), String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err("markdown export target must be a regular file".into());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    write_atomic(path, content.as_bytes())
+}
+
 #[tauri::command]
 pub async fn export_markdown(
     app: AppHandle,
@@ -483,7 +498,7 @@ pub async fn export_markdown(
     match rx.await.map_err(|error| error.to_string())? {
         Some(file_path) => {
             let path = file_path.into_path().map_err(|error| error.to_string())?;
-            std::fs::write(&path, content).map_err(|error| error.to_string())?;
+            write_markdown_export(&path, &content)?;
             Ok(Some(path.to_string_lossy().into_owned()))
         }
         None => Ok(None),
@@ -532,8 +547,8 @@ mod tests {
     use super::{
         active_providers_for_settings, ensure_provider_active_value, normalize_settings_value,
         read_settings, read_settings_for_provider_guard, settings_before_write,
-        write_atomic_before_replace, write_exclusive_temp_file, write_settings,
-        validated_external_url, MAX_SETTINGS_BYTES,
+        write_atomic_before_replace, write_exclusive_temp_file, write_markdown_export,
+        write_settings, validated_external_url, MAX_SETTINGS_BYTES,
     };
     use serde_json::json;
     use std::path::PathBuf;
@@ -634,6 +649,37 @@ mod tests {
         let value = json!({ "unknownFutureField": "x".repeat(MAX_SETTINGS_BYTES) });
         assert!(write_settings(&path, &value).is_err());
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn markdown_export_round_trips_as_atomic_private_file() {
+        let path = unique_path("private-markdown-export");
+        write_markdown_export(&path, "# Private conversation").expect("new export");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# Private conversation");
+        write_markdown_export(&path, "# Updated conversation").expect("replace export");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# Updated conversation");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "exports should be owner-only by default");
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn markdown_export_does_not_follow_existing_symlink() {
+        use std::os::unix::fs::symlink;
+        let target = unique_path("export-link-target");
+        let link = unique_path("export-link");
+        std::fs::write(&target, b"original").unwrap();
+        symlink(&target, &link).unwrap();
+        assert!(write_markdown_export(&link, "secret").is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"original");
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        std::fs::remove_file(link).unwrap();
+        std::fs::remove_file(target).unwrap();
     }
 
     #[test]
