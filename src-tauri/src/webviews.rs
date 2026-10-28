@@ -87,11 +87,93 @@ const PERMISSION_SHIM_JS: &str = r#"(function () {
 })();"#;
 
 fn provider_uses_permission_shim(provider: &str) -> bool {
-    provider != "grok"
+    // The clean WKWebView probe successfully authenticated Claude with unmodified WebKit APIs.
+    // Do not run a permission shim in Claude's login, SSO, or app documents.
+    provider != "grok" && provider != "claude"
 }
 
 fn provider_uses_document_start_bridge(provider: &str) -> bool {
-    provider != "grok"
+    // Never install a document-start script in a Claude authentication document.
+    // Claude's bridge is installed only after the authenticated composer appears.
+    provider != "grok" && provider != "claude"
+}
+
+/// Positive, exact-match allowlist for injecting automation into an authenticated Claude tab.
+/// A provider host match by itself is insufficient: /login and authentication callbacks are
+/// hosted on claude.ai too. Keep this separate from navigation/SSO URL allowlisting.
+fn claude_conversation_url(url: &tauri::Url) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some("claude.ai")
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && (url.path() == "/new"
+            || url.path().starts_with("/chat/") && url.path().len() > "/chat/".len())
+}
+
+// Read-only. Never inspect an authentication field's contents or any session storage.
+// Confirm a real Claude composer exists before installing *any* automation script.
+// Repeat this guard inside the installation JS to close the navigation race between
+// the native URL check and WebKit's script execution.
+const CLAUDE_COMPOSER_READY_JS: &str = r#"(function () {
+  if (location.origin !== 'https://claude.ai') return false;
+  if (!(location.pathname === '/new' || /^\/chat\/[^/]+$/.test(location.pathname))) return false;
+  if (document.querySelector('input[type="password"], input[autocomplete="one-time-code"], input[type="email"]')) return false;
+  return !!document.querySelector('.ProseMirror[contenteditable="true"]');
+})()"#;
+
+fn guard_claude_automation(js: &str) -> String {
+    format!("(function () {{ if (!({CLAUDE_COMPOSER_READY_JS})) return;\n{js}\n}})();")
+}
+
+/// Unlike the document-start bridge, this probe never executes on login or SSO.
+/// A successful clean WKWebView test showed that user authentication is possible without
+/// scripts. Wait for the logged-in composer rather than guessing from the URL alone.
+fn schedule_claude_bridge_install(app: &AppHandle, webview: &tauri::Webview) {
+    let app = app.clone();
+    let webview = webview.clone();
+    tauri::async_runtime::spawn(async move {
+        for _ in 0..30 {
+            if !webview.url().ok().is_some_and(|url| claude_conversation_url(&url)) {
+                return;
+            }
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let sender = std::sync::Arc::new(std::sync::Mutex::new(Some(sender)));
+            let callback_sender = sender.clone();
+            if webview.eval_with_callback(CLAUDE_COMPOSER_READY_JS, move |result| {
+                if let Ok(mut guard) = callback_sender.lock() {
+                    if let Some(sender) = guard.take() {
+                        let _ = sender.send(result);
+                    }
+                }
+            }).is_ok() {
+                if let Ok(Ok(result)) = tokio::time::timeout(Duration::from_secs(2), receiver).await {
+                    if result.trim() == "true" {
+                        // The bootstrap is also guarded inside WebKit. It does not run on login.
+                        let _ = install_claude_bridge(&app);
+                        return;
+                    }
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    });
+}
+
+fn install_claude_bridge(app: &AppHandle) -> Result<(), String> {
+    let provider = "claude";
+    let webview = get_provider_webview(app, provider)?;
+    let url = webview.url().map_err(|error| error.to_string())?;
+    if !claude_conversation_url(&url) {
+        return Err("Claude bridge is disabled on non-conversation pages".into());
+    }
+    let app_hosts = serde_json::to_string(&adapters::app_hosts_for_provider(provider)?)
+        .map_err(|error| error.to_string())?;
+    let js = format!(
+        "if (!window.__MAC_BRIDGE__) {{ window.__MAC_PROVIDER__='claude';\nwindow.__MAC_APP_HOSTS__={app_hosts};\n{BOOTSTRAP_JS} }}"
+    );
+    eval_provider(app, provider, &guard_claude_automation(&js))?;
+    push_engine_and_adapter(app, provider)
 }
 
 fn grok_app_title_ready(provider: &str, title: &str) -> bool {
@@ -1317,6 +1399,11 @@ pub async fn provider_open(
                         return;
                     }
                     if load_provider != "grok" {
+                        if load_provider == "claude"
+                            && claude_conversation_url(payload.url())
+                        {
+                            schedule_claude_bridge_install(&load_app, &webview);
+                        }
                         if load_provider == "chatgpt"
                             && adapters::url_matches_provider_app(&load_provider, payload.url())
                                 .unwrap_or(false)
@@ -2165,6 +2252,13 @@ pub(crate) fn push_engine_and_adapter(app: &AppHandle, provider: &str) -> Result
         adapter_msg = serde_json::to_string(&dispatch_adapter).map_err(|error| error.to_string())?,
         check_msg = serde_json::to_string(&dispatch_check).map_err(|error| error.to_string())?,
     );
+    if provider == "claude" {
+        let webview = get_provider_webview(app, provider)?;
+        if !webview.url().ok().is_some_and(|url| claude_conversation_url(&url)) {
+            return Err("Claude bridge must not run on login or account pages".into());
+        }
+        return eval_provider(app, provider, &guard_claude_automation(&js));
+    }
     eval_provider(app, provider, &js)
 }
 
@@ -2777,6 +2871,43 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod claude_clean_login_tests {
+    use super::{claude_conversation_url, guard_claude_automation, provider_uses_document_start_bridge, provider_uses_permission_shim};
+
+    #[test]
+    fn claude_never_modifies_browser_during_login() {
+        assert!(!provider_uses_document_start_bridge("claude"));
+        assert!(!provider_uses_permission_shim("claude"));
+        assert!(provider_uses_document_start_bridge("chatgpt"));
+        assert!(provider_uses_permission_shim("gemini"));
+    }
+
+    #[test]
+    fn claude_injection_is_conversation_scoped() {
+        for uri in [
+            "https://claude.ai/login",
+            "https://claude.ai/signup",
+            "https://claude.ai/auth/callback?code=private",
+            "https://claude.ai/settings",
+            "https://claude.ai/account",
+            "https://claude.ai/",
+            "https://auth.anthropic.com/login",
+            "https://claude.ai.evil.example/new",
+            "http://claude.ai/new",
+            "https://claude.ai:8443/new",
+        ] {
+            assert!(!claude_conversation_url(&uri.parse().unwrap()), "{uri}");
+        }
+        assert!(claude_conversation_url(&"https://claude.ai/new".parse().unwrap()));
+        assert!(claude_conversation_url(&"https://claude.ai/chat/1234".parse().unwrap()));
+        let script = guard_claude_automation("window.__SAFE_TEST__ = 1;");
+        assert!(script.contains("CLAUDE_COMPOSER_READY_JS") == false);
+        assert!(script.contains("location.pathname"));
+        assert!(script.contains("window.__SAFE_TEST__ = 1;"));
+    }
 }
 
 #[cfg(test)]
