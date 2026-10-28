@@ -287,6 +287,8 @@ export const I18N_KEYS = [
   'settings.providerActive',
   'settings.providerStandby',
   'settings.modeRoles',
+  'settings.useReadyAgents',
+  'settings.modeRolesReadyDescription',
   'settings.modeRolesDescription',
   'settings.modeRoles.coding.planner',
   'settings.modeRoles.coding.reviewer',
