@@ -108,7 +108,9 @@ export function shouldPatchHistory(provider: string): boolean {
   // We do not consume the bridge's route-only STATUS_REPORT anywhere in the
   // workflow, so avoid replacing native history methods on its app page.
   // This keeps the rest of the bridge and response capture untouched.
-  return provider !== 'grok' && provider !== 'chatgpt';
+  // Route-only status messages are not used for Claude either. Keep its
+  // native SPA history methods intact after authenticated bridge installation.
+  return provider !== 'grok' && provider !== 'chatgpt' && provider !== 'claude';
 }
 
 // The bridge belongs on the provider's exact app hosts only. SSO/auth pages (auth.openai.com,
