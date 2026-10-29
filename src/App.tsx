@@ -308,6 +308,7 @@ export default function App() {
   // Each native provider belongs to one execution path at a time. The legacy
   // workflow still runs as a singleton; do not start it while direct runs exist.
   const directOwnedSessionIdsRef = useRef(new Set<string>());
+  const directPendingSessionIdsRef = useRef(new Set<string>());
   const directTouchedProvidersRef = useRef(new Set<AIProvider>());
   const legacyRunActiveRef = useRef(false);
   const legacyRunProvidersRef = useRef(new Set<AIProvider>());
@@ -583,6 +584,11 @@ export default function App() {
     });
     directRuntimeRef.current = runtime;
     const unsubscribe = runtime.coordinator.subscribe((snapshot) => {
+      if (snapshot.status === 'running' || snapshot.status === 'queued') {
+        directPendingSessionIdsRef.current.add(snapshot.sessionId);
+      } else {
+        directPendingSessionIdsRef.current.delete(snapshot.sessionId);
+      }
       setDirectRuns((current) => ({ ...current, [snapshot.id]: snapshot }));
     });
     return () => {
@@ -1702,7 +1708,7 @@ export default function App() {
   };
 
   const send = async (trimmed: string): Promise<boolean> => {
-    if (!trimmed || activeDirectBusy) return false;
+    if (!trimmed || activeDirectBusy || directPendingSessionIdsRef.current.has(activeSessionId)) return false;
     // The new Simple Chat / Free fanout engine has per-session ownership and
     // provider leases. Structured graphs still have a global runtime; do not
     // overlap those with any direct run until the graph state is refactored.
@@ -1761,6 +1767,7 @@ export default function App() {
       setActivityPanelOpen(true);
       setWorkflowStatus('');
       recordEventLog(eventFromWorkflowStart(mode, trimmed.length, providers.length));
+      directPendingSessionIdsRef.current.add(sessionId);
       try {
         const policy = createResponseLanguagePolicy(
           settingsRef.current.responseLanguage, localeRef.current,
@@ -1774,6 +1781,7 @@ export default function App() {
           runtime.start({ runId, sessionId, providers, prompt, responseLanguagePolicy: policy });
         }
       } catch (reason) {
+        directPendingSessionIdsRef.current.delete(sessionId);
         setWorkflowStatus(reason instanceof Error ? reason.message : 'Unable to start conversation');
         return false;
       }
