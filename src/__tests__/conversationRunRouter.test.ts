@@ -33,7 +33,32 @@ describe('per-conversation event ownership', () => {
     router.finishRun('one');
     expect(router.route(message('RESPONSE_DONE', 'claude', 1))).toBeUndefined();
     router.claimProvider('two', 'claude', 2);
+    // The same native provider tab may still emit a late, untagged reply.
+    // Do not deliver it to a new conversation until the host proves a new
+    // document/conversation has been established.
+    expect(router.route(message('RESPONSE_DONE', 'claude'))).toBeUndefined();
+    expect(router.confirmFreshProviderSession('two', 'claude', '')).toBe(false);
+    expect(router.confirmFreshProviderSession('two', 'claude', 'fresh-native-boot')).toBe(true);
     expect(router.route(message('RESPONSE_DONE', 'claude', 2))?.owner.sessionId).toBe('b');
+  });
+
+
+
+  it('requires a new provider boot when a known session changes ownership', () => {
+    const router = new ConversationRunRouter();
+    router.registerRun({ runId: 'one', sessionId: 'a' });
+    router.registerRun({ runId: 'two', sessionId: 'b' });
+    router.registerRun({ runId: 'three', sessionId: 'c' });
+    router.claimProvider('one', 'claude');
+    router.finishRun('one');
+    router.claimProvider('two', 'claude');
+    expect(router.confirmFreshProviderSession('two', 'claude', 'boot-two')).toBe(true);
+    router.finishRun('two');
+    router.claimProvider('three', 'claude');
+    expect(router.confirmFreshProviderSession('three', 'claude', 'boot-two')).toBe(false);
+    expect(router.route(message('RESPONSE_DONE', 'claude'))).toBeUndefined();
+    expect(router.confirmFreshProviderSession('three', 'claude', 'boot-three')).toBe(true);
+    expect(router.route(message('RESPONSE_DONE', 'claude'))?.owner.sessionId).toBe('c');
   });
 
   it('does not allow a run ID to be rebound to a different session', () => {
