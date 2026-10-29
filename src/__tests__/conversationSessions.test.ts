@@ -140,6 +140,31 @@ describe('conversation sessions', () => {
     expect(general.sessions).toHaveLength(1);
   });
 
+  it('starts new conversations in the last explicitly chosen mode without altering archived modes', () => {
+    const active = session('active-consult', 100, {
+      mode: 'consult', presetId: 'consult',
+      messages: [{ id: 'user-1', role: 'user', content: 'Existing Consult', timestamp: 100 }],
+    });
+    const transition = beginNewConversationSession({
+      sessions: [active], activeSessionId: active.id, messages: active.messages,
+      mode: 'consult', presetId: 'consult', newMode: 'coding', newPresetId: 'coding', now: 200,
+    });
+    expect(transition.active).toMatchObject({ mode: 'coding', presetId: 'coding', messages: [] });
+    expect(transition.sessions.find((item) => item.id === 'active-consult')).toMatchObject({
+      mode: 'consult', presetId: 'consult', messages: active.messages,
+    });
+
+    const blankAgain = beginNewConversationSession({
+      sessions: transition.sessions, activeSessionId: transition.active.id,
+      messages: [], mode: 'coding', presetId: 'coding',
+      newMode: 'consult', newPresetId: 'consult', now: 300,
+    });
+    expect(blankAgain.sessions).toHaveLength(2);
+    expect(blankAgain.active).toMatchObject({
+      id: transition.active.id, mode: 'consult', presetId: 'consult', messages: [],
+    });
+  });
+
   it('uses a normalized first user message title and falls back for missing content', () => {
     expect(titleFromFirstUserMessage([{ role: 'user', content: '  Explain\n  this\tcode  ' }])).toBe(
       'Explain this code',
