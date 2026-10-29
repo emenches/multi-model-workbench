@@ -92,7 +92,7 @@ export class ConversationDirectRuntime {
       execute: async (context) => {
         // Providers are disjoint within this run. Exclusive leases prevent
         // simultaneous sends to the same native WebView across other runs.
-        await Promise.all(context.providers.map((provider) =>
+        const outcomes = await Promise.allSettled(context.providers.map((provider) =>
           executeIsolatedNativeTurn(
             context, provider,
             appendResponseLanguageReminder(
@@ -102,6 +102,12 @@ export class ConversationDirectRuntime {
             request.transport,
           ),
         ));
+        // Keep *every* native provider lease until all its active turns have
+        // settled. Promise.all would reject early and release other providers
+        // while their old requests were still writing into shared WebViews.
+        if (outcomes.some((result) => result.status === 'rejected')) {
+          throw new Error('One or more provider requests did not complete');
+        }
       },
     });
   }
