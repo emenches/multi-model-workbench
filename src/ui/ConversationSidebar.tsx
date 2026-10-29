@@ -129,7 +129,7 @@ export function ConversationSidebar({
         className="workbench-session-project-control w-5 shrink-0 cursor-pointer rounded-md bg-transparent text-[0.65rem] text-zinc-500 opacity-40 group-hover:opacity-100 focus:opacity-100 dark:text-zinc-400"
         value={knownProjects.has(session.projectId ?? '') ? session.projectId : ''}
         title={labels.moveTo}
-        disabled={disabled}
+        disabled={disabled || sessionStatuses?.[session.id] === 'running' || sessionStatuses?.[session.id] === 'queued'}
         onChange={(event) => onAssignProject(session, event.target.value || undefined)}>
         <option value="">{labels.unassigned}</option>
         {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
@@ -138,11 +138,12 @@ export function ConversationSidebar({
         <button type="button" className="shrink-0 rounded-lg border border-red-300 px-1.5 text-[0.625rem] text-red-700 dark:border-red-800 dark:text-red-300"
           onClick={() => { setPendingDeleteId(undefined); onDeleteSession(session); }}
           onBlur={() => setPendingDeleteId(undefined)}
-          disabled={disabled} aria-label={labels.confirmDeleteConversation} title={labels.confirmDeleteConversation}
+          disabled={disabled || sessionStatuses?.[session.id] === 'running' || sessionStatuses?.[session.id] === 'queued'} aria-label={labels.confirmDeleteConversation} title={labels.confirmDeleteConversation}
           autoFocus>{labels.confirmDeleteConversation}</button>
       ) : (
         <button type="button" className="workbench-session-delete shrink-0 rounded-md px-1.5 text-xs text-zinc-400 opacity-40 group-hover:opacity-100 focus:opacity-100 dark:text-zinc-500"
-          onClick={() => setPendingDeleteId(session.id)} disabled={disabled}
+          onClick={() => setPendingDeleteId(session.id)}
+          disabled={disabled || sessionStatuses?.[session.id] === 'running' || sessionStatuses?.[session.id] === 'queued'}
           aria-label={labels.deleteConversation} title={labels.deleteConversation}>
           <span aria-hidden="true">×</span>
         </button>
