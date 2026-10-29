@@ -28,6 +28,52 @@ fn provider_menu_action(id: &str) -> Option<ProviderMenuAction> {
     }
 }
 
+/// A provider login window can be visible while the primary workbench is not.
+/// Never use Cocoa's global has_visible_windows bit to decide whether clicking
+/// Cogitor's Dock icon should restore the actual app.
+#[cfg(any(test, target_os = "macos"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MainWindowRecovery {
+    ShowExisting,
+    RecreateFromConfig,
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn main_window_recovery(main_window_exists: bool, _has_visible_windows: bool) -> MainWindowRecovery {
+    if main_window_exists {
+        MainWindowRecovery::ShowExisting
+    } else {
+        MainWindowRecovery::RecreateFromConfig
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn show_and_focus_main_window(app: &tauri::AppHandle, has_visible_windows: bool) -> Result<(), String> {
+    // A red-button close may have destroyed the control WebView in older
+    // builds, leaving hidden provider windows alive. Rebuild only the missing
+    // control window; never reload or discard authenticated provider profiles.
+    let existing = app.get_webview_window("main");
+    let main = match main_window_recovery(existing.is_some(), has_visible_windows) {
+        MainWindowRecovery::ShowExisting => existing.expect("existing main window was checked"),
+        MainWindowRecovery::RecreateFromConfig => {
+            let main_config = app.config().app.windows.iter()
+                .find(|config| config.label == "main")
+                .ok_or_else(|| "main window configuration is missing".to_string())?;
+            tauri::WebviewWindowBuilder::from_config(app, main_config)
+                .map_err(|error| error.to_string())?
+                .build()
+                .map_err(|error| error.to_string())?
+        }
+    };
+    // A minimized or hidden main window does not become visible just because
+    // macOS activates the process in the Dock.
+    main.unminimize().map_err(|error| error.to_string())?;
+    main.show().map_err(|error| error.to_string())?;
+    main.set_focus().map_err(|error| error.to_string())?;
+    let _ = app.emit_to("main", "workbench://return", ());
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -58,6 +104,20 @@ pub fn run() {
                 }
             });
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            #[cfg(target_os = "macos")]
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    // Keep the React transcript and native provider sessions
+                    // alive on the red close button. Cmd+Q still terminates
+                    // the app normally; the Dock icon restores this window.
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (window, event);
         })
         .on_menu_event(|app, event| {
             let Some(action) = provider_menu_action(event.id().0.as_str()) else {
@@ -122,8 +182,18 @@ pub fn run() {
             session_checkpoint::session_checkpoint_load,
             session_checkpoint::session_checkpoint_clear
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+                if let Err(error) = show_and_focus_main_window(app, has_visible_windows) {
+                    eprintln!("[cogitor-window] Dock reopen failed: {error}");
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }
 
 #[cfg(test)]
@@ -140,5 +210,17 @@ mod provider_menu_tests {
     fn emergency_return_closes_transient_logins() {
         assert_eq!(provider_menu_action(RETURN_TO_WORKBENCH), Some(ProviderMenuAction::ReturnAndCloseLogin));
         assert_eq!(provider_menu_action("unrelated-menu-item"), None);
+    }
+
+    #[test]
+    fn dock_reopen_restores_main_even_if_a_provider_window_is_visible() {
+        assert_eq!(main_window_recovery(true, true), MainWindowRecovery::ShowExisting);
+        assert_eq!(main_window_recovery(true, false), MainWindowRecovery::ShowExisting);
+    }
+
+    #[test]
+    fn dock_reopen_recreates_missing_main_regardless_of_other_visible_windows() {
+        assert_eq!(main_window_recovery(false, true), MainWindowRecovery::RecreateFromConfig);
+        assert_eq!(main_window_recovery(false, false), MainWindowRecovery::RecreateFromConfig);
     }
 }
