@@ -2321,6 +2321,7 @@ export default function App() {
             sessions={sessions}
             projects={projectStore.projects}
             activeSessionId={readingSession?.id ?? activeSessionId}
+            sessionStatuses={runningSessionId ? { [runningSessionId]: 'running' } : undefined}
             disabled={workflowBusy || !projectsReady}
             historyDisabled={!projectsReady}
             locale={locale}
