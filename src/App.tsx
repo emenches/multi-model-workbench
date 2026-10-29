@@ -1644,7 +1644,7 @@ export default function App() {
       ]);
       legacyRunActiveRef.current = true;
       legacyRunProvidersRef.current = new Set(
-        workflowRoles ? Object.values(workflowRoles) : workflowTargets ?? [],
+        preparedWorkflowRoles ? Object.values(preparedWorkflowRoles) : workflowTargets ?? [],
       );
       directOwnedSessionIdsRef.current.delete(activeSessionId);
       setRunningSessionId(activeSessionId);
