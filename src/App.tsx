@@ -2740,6 +2740,21 @@ export default function App() {
               handleTranscriptScroll();
             }}
           >
+            {activeDirectJob && !readingSession ? (
+              <div className="workbench-direct-run-status mb-3 mx-3 rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-400"
+                role={activeDirectJob.status === 'failed' ? 'alert' : 'status'}
+                data-run-status={activeDirectJob.status}>
+                {activeDirectJob.status === 'queued'
+                  ? 'Waiting for a provider currently used by another conversation. You can switch chats or cancel this request.'
+                  : activeDirectJob.status === 'running'
+                    ? 'This conversation is running. You can read or start another conversation without interrupting it.'
+                    : activeDirectJob.status === 'failed'
+                      ? 'The provider request could not finish. Your conversation is saved; you can retry.'
+                      : activeDirectJob.status === 'cancelled'
+                        ? 'This conversation was cancelled.'
+                        : 'Conversation completed.'}
+              </div>
+            ) : null}
             {readingSession ? (
               <div className="mb-3 mx-3 rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-400" role="status">
                 Viewing saved conversation · The running workflow continues in its original conversation.
