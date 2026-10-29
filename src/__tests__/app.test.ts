@@ -177,7 +177,7 @@ describe('Workbench reading surfaces', () => {
     expect(html).toContain('workbench-primary-activity');
     expect(html).toContain('More actions');
     expect(html).toContain('workbench-experience-switch');
-    expect(html).toContain('workbench-new-chat-composer');
+    expect(html).toContain('workbench-composer-region');
     expect(html).toContain('workbench-composer-plus');
   });
 });
