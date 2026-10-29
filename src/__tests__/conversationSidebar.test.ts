@@ -38,6 +38,23 @@ describe('conversation sidebar navigation', () => {
     expect(html).toMatch(/class="workbench-new-conversation[^"]*"[^>]*disabled/);
   });
 
+  it('shows the running conversation even when a different history row is selected', () => {
+    const active = createConversationSession({ id: 'a', title: 'Running Consult', now: 1 });
+    const viewed = createConversationSession({ id: 'b', title: 'Historical notes', now: 2 });
+    const html = renderToStaticMarkup(createElement(ConversationSidebar, {
+      collapsed: false, sessions: [active, viewed], projects: [], activeSessionId: 'b',
+      disabled: true, historyDisabled: false,
+      sessionStatuses: { a: 'running', b: 'completed' },
+      labels, locale: 'en',
+      onToggle() {}, onNewConversation() {}, onSelectSession() {}, onDeleteSession() {},
+      onAssignProject() {}, async onCreateProject() {}, onOpenProjectSettings() {},
+    }));
+    expect(html).toContain('data-run-status="running"');
+    expect(html).toContain('aria-label="Conversation running"');
+    expect(html).toContain('data-run-status="completed"');
+    expect(html).toContain('Historical notes');
+  });
+
   it('never opens a new-conversation options menu, even with projects', () => {
     const html = renderToStaticMarkup(createElement(ConversationSidebar, {
       collapsed: false, sessions: [], projects: [{
