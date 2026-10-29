@@ -113,7 +113,7 @@ export function beginNewConversationSession({
   presetId,
   projectId,
   newMode = 'free',
-  newPresetId = 'simple',
+  newPresetId,
   now = Date.now(),
 }: BeginNewConversationSessionInput): BeginNewConversationSessionResult {
   const timestamp = normalizeTimestamp(now) ?? Date.now();
