@@ -2,12 +2,13 @@ import type { AIProvider } from '../../shared/types';
 import { host } from '../host';
 import { setProviderAwaiting } from '../bridge/pull';
 import { clearInFlight, markInFlight } from './cancel';
-import { reserveTurn } from './state';
+import { clearActiveTurn, reserveTurn } from './state';
 import { rejectWaiter, waitForResponse } from './waitForResponse';
 import type { ConversationWorkContext } from './conversationCoordinator';
 
 export interface IsolatedNativeTurnHost {
   reserveTurn(provider: AIProvider): number;
+  releaseTurn(provider: AIProvider, turn: number): void;
   waitForResponse(provider: AIProvider, turn: number): Promise<string>;
   rejectWaiter(provider: AIProvider, turn: number, reason: Error): void;
   setAwaiting(provider: AIProvider, awaiting: boolean): void;
@@ -19,6 +20,7 @@ export interface IsolatedNativeTurnHost {
 
 const nativeTurnHost: IsolatedNativeTurnHost = {
   reserveTurn,
+  releaseTurn: clearActiveTurn,
   waitForResponse,
   rejectWaiter,
   setAwaiting: setProviderAwaiting,
@@ -44,8 +46,13 @@ export async function executeIsolatedNativeTurn(
 ): Promise<{ turn: number; response: string }> {
   if (context.signal.aborted) throw new Error('Conversation cancelled before provider send');
   const turn = transport.reserveTurn(provider);
-  // Fails closed if the provider lease was not acquired or the owner changed.
-  context.claimTurn(provider, turn);
+  // A rejected lease claim must not leave a phantom active provider turn.
+  try {
+    context.claimTurn(provider, turn);
+  } catch (error) {
+    transport.releaseTurn(provider, turn);
+    throw error;
+  }
 
   const responsePromise = transport.waitForResponse(provider, turn);
   transport.setAwaiting(provider, true);
@@ -76,6 +83,7 @@ export async function executeIsolatedNativeTurn(
     // also clean up if native send itself failed before a DONE arrived.
     transport.setAwaiting(provider, false);
     transport.clearInFlight(provider);
+    transport.releaseTurn(provider, turn);
     // The promise may have rejected after a failed send or abort before the
     // await was reached. Observe it to avoid an unhandled rejection.
     void responsePromise.catch(() => undefined);
