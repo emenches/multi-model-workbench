@@ -297,6 +297,9 @@ export default function App() {
   const [checkpoint, setCheckpoint] = useState<PendingCheckpoint | undefined>();
   const [checkpointDraft, setCheckpointDraft] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  // WORKFLOW_STATUS can briefly clear before runWorkflow resolves. Keep a
+  // separate owner lock so history previews cannot steal in-flight results.
+  const [runningSessionId, setRunningSessionId] = useState<string>();
   const [preflightLoginPending, setPreflightLoginPending] = useState(false);
   const [preflight, setPreflight] = useState<{ mode: PreflightSubject; result: PreflightResult } | undefined>();
   const [stepTimeout, setStepTimeout] = useState<StepTimeoutDialogState | undefined>();
@@ -321,7 +324,8 @@ export default function App() {
     return () => { mounted = false; };
   }, []);
   const activeConversationProjectId = sessions.find((session) => session.id === activeSessionId)?.projectId;
-  const readingSession = isProcessing && readingSessionId && readingSessionId !== activeSessionId
+  const workflowBusy = isProcessing || runningSessionId !== undefined;
+  const readingSession = workflowBusy && readingSessionId && readingSessionId !== activeSessionId
     ? sessions.find((session) => session.id === readingSessionId)
     : undefined;
   // Conversation association is authoritative: switching between chats also
@@ -1580,6 +1584,7 @@ export default function App() {
         ...current,
         { id: createConversationMessageId('user'), role: 'user', content: trimmed, timestamp: Date.now(), final: true },
       ]);
+      setRunningSessionId(activeSessionId);
       setIsProcessing(processingAfterSend());
       setProcessTrace(createProcessTrace(mode, workflowTargets ?? [], localeRef.current, presetId));
       const workflowStartedAt = Date.now();
@@ -1616,6 +1621,7 @@ export default function App() {
       activeResponses.current.clear();
       setIsProcessing(processingAfterSettle());
     } finally {
+      setRunningSessionId(undefined);
       releaseWorkflowExecution();
     }
   };
@@ -1785,7 +1791,7 @@ export default function App() {
   };
 
   const startNewConversation = useCallback((projectId?: string) => {
-    if (isProcessing) return;
+    if (workflowBusy) return;
     const now = Date.now();
     const transition = beginNewConversationSession({
       sessions,
@@ -1816,7 +1822,7 @@ export default function App() {
     pendingProviderResetRef.current = new Set(
       activeProviders.filter((provider) => statesRef.current[provider].webview === 'loaded'),
     );
-  }, [activeProviders, activeSessionId, isProcessing, messages, mode, presetId, sessions]);
+  }, [activeProviders, activeSessionId, workflowBusy, messages, mode, presetId, sessions]);
 
   const assignConversationProject = useCallback((session: ConversationSession, projectId?: string) => {
     if (isProcessing) return;
@@ -1850,7 +1856,7 @@ export default function App() {
 
   const selectConversationSession = useCallback(
     (session: ConversationSession) => {
-      if (isProcessing) {
+      if (workflowBusy) {
         // Preview a saved transcript without changing the active session,
         // execution context, response routing, provider windows, or reset flags.
         setReadingSessionId(session.id === activeSessionId ? undefined : session.id);
@@ -1888,17 +1894,17 @@ export default function App() {
         activeProviders.filter((provider) => statesRef.current[provider].webview === 'loaded'),
       );
     },
-    [activeProviders, activeSessionId, isProcessing, messages, mode, presetId],
+    [activeProviders, activeSessionId, workflowBusy, messages, mode, presetId],
   );
 
   useEffect(() => {
     // Once the background workflow settles, promote the read-only preview to
     // an ordinary selected conversation. Until then, its session is untouched.
-    if (isProcessing || !readingSessionId) return;
+    if (workflowBusy || !readingSessionId) return;
     const session = sessions.find((item) => item.id === readingSessionId);
     if (session) selectConversationSession(session);
     else setReadingSessionId(undefined);
-  }, [isProcessing, readingSessionId, sessions, selectConversationSession]);
+  }, [workflowBusy, readingSessionId, sessions, selectConversationSession]);
 
   const deleteConversationSession = useCallback(
     (session: ConversationSession) => {
@@ -2315,7 +2321,7 @@ export default function App() {
             sessions={sessions}
             projects={projectStore.projects}
             activeSessionId={readingSession?.id ?? activeSessionId}
-            disabled={isProcessing || !projectsReady}
+            disabled={workflowBusy || !projectsReady}
             historyDisabled={!projectsReady}
             locale={locale}
             labels={{
