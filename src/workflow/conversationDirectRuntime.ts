@@ -1,4 +1,11 @@
-import type { AIProvider } from '../../shared/types';
+import { AI_PROVIDERS } from '../../shared/constants';
+import type { AIProvider, ConsultRoles } from '../../shared/types';
+import type { Locale } from '../i18n/resolve';
+import type { ResponseLanguagePolicy } from './responseLanguage';
+import { appendResponseLanguageReminder, prependResponseLanguagePolicy } from './responseLanguage';
+import { consultGraph } from './graph/consultGraph';
+import { renderRegisteredPrompt, renderRegisteredTemplate } from './graph/registries';
+import { SKIP_RESPONSE } from './state';
 import { onBridgeMessage } from '../bridge/bus';
 import type { ConversationSession } from '../ui/conversationSessions';
 import { ConversationCoordinator, type ConversationSessionStore, type PrepareProviderConversation } from './conversationCoordinator';
@@ -11,9 +18,47 @@ export interface DirectConversationRequest {
   /** Each target provider must have its own native lease. */
   providers: readonly AIProvider[];
   prompt: string;
+  responseLanguagePolicy?: ResponseLanguagePolicy;
   /** Supplied only by deterministic tests or explicitly selected host modes. */
   prepareProvider?: PrepareProviderConversation;
   transport?: IsolatedNativeTurnHost;
+}
+
+export interface ConsultConversationRequest {
+  runId: string;
+  sessionId: string;
+  question: string;
+  roles: ConsultRoles;
+  locale?: Locale;
+  responseLanguagePolicy?: ResponseLanguagePolicy;
+  prepareProvider?: PrepareProviderConversation;
+  transport?: IsolatedNativeTurnHost;
+}
+
+/** Uses exactly the current Consult graph's prompt and label definitions. */
+function consultPrompt(
+  nodeId: 'first' | 'second' | 'reviewer' | 'summary',
+  provider: AIProvider,
+  args: string[],
+  locale?: Locale,
+  policy?: ResponseLanguagePolicy,
+): string {
+  const node = consultGraph.nodes[nodeId];
+  if (node.kind !== 'step') throw new Error('Consult graph step definition is unavailable');
+  const rendered = renderRegisteredPrompt(node.prompt, args, {
+    graph: consultGraph, nodeId, provider, locale,
+  });
+  return appendResponseLanguageReminder(prependResponseLanguagePolicy(rendered, policy), policy);
+}
+
+function consultLabel(
+  nodeId: 'first' | 'second' | 'reviewer' | 'summary',
+  provider: AIProvider,
+  locale?: Locale,
+): string {
+  const node = consultGraph.nodes[nodeId];
+  if (node.kind !== 'step' || !node.label) return nodeId;
+  return renderRegisteredTemplate(node.label, [], { graph: consultGraph, nodeId, provider, locale });
 }
 
 /**
@@ -48,8 +93,75 @@ export class ConversationDirectRuntime {
         // Providers are disjoint within this run. Exclusive leases prevent
         // simultaneous sends to the same native WebView across other runs.
         await Promise.all(context.providers.map((provider) =>
-          executeIsolatedNativeTurn(context, provider, request.prompt, request.transport),
+          executeIsolatedNativeTurn(
+            context, provider,
+            appendResponseLanguageReminder(
+              prependResponseLanguagePolicy(request.prompt, request.responseLanguagePolicy),
+              request.responseLanguagePolicy,
+            ),
+            request.transport,
+          ),
         ));
+      },
+    });
+  }
+
+  /**
+   * Four-stage Consult, including the two independent initial providers,
+   * reviewer, and final summary. All steps are isolated to this run: the
+   * legacy global graph executor is never invoked or reset.
+   */
+  startConsult(request: ConsultConversationRequest): ScheduledConversationJob {
+    const { roles } = request;
+    if (roles.first === roles.second) throw new Error('Consult requires two independent initial providers');
+    const providers = [...new Set(Object.values(roles))];
+    return this.coordinator.schedule({
+      runId: request.runId,
+      sessionId: request.sessionId,
+      providers,
+      ...(request.prepareProvider ? { prepareProvider: request.prepareProvider } : {}),
+      execute: async (context) => {
+        const run = async (
+          nodeId: 'first' | 'second' | 'reviewer' | 'summary',
+          args: string[],
+        ): Promise<string> => {
+          if (context.signal.aborted) throw new Error('Consult cancelled');
+          const provider = roles[nodeId];
+          const label = consultLabel(nodeId, provider, request.locale);
+          // A local role annotation is applied only after the native session
+          // has been authenticated and claimed by the executing run.
+          this.coordinator.acceptBridgeMessage({
+            v: 1, action: 'ROLE_ASSIGNMENT', provider, transport: 'local',
+            payload: { role: nodeId, label },
+          });
+          const result = await executeIsolatedNativeTurn(
+            context, provider,
+            consultPrompt(nodeId, provider, args, request.locale, request.responseLanguagePolicy),
+            request.transport,
+          );
+          return result.response;
+        };
+        const question = request.question;
+        const [firstResult, secondResult] = await Promise.allSettled([
+          run('first', [question]), run('second', [question]),
+        ]);
+        if (context.signal.aborted) throw new Error('Consult cancelled');
+        // The legacy graph may review one valid initial answer even when the
+        // other agent failed; never forward raw exception/error messages.
+        const first = firstResult.status === 'fulfilled' ? firstResult.value : SKIP_RESPONSE;
+        const second = secondResult.status === 'fulfilled' ? secondResult.value : SKIP_RESPONSE;
+        const unusable = (answer: string) => answer === SKIP_RESPONSE || /^\\[Error:/.test(answer.trim());
+        if (unusable(first) && unusable(second)) {
+          throw new Error('Both initial Consult responses were unavailable');
+        }
+        const reviewer = await run('reviewer', [
+          question, first, AI_PROVIDERS[roles.first].name, second, AI_PROVIDERS[roles.second].name,
+        ]);
+        if (context.signal.aborted) throw new Error('Consult cancelled');
+        await run('summary', [
+          question, first, AI_PROVIDERS[roles.first].name, second, AI_PROVIDERS[roles.second].name,
+          reviewer, AI_PROVIDERS[roles.reviewer].name,
+        ]);
       },
     });
   }
