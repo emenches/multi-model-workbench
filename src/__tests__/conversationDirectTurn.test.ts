@@ -11,6 +11,7 @@ function transport() {
   let nextTurn = 0;
   const host: IsolatedNativeTurnHost = {
     reserveTurn() { nextTurn += 1; return nextTurn; },
+    releaseTurn() {},
     waitForResponse(provider, turn) {
       return new Promise((resolve, reject) => pending.set(`${provider}:${turn}`, { resolve, reject }));
     },
