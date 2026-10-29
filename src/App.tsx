@@ -1677,7 +1677,59 @@ export default function App() {
   };
 
   const send = async (trimmed: string): Promise<boolean> => {
-    if (!trimmed) return false;
+    if (!trimmed || activeDirectBusy) return false;
+    // The new Simple Chat / Free fanout engine has per-session ownership and
+    // provider leases. Structured graphs still have a global runtime; do not
+    // overlap those with any direct run until the graph state is refactored.
+    if (presetId === 'simple' || presetId === 'free') {
+      if (workflowBusy) return false;
+      const runtime = directRuntimeRef.current;
+      if (!runtime) return false;
+      const providers = presetId === 'simple'
+        ? simpleChatTargets(simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, statesRef.current)
+        : freeModeTargets(targets, statesRef.current);
+      if (providers.length === 0) return false;
+      const now = Date.now();
+      const sessionId = activeSessionId;
+      const previous = sessions.find((item) => item.id === sessionId);
+      const source = previous?.messages ?? conversationMessages(messages);
+      const replay = buildConversationReplayContext(source);
+      const prompt = questionWithConversationContext(trimmed, mergeProjectContext(effectiveProjectStore, replay));
+      const userMessage = { id: createConversationMessageId('user'), role: 'user' as const,
+        content: trimmed, timestamp: now, final: true };
+      const runId = createConversationMessageId('conversation-run');
+      // Register the session before the first native status or response event.
+      // All following native chunks update the saved session, not messages[].
+      directOwnedSessionIdsRef.current.add(sessionId);
+      providers.forEach((provider) => directTouchedProvidersRef.current.add(provider));
+      setSessions((current) => {
+        const existing = current.find((item) => item.id === sessionId)
+          ?? createConversationSession({ id: sessionId, mode, presetId });
+        const nextMessages = [...existing.messages, userMessage];
+        return persistConversationSessions(upsertConversationSession(current, {
+          ...existing, mode, presetId,
+          ...(presetId === 'simple' && providers[0] ? { singleProvider: providers[0] } : {}),
+          title: titleFromFirstUserMessage(nextMessages), updatedAt: now,
+          messages: nextMessages,
+        }));
+      });
+      setMessages((current) => [...current, userMessage]);
+      sentInSelectedSessionRef.current = true;
+      setActivityPanelOpen(true);
+      setWorkflowStatus('');
+      recordEventLog(eventFromWorkflowStart(mode, trimmed.length, providers.length));
+      try {
+        runtime.start({ runId, sessionId, providers, prompt });
+      } catch (reason) {
+        setWorkflowStatus(reason instanceof Error ? reason.message : 'Unable to start conversation');
+        return false;
+      }
+      return true;
+    }
+    if (anyDirectBusy) {
+      setWorkflowStatus('Finish or cancel the active conversations before starting this structured workflow.');
+      return false;
+    }
     // Record the implicit initial agent as soon as this conversation is sent.
     // Otherwise a restarted Simple Chat could silently choose a different
     // model if login/availability ordering changes.
@@ -1828,6 +1880,10 @@ export default function App() {
   }, [sessionCheckpointNotice]);
 
   const cancelWorkflow = () => {
+    if (activeDirectBusy && activeDirectJob) {
+      directRuntimeRef.current?.cancel(activeDirectJob.id);
+      return;
+    }
     providerSessionResetAttemptRef.current += 1;
     publishBridgeMessage({ v: 1, action: 'CANCEL_WORKFLOW', transport: 'local' });
     setManualFocusLock(undefined);
@@ -1846,7 +1902,9 @@ export default function App() {
     const transition = beginNewConversationSession({
       sessions,
       activeSessionId,
-      messages: conversationMessages(messages),
+      messages: directOwnedSessionIdsRef.current.has(activeSessionId)
+        ? sessions.find((session) => session.id === activeSessionId)?.messages ?? conversationMessages(messages)
+        : conversationMessages(messages),
       mode,
       presetId: conversationPresetId(presetId, mode),
       projectId,
@@ -1919,6 +1977,7 @@ export default function App() {
       const storedMessages = conversationMessages(messages);
       const storedPresetId = conversationPresetId(presetId, mode);
       setSessions((current) => {
+        if (directOwnedSessionIdsRef.current.has(activeSessionId)) return current;
         const existing = current.find((item) => item.id === activeSessionId);
         if (!existing || !sessionContentChanged(existing, storedMessages, mode, storedPresetId)) return current;
         return persistConversationSessions(upsertConversationSession(current, {
@@ -1958,7 +2017,8 @@ export default function App() {
 
   const deleteConversationSession = useCallback(
     (session: ConversationSession) => {
-      if (isProcessing) return;
+      if (isProcessing || directJobs.some((job) => job.sessionId === session.id &&
+        (job.status === 'running' || job.status === 'queued'))) return;
       const remaining = removeConversationSession(sessions, session.id);
       if (session.id !== activeSessionId) {
         setSessions(persistConversationSessions(remaining));
@@ -1970,7 +2030,7 @@ export default function App() {
       setSessions(persistConversationSessions(next));
       selectConversationSession(nextActive);
     },
-    [activeSessionId, isProcessing, selectConversationSession, sessions],
+    [activeSessionId, directJobs, isProcessing, selectConversationSession, sessions],
   );
 
   const exportConversation = async () => {
@@ -2207,7 +2267,7 @@ export default function App() {
   };
 
   const selectSimpleAgent = useCallback((provider: AIProvider) => {
-    if (isProcessing || !activeProviders.includes(provider)) return;
+    if (isProcessing || activeDirectBusy || !activeProviders.includes(provider)) return;
     setSessions((current) => {
       const existing = current.find((session) => session.id === activeSessionId);
       if (!existing || existing.singleProvider === provider) return current;
@@ -2215,11 +2275,11 @@ export default function App() {
         ...existing, mode: 'free', presetId: 'simple', singleProvider: provider, updatedAt: Date.now(),
       }));
     });
-  }, [activeProviders, activeSessionId, isProcessing]);
+  }, [activeProviders, activeSessionId, activeDirectBusy, isProcessing]);
 
   const selectPreset = useCallback(
     (nextPresetId: WorkflowPresetId) => {
-      if (isProcessing) return;
+      if (isProcessing || activeDirectBusy) return;
       const nextPreset = presetForId(nextPresetId);
       setMode(nextPreset.graphId);
       setPresetId(nextPreset.id);
@@ -2230,13 +2290,13 @@ export default function App() {
         setTargetSelection({ targets: [...activeProviders], defaultsInitialized: true, userTouched: false });
       }
     },
-    [activeProviders, isProcessing],
+    [activeProviders, activeDirectBusy, isProcessing],
   );
 
   const selectExperience = useCallback((next: 'chat' | 'multi') => {
-    if (isProcessing) return;
+    if (isProcessing || activeDirectBusy) return;
     selectPreset(next === 'chat' ? 'simple' : lastMultiPresetRef.current);
-  }, [isProcessing, selectPreset]);
+  }, [isProcessing, activeDirectBusy, selectPreset]);
 
   const persistReplaySnapshot = useCallback((snapshot: ExecutionSnapshot) => {
     const snapshotSettings = settingsRef.current;
@@ -2283,7 +2343,7 @@ export default function App() {
         {translate('preset.simple.agentLabel')}
       </label>
       <select id="workbench-simple-agent-select" className="workbench-simple-agent-select rounded-xl border px-3 py-2 text-xs font-semibold"
-        value={simpleAgent ?? ''} disabled={isProcessing} aria-label={translate('preset.simple.agentLabel')}
+        value={simpleAgent ?? ''} disabled={isProcessing || activeDirectBusy} aria-label={translate('preset.simple.agentLabel')}
         onChange={(event) => selectSimpleAgent(event.target.value as AIProvider)}>
         {!simpleAgent ? <option value="">{translate(connectionsChecking ? 'connection.stale' : 'preset.simple.noAgent')}</option> : null}
         {simpleAgent && !simpleTargets.length
@@ -2301,7 +2361,7 @@ export default function App() {
       {(['chat', 'multi'] as const).map((choice) => (
         <button key={choice} type="button" className={`workbench-experience-option rounded-full px-4 py-1.5 text-xs font-semibold ${(presetId === 'simple' ? 'chat' : 'multi') === choice ? 'workbench-experience-selected' : ''}`}
           aria-pressed={(presetId === 'simple' ? 'chat' : 'multi') === choice}
-          disabled={isProcessing} onClick={() => selectExperience(choice)}>
+          disabled={isProcessing || activeDirectBusy} onClick={() => selectExperience(choice)}>
           {translate(choice === 'chat' ? 'composer.chat' : 'composer.multi')}
         </button>
       ))}
@@ -2315,7 +2375,7 @@ export default function App() {
       disabledPlaceholder={connectionsChecking ? translate('input.checkingProviders') : undefined}
       projects={projectStore.projects}
       currentProjectId={effectiveProjectStore.activeProjectId ?? undefined}
-      projectsDisabled={isProcessing || !projectsReady}
+      projectsDisabled={isProcessing || activeDirectBusy || !projectsReady}
       onChooseProject={(projectId) => {
         const session = sessions.find((item) => item.id === activeSessionId);
         if (session) assignConversationProject(session, projectId);
@@ -2323,7 +2383,7 @@ export default function App() {
       onCreateProject={() => setProjectSettingsOpen(true)}
       sendBlocked={modeSendBlocked}
       blockedMessage={modeBlockedMessage}
-      isProcessing={isProcessing}
+      isProcessing={isProcessing || activeDirectBusy}
       locale={locale}
     />
   );
@@ -2331,12 +2391,12 @@ export default function App() {
     <div className="workbench-multi-controls mx-auto flex w-full flex-wrap items-center gap-2 px-2 pt-2 text-xs">
       <label className="text-zinc-500 dark:text-zinc-400" htmlFor="workbench-multi-workflow">{translate('composer.workflow')}</label>
       <select id="workbench-multi-workflow" className="workbench-multi-select rounded-lg px-2.5 py-1.5 font-medium"
-        value={presetId} disabled={isProcessing} onChange={(event) => selectPreset(event.target.value as WorkflowPresetId)}>
+        value={presetId} disabled={isProcessing || activeDirectBusy} onChange={(event) => selectPreset(event.target.value as WorkflowPresetId)}>
         {PRESET_CATALOG.filter((preset) => preset.id !== 'simple').map((preset) => (
           <option key={preset.id} value={preset.id}>{translate(preset.displayNameKey)}</option>
         ))}
       </select>
-      <button type="button" className="workbench-multi-config rounded-lg px-2.5 py-1.5 font-medium" disabled={isProcessing}
+      <button type="button" className="workbench-multi-config rounded-lg px-2.5 py-1.5 font-medium" disabled={isProcessing || activeDirectBusy}
         onClick={() => setWorkflowOptionsOpen(true)}>{translate('composer.configureAgents')}</button>
       <span className="ml-auto text-zinc-500 dark:text-zinc-400">{formatI18n(translate('preset.readinessAny'), { ready: anySendableTargets.length })}</span>
     </div>
@@ -2371,7 +2431,7 @@ export default function App() {
             sessions={sessions}
             projects={projectStore.projects}
             activeSessionId={readingSession?.id ?? activeSessionId}
-            sessionStatuses={runningSessionId ? { [runningSessionId]: 'running' } : undefined}
+            sessionStatuses={sidebarRunStatuses}
             disabled={workflowBusy || !projectsReady}
             historyDisabled={!projectsReady}
             locale={locale}
@@ -2687,7 +2747,7 @@ export default function App() {
                 Viewing saved conversation · The running workflow continues in its original conversation.
               </div>
             ) : null}
-            <ChatArea messages={readingSession ? bubblesFromSession(readingSession) : messages}
+            <ChatArea messages={readingSession ? bubblesFromSession(readingSession) : visibleMessages}
               locale={locale} states={states} trace={isProcessing && !readingSession ? processTrace : undefined} />
           </div>
           {import.meta.env.DEV && showDevDiagnostics ? (
