@@ -141,11 +141,18 @@ pub fn run() {
                     }
                 }
             }
-            if let Some(main) = app.get_window("main") {
-                let _ = main.show();
-                let _ = main.set_focus();
+            #[cfg(target_os = "macos")]
+            if let Err(error) = show_and_focus_main_window(app, true) {
+                eprintln!("[cogitor-window] Menu restore failed: {error}");
             }
-            let _ = app.emit_to("main", "workbench://return", ());
+            #[cfg(not(target_os = "macos"))]
+            {
+                if let Some(main) = app.get_window("main") {
+                    let _ = main.show();
+                    let _ = main.set_focus();
+                }
+                let _ = app.emit_to("main", "workbench://return", ());
+            }
         })
         .invoke_handler(tauri::generate_handler![
             claude_login_tabs::claude_auth_tab_open_email,
