@@ -30,6 +30,7 @@ export function ConversationSidebar({
   sessions,
   projects,
   activeSessionId,
+  sessionStatuses,
   disabled,
   historyDisabled = disabled,
   labels,
@@ -47,6 +48,8 @@ export function ConversationSidebar({
   sessions: readonly ConversationSession[];
   projects: readonly WorkbenchProject[];
   activeSessionId: string;
+  /** Independent of which chat is selected. */
+  sessionStatuses?: Readonly<Record<string, 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'>>;
   disabled: boolean;
   /** Historical sessions stay readable while the active workflow runs. */
   historyDisabled?: boolean;
@@ -105,8 +108,21 @@ export function ConversationSidebar({
         aria-current={session.id === activeSessionId ? 'page' : undefined}
         title={session.title}
       >
-        <span className="block truncate text-xs font-medium">
-          {session.title === DEFAULT_CONVERSATION_SESSION_TITLE ? labels.newConversation : session.title}
+        <span className="flex min-w-0 items-center justify-between gap-1">
+          <span className="block min-w-0 truncate text-xs font-medium">
+            {session.title === DEFAULT_CONVERSATION_SESSION_TITLE ? labels.newConversation : session.title}
+          </span>
+          {sessionStatuses?.[session.id] ? (
+            <span className="workbench-session-run-status shrink-0 rounded px-1 text-[0.6rem] font-medium"
+              data-run-status={sessionStatuses[session.id]}
+              aria-label={`Conversation ${sessionStatuses[session.id]}`}
+              title={`Conversation ${sessionStatuses[session.id]}`}>
+              {sessionStatuses[session.id] === 'running' ? '●' :
+                sessionStatuses[session.id] === 'queued' ? '◷' :
+                sessionStatuses[session.id] === 'completed' ? '✓' :
+                sessionStatuses[session.id] === 'failed' ? '!' : '×'}
+            </span>
+          ) : null}
         </span>
       </button>
       <select aria-label={`${labels.moveTo}: ${session.title}`}
