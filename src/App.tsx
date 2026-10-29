@@ -893,7 +893,7 @@ export default function App() {
       }
       // A legacy workflow may be active while an old direct provider emits
       // a late callback. Only accept its actual participant providers.
-      if (legacyRunActiveRef.current && message.provider !== 'system' &&
+      if (legacyRunActiveRef.current && String(message.provider) !== 'system' &&
           !legacyRunProvidersRef.current.has(message.provider)) return;
       // Background direct runs own provider messages via the run router. The
       // legacy listener must not append their response to the viewed chat,
