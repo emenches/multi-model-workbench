@@ -55,6 +55,9 @@ export async function executeIsolatedNativeTurn(
   }
 
   const responsePromise = transport.waitForResponse(provider, turn);
+  // Attach immediately: synchronous native send rejection/cancellation may
+  // reject the waiter before the later await is reached.
+  void responsePromise.catch(() => undefined);
   transport.setAwaiting(provider, true);
   transport.markInFlight(provider);
 
