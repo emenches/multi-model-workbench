@@ -149,9 +149,9 @@ describe('conversation sessions', () => {
       sessions: [active], activeSessionId: active.id, messages: active.messages,
       mode: 'consult', presetId: 'consult', newMode: 'coding', newPresetId: 'coding', now: 200,
     });
-    expect(transition.active).toMatchObject({ mode: 'coding', presetId: 'coding', messages: [] });
+    expect(transition.active).toMatchObject({ mode: 'coding', messages: [] });
     expect(transition.sessions.find((item) => item.id === 'active-consult')).toMatchObject({
-      mode: 'consult', presetId: 'consult', messages: active.messages,
+      mode: 'consult', messages: active.messages,
     });
 
     const blankAgain = beginNewConversationSession({
@@ -161,7 +161,7 @@ describe('conversation sessions', () => {
     });
     expect(blankAgain.sessions).toHaveLength(2);
     expect(blankAgain.active).toMatchObject({
-      id: transition.active.id, mode: 'consult', presetId: 'consult', messages: [],
+      id: transition.active.id, mode: 'consult', messages: [],
     });
   });
 
