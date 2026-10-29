@@ -42,8 +42,15 @@ export class ConversationRunRouter {
     const sessionId = this.owners.get(runId);
     if (!sessionId) throw new Error('Unknown conversation run');
     const existing = this.claims.get(provider);
-    if (existing && existing.owner.runId !== runId) {
-      throw new Error('Provider is already claimed by another conversation');
+    if (existing) {
+      if (existing.owner.runId !== runId) {
+        throw new Error('Provider is already claimed by another conversation');
+      }
+      // Reserving a new turn within the *same verified provider session*
+      // must preserve the authenticated new-document proof. Only a change
+      // of run ownership requires another native navigation/boot.
+      existing.turn = turn;
+      return;
     }
     // Always require an explicit fresh native conversation/bridge-boot
     // confirmation before allowing *any* content event. The first job is
