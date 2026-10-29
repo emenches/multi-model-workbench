@@ -576,6 +576,20 @@ class InactiveSendOperationError extends Error {
     return false;
   }
 
+  // The native Claude installer is allowed to start only after this exact
+  // conversation-scoped, login-form-free composer guard succeeds. Reuse that
+  // evidence for login status: an offscreen WKWebView can report zero layout
+  // rects even though the authenticated editor is mounted and usable once
+  // foregrounded. Never infer authentication from a URL alone.
+  function claudeConversationComposerMounted(): boolean {
+    if (location.origin !== 'https://claude.ai') return false;
+    if (!(location.pathname === '/new' || /^\/chat\/[^/]+$/.test(location.pathname))) return false;
+    if (document.querySelector('input[type="password"], input[autocomplete="one-time-code"], input[type="email"]')) {
+      return false;
+    }
+    return document.querySelector('.ProseMirror[contenteditable="true"]') !== null;
+  }
+
   function reportStatus() {
     // Count invocations before touching ChatGPT DOM; a stalled title channel
     // must remain distinguishable from a timer that never ran.
@@ -605,6 +619,7 @@ class InactiveSendOperationError extends Error {
       } else if (hasDetector(adapter.loggedOutDetectors) || provider === 'meta') {
         login = 'logged_out';
       } else if (
+        (provider === 'claude' && claudeConversationComposerMounted()) ||
         hasDetector(adapter.loginDetectors) ||
         (provider === 'grok' &&
           (queryInput(adapter) !== null || queryFirstVisible([GROK_LIVE_STOP_BUTTON_SELECTOR]) !== null))
