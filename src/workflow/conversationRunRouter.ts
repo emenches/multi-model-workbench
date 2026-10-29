@@ -45,16 +45,12 @@ export class ConversationRunRouter {
     if (existing && existing.owner.runId !== runId) {
       throw new Error('Provider is already claimed by another conversation');
     }
-    const lastOwner = this.priorOwners.get(provider);
-    // A provider WebView does not represent a fresh conversation just because
-    // its previous run finished. Block untagged replies on handoff until a
-    // verified new native document/boot has been observed.
-    const needsFreshSession = lastOwner !== undefined && lastOwner !== runId;
+    // Always require an explicit fresh native conversation/bridge-boot
+    // confirmation before allowing *any* content event. The first job is
+    // just as vulnerable to leftover messages as a later handoff.
     this.claims.set(provider, {
       owner: { runId, sessionId }, turn,
-      ready: !needsFreshSession,
-      ...(!needsFreshSession && this.priorBootIds.has(provider)
-        ? { bootId: this.priorBootIds.get(provider) } : {}),
+      ready: false,
     });
     this.priorOwners.set(provider, runId);
   }
