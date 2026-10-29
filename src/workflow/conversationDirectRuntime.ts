@@ -62,13 +62,13 @@ function consultLabel(
 }
 
 /**
- * First genuinely parallel-capable runtime for Simple Chat and Free fanout.
+ * Parallel-capable native runtime for Simple Chat, Free fanout and Consult.
  * It does NOT call the legacy global runWorkflow singleton. The coordinator
  * guarantees exclusive provider leases and preserves transcript ownership;
  * each provider turn has its own abort handler.
  *
- * Structured Consult/Debate/Coding workflows continue using the legacy graph
- * executor until its global checkpoints, snapshots and status are isolated.
+ * Debate/Coding/Roundtable/Brainstorm continue using the legacy graph
+ * executor until their global checkpoints, snapshots and status are isolated.
  * Do NOT mix this runtime with legacy execution before a global provider
  * lease gate has been established for both paths.
  */
@@ -150,7 +150,7 @@ export class ConversationDirectRuntime {
         // other agent failed; never forward raw exception/error messages.
         const first = firstResult.status === 'fulfilled' ? firstResult.value : SKIP_RESPONSE;
         const second = secondResult.status === 'fulfilled' ? secondResult.value : SKIP_RESPONSE;
-        const unusable = (answer: string) => answer === SKIP_RESPONSE || /^\\[Error:/.test(answer.trim());
+        const unusable = (answer: string) => answer === SKIP_RESPONSE || answer.trim().startsWith('[Error:');
         if (unusable(first) && unusable(second)) {
           throw new Error('Both initial Consult responses were unavailable');
         }
