@@ -70,6 +70,7 @@ import { ProcessTrace } from './ui/ProcessTrace';
 import { ReplayPanel, type ReplaySource } from './ui/ReplayPanel';
 import { SessionCheckpointNotice } from './ui/SessionCheckpointNotice';
 import { loadSessionSidebarCollapsed, saveSessionSidebarCollapsed } from './ui/sessionSidebarPreference';
+import { loadLastUsedPreset, saveLastUsedPreset } from './ui/lastUsedPresetPreference';
 import { clampSidebarWidth, DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, loadSidebarWidth, saveSidebarWidth } from './ui/sidebarWidthPreference';
 import { StepTimeoutDialog, type StepTimeoutDialogState } from './ui/StepTimeoutDialog';
 import { TargetChips } from './ui/TargetChips';
@@ -259,6 +260,8 @@ export default function App() {
   );
   const [sessions, setSessions] = useState<ConversationSession[]>(initialConversation.sessions);
   const [activeSessionId, setActiveSessionId] = useState(initialConversation.active.id);
+  // Reading history while a workflow runs never changes the workflow's owning session.
+  const [readingSessionId, setReadingSessionId] = useState<string>();
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(loadSessionSidebarCollapsed);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [messages, setMessages] = useState<Bubble[]>(() => bubblesFromSession(initialConversation.active));
@@ -271,10 +274,15 @@ export default function App() {
         : initialConversation.active.mode),
   );
   // The top-level mode switch doesn't discard the user's multi-agent workflow.
+  const lastUsedPresetRef = useRef<WorkflowPresetId>(
+    loadLastUsedPreset(initialConversation.active.presetId ?? initialConversation.active.mode),
+  );
   const lastMultiPresetRef = useRef<WorkflowPresetId>(
-    initialConversation.active.presetId && initialConversation.active.presetId !== 'simple'
-      ? initialConversation.active.presetId
-      : initialConversation.active.mode !== 'free' ? initialConversation.active.mode : 'consult',
+    lastUsedPresetRef.current !== 'simple'
+      ? lastUsedPresetRef.current
+      : initialConversation.active.presetId && initialConversation.active.presetId !== 'simple'
+        ? initialConversation.active.presetId
+        : initialConversation.active.mode !== 'free' ? initialConversation.active.mode : 'consult',
   );
   const [replayDrawerOpen, setReplayDrawerOpen] = useState(false);
   const [processTrace, setProcessTrace] = useState<ProcessTraceState | undefined>();
@@ -289,6 +297,9 @@ export default function App() {
   const [checkpoint, setCheckpoint] = useState<PendingCheckpoint | undefined>();
   const [checkpointDraft, setCheckpointDraft] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  // WORKFLOW_STATUS can briefly clear before runWorkflow resolves. Keep a
+  // separate owner lock so history previews cannot steal in-flight results.
+  const [runningSessionId, setRunningSessionId] = useState<string>();
   const [preflightLoginPending, setPreflightLoginPending] = useState(false);
   const [preflight, setPreflight] = useState<{ mode: PreflightSubject; result: PreflightResult } | undefined>();
   const [stepTimeout, setStepTimeout] = useState<StepTimeoutDialogState | undefined>();
@@ -313,6 +324,10 @@ export default function App() {
     return () => { mounted = false; };
   }, []);
   const activeConversationProjectId = sessions.find((session) => session.id === activeSessionId)?.projectId;
+  const workflowBusy = isProcessing || runningSessionId !== undefined;
+  const readingSession = workflowBusy && readingSessionId && readingSessionId !== activeSessionId
+    ? sessions.find((session) => session.id === readingSessionId)
+    : undefined;
   // Conversation association is authoritative: switching between chats also
   // switches the project instructions applied to the next workflow.
   const effectiveProjectStore = useMemo<ProjectStore>(() => ({
@@ -1569,6 +1584,7 @@ export default function App() {
         ...current,
         { id: createConversationMessageId('user'), role: 'user', content: trimmed, timestamp: Date.now(), final: true },
       ]);
+      setRunningSessionId(activeSessionId);
       setIsProcessing(processingAfterSend());
       setProcessTrace(createProcessTrace(mode, workflowTargets ?? [], localeRef.current, presetId));
       const workflowStartedAt = Date.now();
@@ -1605,6 +1621,7 @@ export default function App() {
       activeResponses.current.clear();
       setIsProcessing(processingAfterSettle());
     } finally {
+      setRunningSessionId(undefined);
       releaseWorkflowExecution();
     }
   };
@@ -1774,7 +1791,7 @@ export default function App() {
   };
 
   const startNewConversation = useCallback((projectId?: string) => {
-    if (isProcessing) return;
+    if (workflowBusy) return;
     const now = Date.now();
     const transition = beginNewConversationSession({
       sessions,
@@ -1783,17 +1800,20 @@ export default function App() {
       mode,
       presetId: conversationPresetId(presetId, mode),
       projectId,
+      newMode: presetForId(lastUsedPresetRef.current).graphId,
+      newPresetId: lastUsedPresetRef.current,
       now,
     });
     setSessions(persistConversationSessions(transition.sessions));
     setActiveSessionId(transition.active.id);
+    setReadingSessionId(undefined);
     replayContextSessionRef.current = undefined;
     setMessages([]);
     sentInSelectedSessionRef.current = false;
     setActivityPanelOpen(false);
-    setMode('free');
-    setPresetId('simple');
-    lastMultiPresetRef.current = 'consult';
+    setMode(transition.active.mode);
+    setPresetId(transition.active.presetId ?? transition.active.mode);
+    if (lastUsedPresetRef.current !== 'simple') lastMultiPresetRef.current = lastUsedPresetRef.current;
     setWorkflowStatus('');
     setProcessTrace(undefined);
     setReplayDrawerOpen(false);
@@ -1802,7 +1822,7 @@ export default function App() {
     pendingProviderResetRef.current = new Set(
       activeProviders.filter((provider) => statesRef.current[provider].webview === 'loaded'),
     );
-  }, [activeProviders, activeSessionId, isProcessing, messages, mode, presetId, sessions]);
+  }, [activeProviders, activeSessionId, workflowBusy, messages, mode, presetId, sessions]);
 
   const assignConversationProject = useCallback((session: ConversationSession, projectId?: string) => {
     if (isProcessing) return;
@@ -1836,7 +1856,26 @@ export default function App() {
 
   const selectConversationSession = useCallback(
     (session: ConversationSession) => {
-      if (isProcessing || session.id === activeSessionId) return;
+      if (workflowBusy) {
+        // Preview a saved transcript without changing the active session,
+        // execution context, response routing, provider windows, or reset flags.
+        setReadingSessionId(session.id === activeSessionId ? undefined : session.id);
+        return;
+      }
+      setReadingSessionId(undefined);
+      if (session.id === activeSessionId) return;
+      // Flush the just-completed conversation before switching: its debounced
+      // autosave may not have fired yet when a workflow settles.
+      const storedMessages = conversationMessages(messages);
+      const storedPresetId = conversationPresetId(presetId, mode);
+      setSessions((current) => {
+        const existing = current.find((item) => item.id === activeSessionId);
+        if (!existing || !sessionContentChanged(existing, storedMessages, mode, storedPresetId)) return current;
+        return persistConversationSessions(upsertConversationSession(current, {
+          ...existing, title: titleFromFirstUserMessage(storedMessages), updatedAt: Date.now(),
+          mode, presetId: storedPresetId, messages: storedMessages,
+        }));
+      });
       setActiveSessionId(session.id);
       replayContextSessionRef.current = session.messages.length > 0 ? session.id : undefined;
       setMessages(bubblesFromSession(session));
@@ -1849,14 +1888,23 @@ export default function App() {
       setReplayDrawerOpen(false);
       setTargetSelection({ targets: [...activeProviders], defaultsInitialized: true, userTouched: false });
       activeResponses.current.clear();
-      // 切換歷史只換本地畫面，保留 provider webview 原連線（不重連）讓使用者能繼續瀏覽；
-      // 遠端 thread 仍屬於前一個 session，真正送出前 executeSend 會先建立乾淨 provider session。
+      // The next SEND makes fresh native provider sessions; browsing history
+      // does not touch the currently running remote conversation.
       pendingProviderResetRef.current = new Set(
         activeProviders.filter((provider) => statesRef.current[provider].webview === 'loaded'),
       );
     },
-    [activeProviders, activeSessionId, isProcessing],
+    [activeProviders, activeSessionId, workflowBusy, messages, mode, presetId],
   );
+
+  useEffect(() => {
+    // Once the background workflow settles, promote the read-only preview to
+    // an ordinary selected conversation. Until then, its session is untouched.
+    if (workflowBusy || !readingSessionId) return;
+    const session = sessions.find((item) => item.id === readingSessionId);
+    if (session) selectConversationSession(session);
+    else setReadingSessionId(undefined);
+  }, [workflowBusy, readingSessionId, sessions, selectConversationSession]);
 
   const deleteConversationSession = useCallback(
     (session: ConversationSession) => {
@@ -2125,6 +2173,8 @@ export default function App() {
       const nextPreset = presetForId(nextPresetId);
       setMode(nextPreset.graphId);
       setPresetId(nextPreset.id);
+      lastUsedPresetRef.current = nextPreset.id;
+      saveLastUsedPreset(nextPreset.id);
       if (nextPreset.id !== 'simple') lastMultiPresetRef.current = nextPreset.id;
       if (nextPreset.id === 'brainstorm') {
         setTargetSelection({ targets: [...activeProviders], defaultsInitialized: true, userTouched: false });
@@ -2247,7 +2297,6 @@ export default function App() {
       {presetId === 'simple' ? <div className="workbench-chat-controls px-2 pt-2">{simpleAgentChooser}</div> : multiControls}
     </div>
   );
-  const newChatWelcome = messages.length === 0 && !isProcessing;
   return (
     <main className="app-shell workbench-shell h-screen overflow-hidden bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div
@@ -2271,8 +2320,9 @@ export default function App() {
             collapsed={sessionSidebarCollapsed}
             sessions={sessions}
             projects={projectStore.projects}
-            activeSessionId={activeSessionId}
-            disabled={isProcessing || !projectsReady}
+            activeSessionId={readingSession?.id ?? activeSessionId}
+            disabled={workflowBusy || !projectsReady}
+            historyDisabled={!projectsReady}
             locale={locale}
             labels={{
               toggle: translate('conversation.toggle'),
@@ -2430,7 +2480,7 @@ export default function App() {
               </div>
             </div>
             <div className="workbench-conversation-header-sub flex flex-wrap items-center gap-2">
-              {!newChatWelcome ? experienceSwitcher : null}
+              {!readingSession ? experienceSwitcher : null}
               {isProcessing || workflowStatus ? (
                 <span className="workbench-conversation-status truncate text-xs text-zinc-500 dark:text-zinc-400">
                   {workflowStatus || translate('processTrace.awaiting')}
@@ -2581,19 +2631,13 @@ export default function App() {
               handleTranscriptScroll();
             }}
           >
-            {newChatWelcome ? (
-              <div className="workbench-new-chat-screen flex min-h-full flex-col items-center justify-center px-3 py-6">
-                <div className="workbench-new-chat-body mx-auto w-full max-w-2xl">
-                  <h2 className="workbench-new-chat-title text-center text-2xl font-semibold tracking-tight">
-                    {translate(presetId === 'simple' ? 'sidebar.emptyChatTitle' : 'sidebar.emptyTitle')}
-                  </h2>
-                  <div className="workbench-new-chat-mode mt-5 flex justify-center">{experienceSwitcher}</div>
-                  <div className="workbench-new-chat-composer mt-5">{composerStack}</div>
-                </div>
+            {readingSession ? (
+              <div className="mb-3 mx-3 rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-400" role="status">
+                Viewing saved conversation · The running workflow continues in its original conversation.
               </div>
-            ) : (
-              <ChatArea messages={messages} locale={locale} states={states} trace={isProcessing ? processTrace : undefined} />
-            )}
+            ) : null}
+            <ChatArea messages={readingSession ? bubblesFromSession(readingSession) : messages}
+              locale={locale} states={states} trace={isProcessing && !readingSession ? processTrace : undefined} />
           </div>
           {import.meta.env.DEV && showDevDiagnostics ? (
             <section
@@ -2610,8 +2654,8 @@ export default function App() {
               <EchoPanel />
             </section>
           ) : null}
-          <div className={`ai-sister-conversation-composer workbench-composer-region shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800 ${newChatWelcome ? 'hidden' : ''}`}>
-            {!newChatWelcome ? composerStack : null}
+          <div className={`ai-sister-conversation-composer workbench-composer-region shrink-0 border-t border-zinc-200 pt-2 dark:border-zinc-800 ${readingSession ? 'hidden' : ''}`}>
+            {composerStack}
           </div>
         </section>
       </div>

@@ -101,10 +101,12 @@ describe('App workflow controls', () => {
     expect(html).not.toContain('id="workbench-activity-drawer"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('Checking agent connections');
-    expect(html).toContain('workbench-new-chat-screen');
-    expect(html).toContain('What would you like to chat about?');
-    expect(html).not.toContain('What would you like to work on?');
-    expect(html).toContain('workbench-new-chat-mode');
+    // New conversation now opens the normal transcript and composer directly.
+    expect(html).not.toContain('workbench-new-chat-screen');
+    expect(html).not.toContain('workbench-new-chat-mode');
+    expect(html).not.toContain('workbench-new-chat-menu');
+    expect(html).toContain('workbench-reading-area');
+    expect(html).toContain('workbench-composer-region');
     expect(html).toContain('workbench-experience-switch');
     expect(html).toContain('aria-pressed="true">Chat');
     expect(html).toContain('Multi-agent');
@@ -114,7 +116,7 @@ describe('App workflow controls', () => {
     expect(html).not.toContain('workbench-new-chat-workflow');
 
     expect(html).toContain('workbench-simple-agent-select');
-    expect(html).toContain('workbench-new-chat-composer');
+    expect(html).not.toContain('workbench-new-chat-composer');
     expect(html).toContain('workbench-session-sidebar');
     expect(html).not.toContain('id="workflow-control-shelf"');
     expect(html).not.toContain('workbench-provider-dock');
@@ -175,7 +177,7 @@ describe('Workbench reading surfaces', () => {
     expect(html).toContain('workbench-primary-activity');
     expect(html).toContain('More actions');
     expect(html).toContain('workbench-experience-switch');
-    expect(html).toContain('workbench-new-chat-composer');
+    expect(html).toContain('workbench-composer-region');
     expect(html).toContain('workbench-composer-plus');
   });
 });

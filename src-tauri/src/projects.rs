@@ -7,6 +7,9 @@ use tauri::{AppHandle, Manager, Webview};
 const PROJECTS_FILE: &str = "workbench-projects-v1.json";
 const MAX_PROJECTS: usize = 100;
 const MAX_INSTRUCTIONS_BYTES: usize = 16_000;
+// Up to 100 projects, plus metadata and JSON escaping; reject hostile legacy
+// files before allocating and bound newly serialized files as well.
+const MAX_PROJECT_STORE_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -59,8 +62,8 @@ fn projects_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join(PROJECTS_FILE))
 }
 fn load_from_path(path: &Path) -> Result<ProjectStore, String> {
-    let value: ProjectStore = match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| e.to_string())?,
+    let value: ProjectStore = match crate::settings::read_bounded_utf8(path, MAX_PROJECT_STORE_BYTES) {
+        Ok(content) => serde_json::from_str(&content).map_err(|e| e.to_string())?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(ProjectStore::default()),
         Err(e) => return Err(e.to_string()),
     };
@@ -70,6 +73,14 @@ fn load_from_path(path: &Path) -> Result<ProjectStore, String> {
 fn save_to_path(path: &Path, store: &ProjectStore) -> Result<(), String> {
     validate(store)?;
     let json = serde_json::to_vec_pretty(store).map_err(|e| e.to_string())?;
+    if json.len() > MAX_PROJECT_STORE_BYTES {
+        return Err("Project store exceeds the size limit".into());
+    }
+    // Never overwrite or replace a corrupt, oversized, or symlinked legacy
+    // project store. Users must be able to recover their existing data.
+    let _old_store = load_from_path(path).map_err(|e| {
+        format!("Existing projects cannot be safely read; refusing to overwrite: {e}")
+    })?;
     crate::settings::write_atomic(path, &json)
 }
 #[tauri::command]
@@ -101,6 +112,51 @@ mod tests {
         assert_eq!(loaded.active_project_id.as_deref(), Some("project-test"));
         let _ = std::fs::remove_file(file);
     }
+    #[test]
+    fn rejects_oversized_project_store_without_losing_data() {
+        let path = std::env::temp_dir().join(format!(
+            "cogitor-project-oversize-{}.json", std::process::id()
+        ));
+        let original = vec![b'x'; MAX_PROJECT_STORE_BYTES + 1];
+        std::fs::write(&path, &original).unwrap();
+        assert!(load_from_path(&path).is_err());
+        assert!(save_to_path(&path, &ProjectStore::default()).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn rejects_malformed_project_store_without_overwriting() {
+        let path = std::env::temp_dir().join(format!(
+            "cogitor-project-corrupt-{}.json", std::process::id()
+        ));
+        let original = b"{broken-project-data";
+        std::fs::write(&path, original).unwrap();
+        assert!(load_from_path(&path).is_err());
+        assert!(save_to_path(&path, &ProjectStore::default()).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_symlinked_project_store_without_touching_target() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!(
+            "cogitor-project-symlinks-{}", std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("target.json");
+        let link = dir.join("projects.json");
+        std::fs::write(&original, br#"{"private":true}"#).unwrap();
+        symlink(&original, &link).unwrap();
+        assert!(load_from_path(&link).is_err());
+        assert!(save_to_path(&link, &ProjectStore::default()).is_err());
+        assert_eq!(std::fs::read(&original).unwrap(), br#"{"private":true}"#);
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn rejects_missing_active_project() {
         let store = ProjectStore {

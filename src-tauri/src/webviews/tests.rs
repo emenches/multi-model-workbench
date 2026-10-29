@@ -20,6 +20,7 @@ use super::{
     grok_external_auth_return_is_current, grok_popup_recovery_claim_is_current,
     grok_popup_recovery_needed, grok_reconnect_allowed, grok_stale_reason,
     parse_grok_bridge_drive_outcome, physical_bounds, popup_initial_title,
+    provider_popup_navigation_allowed, provider_popup_budget_available, MAX_PROVIDER_POPUPS,
     prepare_grok_external_auth_return, prepare_grok_navigation, prepare_grok_popup_recovery,
     provider_document_allows_generic_eval, provider_show_should_focus,
     provider_state_allows_control_eval, stale_chatgpt_bridge_eval_allowed, provider_uses_document_start_bridge,
@@ -443,15 +444,73 @@ fn new_window_non_http_non_allowlisted_silently_denied() {
 }
 
 #[test]
-fn new_window_allowlisted_true_never_goes_external() {
-    assert_eq!(
+fn even_a_mistaken_allowlisted_hint_cannot_open_an_unsafe_popup() {
+    for target in [
+        "data:text/plain,hello",
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+        "about:blank",
+        "https://user@accounts.google.com/",
+        "https://accounts.google.com:8443/",
+    ] {
+        assert_ne!(
+            decide_new_window_action(&url(target), true),
+            NewWindowAction::AllowPopup,
+            "{target}"
+        );
+    }
+    assert_ne!(
         decide_new_window_action(&url("http://evil.example/"), true),
         NewWindowAction::AllowPopup
     );
     assert_eq!(
-        decide_new_window_action(&url("data:text/plain,hello"), true),
+        decide_new_window_action(&url("https://accounts.google.com/ServiceLogin"), true),
         NewWindowAction::AllowPopup
     );
+}
+
+#[test]
+fn auth_popup_navigation_rechecks_every_redirect() {
+    for (provider, destination) in [
+        ("chatgpt", "https://appleid.apple.com/auth/authorize"),
+        ("chatgpt", "https://chatgpt.com/"),
+        ("claude", "https://accounts.google.com/o/oauth2/v2/auth"),
+        ("claude", "https://claude.ai/"),
+        ("gemini", "https://gemini.google.com/app"),
+        ("grok", "https://x.com/i/oauth2/authorize"),
+    ] {
+        assert!(
+            provider_popup_navigation_allowed(provider, &url(destination)),
+            "legitimate OAuth redirect refused: {provider} {destination}"
+        );
+    }
+    assert!(provider_popup_navigation_allowed("claude", &url("about:blank")));
+    assert!(provider_popup_navigation_allowed("claude", &url("about:srcdoc")));
+    for destination in [
+        "https://evil.test/phishing",
+        "https://accounts.google.com.evil.test/",
+        "https://user@accounts.google.com/",
+        "https://accounts.google.com:8443/",
+        "http://accounts.google.com/",
+        "https://127.0.0.1/",
+        "file:///etc/passwd",
+        "data:text/html,malicious",
+        "javascript:alert(1)",
+        "about:config",
+    ] {
+        assert!(
+            !provider_popup_navigation_allowed("claude", &url(destination)),
+            "unexpected allowed popup redirect: {destination}"
+        );
+    }
+}
+
+#[test]
+fn popup_quota_bounds_native_windows() {
+    assert!(provider_popup_budget_available(0));
+    assert!(provider_popup_budget_available(MAX_PROVIDER_POPUPS - 1));
+    assert!(!provider_popup_budget_available(MAX_PROVIDER_POPUPS));
+    assert!(!provider_popup_budget_available(usize::MAX));
 }
 
 #[test]

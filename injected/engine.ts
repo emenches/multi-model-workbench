@@ -576,6 +576,25 @@ class InactiveSendOperationError extends Error {
     return false;
   }
 
+  // Match the native CLAUDE_COMPOSER_READY_JS proof EXACTLY. The native
+  // installer just verified this same composer on a hidden WKWebView, but
+  // the engine previously demanded layout / computed CSS / inert state as
+  // additional gates. Those can change when NSWindow is ordered out and
+  // leave status stuck at login=unknown even while the bridge is live.
+  //
+  // Do not infer login from the route alone: require a real editable composer
+  // and reject any auth/password/OTP/email form. Signed-out/challenge checks
+  // in reportStatus() take precedence. All other providers keep their usual
+  // visible-element checks.
+  function claudeConversationComposerMounted(): boolean {
+    if (location.origin !== 'https://claude.ai') return false;
+    if (!(location.pathname === '/new' || /^\/chat\/[^/]+$/.test(location.pathname))) return false;
+    if (document.querySelector('input[type="password"], input[autocomplete="one-time-code"], input[type="email"]')) {
+      return false;
+    }
+    return document.querySelector('.ProseMirror[contenteditable="true"]') !== null;
+  }
+
   function reportStatus() {
     // Count invocations before touching ChatGPT DOM; a stalled title channel
     // must remain distinguishable from a timer that never ran.
@@ -605,6 +624,7 @@ class InactiveSendOperationError extends Error {
       } else if (hasDetector(adapter.loggedOutDetectors) || provider === 'meta') {
         login = 'logged_out';
       } else if (
+        (provider === 'claude' && claudeConversationComposerMounted()) ||
         hasDetector(adapter.loginDetectors) ||
         (provider === 'grok' &&
           (queryInput(adapter) !== null || queryFirstVisible([GROK_LIVE_STOP_BUTTON_SELECTOR]) !== null))

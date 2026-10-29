@@ -138,6 +138,59 @@ fn guard_claude_automation(js: &str) -> String {
 /// Unlike the document-start bridge, this probe never executes on login or SSO.
 /// A successful clean WKWebView test showed that user authentication is possible without
 /// scripts. Wait for the logged-in composer rather than guessing from the URL alone.
+/// A hidden signed-in Claude tab can finish loading without another document-title
+/// or page-load event. Recover that missing bridge without assuming authentication
+/// from the URL or evaluating JavaScript into login / CAPTCHA documents.
+fn claude_readiness_unconfirmed(state: &ProviderState) -> bool {
+    state.dom != "ready" || state.login != "logged_in"
+}
+
+fn claude_background_recovery_needed(state: &ProviderState, now: u64) -> bool {
+    state.provider == "claude"
+        && state.webview == "loaded"
+        && claude_readiness_unconfirmed(state)
+        && !state.thinking
+        && matches!(state.login.as_str(), "unknown" | "logged_in")
+        && state.bridge == "ok"
+        && state.adapter == "ok"
+        && now.saturating_sub(state.last_status_at) >= 5_000
+}
+
+// Host-only, bounded readiness diagnostics. No URL, DOM text, cookies, tokens,
+// account identifiers, or conversation content is ever emitted. These events are
+// stored only in the user's existing in-memory Diagnostics event log.
+fn note_claude_background_diagnostic(app: &AppHandle, phase: &'static str) {
+    static LAST_EMITTED: OnceLock<Mutex<HashMap<&'static str, u64>>> = OnceLock::new();
+    let now = now_ms();
+    let guard = LAST_EMITTED.get_or_init(|| Mutex::new(HashMap::new()));
+    let Ok(mut emitted) = guard.lock() else { return };
+    if emitted.get(phase).is_some_and(|last| now.saturating_sub(*last) < 15_000) {
+        return;
+    }
+    emitted.insert(phase, now);
+    drop(emitted);
+    let age = now.saturating_sub(current_state("claude").last_status_at);
+    let visibility = app
+        .get_window(&provider_page_window_label("claude"))
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    let _ = app.emit_to(
+        "main",
+        "bridge://msg",
+        serde_json::json!({
+            "v": 1,
+            "action": "STATUS_REPORT",
+            "provider": "claude",
+            "transport": "local",
+            "payload": {
+                "pullDiagnostic": phase,
+                "pullFailureKind": if visibility { "window-visible" } else { "window-hidden" },
+                "statusSilentMs": age
+            }
+        }),
+    );
+}
+
 fn schedule_claude_bridge_install(app: &AppHandle, webview: &tauri::Webview) {
     // Both title and load events can fire during SPA navigation. Never launch
     // simultaneous installers or install the engine twice in the same document.
@@ -163,19 +216,28 @@ fn schedule_claude_bridge_install(app: &AppHandle, webview: &tauri::Webview) {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let sender = std::sync::Arc::new(std::sync::Mutex::new(Some(sender)));
             let callback_sender = sender.clone();
-            if webview.eval_with_callback(CLAUDE_COMPOSER_READY_JS, move |result| {
+            match webview.eval_with_callback(CLAUDE_COMPOSER_READY_JS, move |result| {
                 if let Ok(mut guard) = callback_sender.lock() {
                     if let Some(sender) = guard.take() {
                         let _ = sender.send(result);
                     }
                 }
-            }).is_ok() {
-                if let Ok(Ok(result)) = tokio::time::timeout(Duration::from_secs(2), receiver).await {
-                    if result.trim() == "true" {
+            }) {
+                Ok(()) => match tokio::time::timeout(Duration::from_secs(2), receiver).await {
+                    Ok(Ok(result)) if result.trim() == "true" => {
+                        note_claude_background_diagnostic(&app, "claude-composer-detected");
                         // The bootstrap is also guarded inside WebKit. It does not run on login.
-                        if install_claude_bridge(&app).is_ok() { return; }
+                        if install_claude_bridge(&app).is_ok() {
+                            note_claude_background_diagnostic(&app, "claude-bridge-install-dispatched");
+                            return;
+                        }
+                        note_claude_background_diagnostic(&app, "claude-bridge-install-error");
                     }
-                }
+                    Ok(Ok(_)) => note_claude_background_diagnostic(&app, "claude-composer-absent"),
+                    Ok(Err(_)) => note_claude_background_diagnostic(&app, "claude-probe-callback-dropped"),
+                    Err(_) => note_claude_background_diagnostic(&app, "claude-probe-timeout"),
+                },
+                Err(_) => note_claude_background_diagnostic(&app, "claude-probe-eval-rejected"),
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
@@ -1173,11 +1235,44 @@ fn chatgpt_renderer_replaced_top_level(
         && chatgpt_renderer_auxiliary_url(provider, current_main_url)
 }
 
+const MAX_PROVIDER_POPUPS: usize = 8;
+
+fn provider_popup_budget_available(count: usize) -> bool {
+    count < MAX_PROVIDER_POPUPS
+}
+
+// Popups are *not* trusted just because their first URL was an allowed IdP.
+// Recheck every subsequent navigation to avoid redirecting the native auth
+// browser to arbitrary HTTPS or local pages.
+fn provider_popup_navigation_allowed(provider: &str, url: &tauri::Url) -> bool {
+    if url.scheme() == "about" {
+        return matches!(url.path(), "blank" | "srcdoc");
+    }
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+    {
+        return false;
+    }
+    challenge_auxiliary_navigation_allowed(provider, url)
+        || adapters::url_allowed_for_provider(provider, url).unwrap_or(false)
+        || adapters::url_allowed_for_sso(provider, url).unwrap_or(false)
+}
+
 fn decide_new_window_action(url: &tauri::Url, allowlisted: bool) -> NewWindowAction {
     if url.host_str() == Some("mac-bridge.invalid") {
         return NewWindowAction::DenySilent;
     }
-    if allowlisted {
+    // Never let a caller's allowlisted hint bypass URL scheme/authority checks.
+    if allowlisted
+        && url.scheme() == "https"
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+    {
         return NewWindowAction::AllowPopup;
     }
     if url.scheme() == "https" || url.scheme() == "http" {
@@ -1376,7 +1471,7 @@ pub async fn provider_open(
             // composer probe, and no script runs on login/account pages.
             if title_provider == "claude"
                 && !title.starts_with("\u{200B}MAC1|")
-                && current_state("claude").login != "logged_in"
+                && claude_readiness_unconfirmed(&current_state("claude"))
                 && webview.url().ok().is_some_and(|url| claude_conversation_url(&url))
             {
                 schedule_claude_bridge_install(&title_app, &webview);
@@ -1604,6 +1699,13 @@ pub async fn provider_open(
                 // (WebView2) is undecorated, so it can't be dragged off the page it covers.
                 // window_features() wires the opener environment, so OAuth flows keep working.
                 NewWindowAction::AllowPopup => {
+                    // An untrusted page could otherwise flood native popup windows.
+                    let open_popups = popup_app.webview_windows().keys()
+                        .filter(|label| label.starts_with("provider-popup-"))
+                        .count();
+                    if !provider_popup_budget_available(open_popups) {
+                        return NewWindowResponse::Deny;
+                    }
                     let recovery_epoch = grok_auth_popup_may_complete_login(&popup_provider, &url)
                         .then(|| current_grok_document_epoch(&popup_provider));
                     static POPUP_SEQ: AtomicUsize = AtomicUsize::new(0);
@@ -1611,12 +1713,19 @@ pub async fn provider_open(
                         "provider-popup-{}",
                         POPUP_SEQ.fetch_add(1, Ordering::Relaxed)
                     );
+                    let popup_nav_provider = popup_provider.clone();
                     let builder = tauri::WebviewWindowBuilder::new(
                         &popup_app,
                         &label,
                         WebviewUrl::External("about:blank".parse().expect("static url")),
                     )
                     .window_features(features)
+                    .on_navigation(move |next| {
+                        provider_popup_navigation_allowed(&popup_nav_provider, next)
+                    })
+                    // Additional OAuth windows require a separately reviewed
+                    // workflow rather than unmanaged nested browser windows.
+                    .on_new_window(|_, _| NewWindowResponse::Deny)
                     // Keep auth popups decorated and initially bounded.
                     .decorations(true)
                     .inner_size(760.0, 640.0)
@@ -2874,10 +2983,14 @@ fn run_staleness_check(app: &AppHandle) {
     let mut to_check = Vec::new();
     let mut to_mark_unknown = Vec::new();
     let mut grok_to_drive = Vec::new();
+    let mut claude_to_recover = false;
     let mut state_updates = Vec::new();
     if let Ok(mut guard) = runtime().lock() {
         let providers = guard.states.values().cloned().collect::<Vec<_>>();
         for state in providers {
+            if claude_background_recovery_needed(&state, now) {
+                claude_to_recover = true;
+            }
             let document_epoch = guard
                 .grok_document_epoch
                 .get(&state.provider)
@@ -2924,6 +3037,23 @@ fn run_staleness_check(app: &AppHandle) {
             if let Some(webview) = app.get_webview(&provider_label(&provider)) {
                 drive_grok_bridge_on_webview(&webview, app, &provider, script, document_epoch);
             }
+        }
+    }
+    // The deferred Claude bridge is deliberately absent on auth documents. If
+    // the initial load/title signal was missed while the window was hidden,
+    // retry the composer-scoped installer. The installer is single-flight and
+    // checks both the native conversation URL and the live composer before
+    // injecting anything. Never navigate or show the provider window here.
+    if claude_to_recover {
+        if let Some(webview) = app.get_webview(&provider_label("claude")) {
+            if webview.url().ok().is_some_and(|url| claude_conversation_url(&url)) {
+                note_claude_background_diagnostic(app, "claude-watchdog-retry");
+                schedule_claude_bridge_install(app, &webview);
+            } else {
+                note_claude_background_diagnostic(app, "claude-watchdog-nonconversation");
+            }
+        } else {
+            note_claude_background_diagnostic(app, "claude-watchdog-no-webview");
         }
     }
     for provider in to_check {
@@ -2976,7 +3106,7 @@ fn now_ms() -> u64 {
 
 #[cfg(test)]
 mod claude_clean_login_tests {
-    use super::{challenge_auxiliary_navigation_allowed, claude_conversation_url, guard_claude_automation, provider_uses_document_start_bridge, provider_uses_permission_shim};
+    use super::{challenge_auxiliary_navigation_allowed, claude_background_recovery_needed, claude_conversation_url, claude_readiness_unconfirmed, guard_claude_automation, provider_uses_document_start_bridge, provider_uses_permission_shim, state_with};
 
     #[test]
     fn claude_never_modifies_browser_during_login() {
@@ -2984,6 +3114,53 @@ mod claude_clean_login_tests {
         assert!(!provider_uses_permission_shim("claude"));
         assert!(provider_uses_document_start_bridge("chatgpt"));
         assert!(provider_uses_permission_shim("gemini"));
+    }
+
+    #[test]
+    fn claude_readiness_watchdog_recovers_only_unready_background_sessions() {
+        let mut state = state_with("claude", "loaded", "unknown", "logged_in", false);
+        state.last_status_at = 10_000;
+
+        // This is the reported post-relaunch/second-Consult failure: authenticated
+        // but no usable bridge until the user foregrounds Claude's window.
+        assert!(claude_background_recovery_needed(&state, 15_001));
+        assert!(!claude_background_recovery_needed(&state, 15_000 - 1));
+
+        // Don't repeatedly probe a confirmed-ready, responding, or unavailable
+        // provider, even when its status timestamp ages out.
+        state.dom = "ready".into();
+        assert!(!claude_background_recovery_needed(&state, 60_000));
+        // DOM readiness alone is insufficient if authentication status was
+        // never confirmed by the bridge while the Claude window was hidden.
+        state.login = "unknown".into();
+        assert!(claude_readiness_unconfirmed(&state));
+        assert!(claude_background_recovery_needed(&state, 60_000));
+        state.login = "logged_in".into();
+        state.dom = "unknown".into();
+        state.thinking = true;
+        assert!(!claude_background_recovery_needed(&state, 60_000));
+        state.thinking = false;
+        state.webview = "creating".into();
+        assert!(!claude_background_recovery_needed(&state, 60_000));
+        state.webview = "loaded".into();
+
+        // Auth and challenge pages must retain stock WKWebView behavior. The
+        // native caller additionally checks claude_conversation_url before eval.
+        for login in ["logged_out", "blocked"] {
+            state.login = login.into();
+            assert!(!claude_background_recovery_needed(&state, 60_000));
+        }
+        state.login = "unknown".into();
+        assert!(claude_background_recovery_needed(&state, 60_000));
+
+        state.bridge = "degraded".into();
+        assert!(!claude_background_recovery_needed(&state, 60_000));
+        state.bridge = "ok".into();
+        state.adapter = "broken".into();
+        assert!(!claude_background_recovery_needed(&state, 60_000));
+        state.adapter = "ok".into();
+        state.provider = "gemini".into();
+        assert!(!claude_background_recovery_needed(&state, 60_000));
     }
 
     #[test]

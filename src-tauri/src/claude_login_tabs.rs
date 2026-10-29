@@ -31,7 +31,14 @@ static MAIL_POPUP_SEQUENCE: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
 fn safe_browser_navigation(url: &tauri::Url) -> bool {
-    url.scheme() == "https"
+    // Even zero-Tauri-permission email popups should never navigate to
+    // userinfo, nonstandard ports, or local/non-HTTPS URL schemes. Preserve
+    // about:blank/srcdoc because WebKit uses them to create OAuth popups.
+    (url.scheme() == "https"
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none())
         || (url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc"))
 }
 
@@ -84,11 +91,33 @@ pub(crate) fn ensure_toolbar(app: &AppHandle, window: &tauri::Window) -> Result<
     let total = window.inner_size().map_err(|e| e.to_string())?;
     let height = toolbar_height(window, total.height);
     let toolbar = window.add_child(
-        WebviewBuilder::new(TOOLBAR_LABEL, WebviewUrl::App("claude-login-tabs.html".into())),
+        WebviewBuilder::new(TOOLBAR_LABEL, WebviewUrl::App("claude-login-tabs.html".into()))
+            .on_navigation(toolbar_navigation_allowed)
+            .on_new_window(|_, _| NewWindowResponse::Deny),
         PhysicalPosition::new(0, 0),
         PhysicalSize::new(total.width.max(1), height.max(1)),
     ).map_err(|e| e.to_string())?;
     toolbar.show().map_err(|e| e.to_string())
+}
+
+// The toolbar, unlike provider and email views, has narrowly scoped Tauri
+// tab-control permissions. It must never become a browser for remote HTML.
+// In production Tauri loads bundled pages from tauri://localhost; in Tauri
+// dev mode the configured local Vite server is http://localhost:1420.
+#[cfg(any(target_os = "macos", test))]
+fn toolbar_navigation_allowed(url: &tauri::Url) -> bool {
+    let bundled = url.scheme() == "tauri"
+        && url.host_str() == Some("localhost")
+        && url.port().is_none();
+    let dev = cfg!(debug_assertions)
+        && url.scheme() == "http"
+        && url.host_str() == Some("localhost")
+        && url.port() == Some(1420);
+    (bundled || dev)
+        && url.path() == "/claude-login-tabs.html"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
 }
 
 fn trusted_toolbar(webview: &tauri::Webview) -> Result<(), String> {
@@ -413,7 +442,35 @@ pub(crate) fn close_tabs(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_claude_link, is_gmail_mail_route, safe_browser_navigation, safe_webmail_url};
+    use super::{
+        is_claude_link, is_gmail_mail_route, safe_browser_navigation, safe_webmail_url,
+        toolbar_navigation_allowed,
+    };
+
+    #[test]
+    fn privileged_toolbar_cannot_navigate_to_external_pages_or_spawn_windows() {
+        let app_page: tauri::Url = "tauri://localhost/claude-login-tabs.html".parse().unwrap();
+        assert!(toolbar_navigation_allowed(&app_page));
+        let dev_page: tauri::Url = "http://localhost:1420/claude-login-tabs.html".parse().unwrap();
+        assert_eq!(toolbar_navigation_allowed(&dev_page), cfg!(debug_assertions));
+        for candidate in [
+            "https://claude.ai/",
+            "https://mail.google.com/",
+            "https://evil.test/claude-login-tabs.html",
+            "tauri://evil.test/claude-login-tabs.html",
+            "tauri://localhost/index.html",
+            "tauri://localhost/claude-login-tabs.html?remote=1",
+            "tauri://name@localhost/claude-login-tabs.html",
+            "tauri://localhost:444/claude-login-tabs.html",
+            "http://localhost:1421/claude-login-tabs.html",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "about:blank",
+        ] {
+            let parsed: tauri::Url = candidate.parse().unwrap();
+            assert!(!toolbar_navigation_allowed(&parsed), "{candidate}");
+        }
+    }
 
     #[test]
     fn only_https_no_authority_credentials_or_custom_ports() {
@@ -438,6 +495,23 @@ mod tests {
         assert!(!safe_browser_navigation(&"javascript:alert(1)".parse().unwrap()));
         assert!(!safe_browser_navigation(&"file:///private/secret".parse().unwrap()));
         assert!(!safe_browser_navigation(&"about:config".parse().unwrap()));
+        // Adversarial redirects must not route the embedded email window
+        // through hidden credentials, alternate ports, or local schemes.
+        for destination in [
+            "https://user:pass@accounts.google.com/",
+            "https://name@claude.ai/auth/verify",
+            "https://accounts.google.com:8443/o/oauth2/auth",
+            "https://mail.google.com:444/mail/u/1/",
+            "ftp://mail.google.com/",
+            "data:text/html,<script>alert(1)</script>",
+            "http://127.0.0.1:1420/",
+        ] {
+            assert!(
+                !safe_browser_navigation(&destination.parse().unwrap()),
+                "unexpected permitted email navigation: {destination}"
+            );
+        }
+        assert!(safe_browser_navigation(&"https://accounts.google.com/o/oauth2/v2/auth".parse().unwrap()));
     }
 
     #[test]

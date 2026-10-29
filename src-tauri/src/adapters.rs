@@ -471,7 +471,7 @@ pub(crate) fn url_allowed_for_sso(provider: &str, url: &tauri::Url) -> Result<bo
         "github.com",
     ];
     // SHARED IdP hosts + generic Google regional ccTLD: https ONLY.
-    if url.scheme() == "https" {
+    if plain_https_url(url) {
         let host = url.host_str().unwrap_or_default();
         if SHARED.contains(&host) || is_accounts_google_cctld(host) {
             return Ok(true);
@@ -1092,6 +1092,15 @@ mod tests {
             ("grok", "https://grok.community/"),
             ("claude", "https://auth.openai.com/authorize"),
             ("grok", "http://accounts.google.com/"),
+            // Exact-host checks are insufficient without URL authority checks.
+            ("chatgpt", "https://user@appleid.apple.com/auth/authorize"),
+            ("chatgpt", "https://appleid.apple.com:8443/auth/authorize"),
+            ("claude", "https://user:pass@accounts.google.com/o/oauth2/auth"),
+            ("claude", "https://accounts.google.com:8443/o/oauth2/auth"),
+            ("grok", "https://user@accounts.google.de/ServiceLogin"),
+            ("grok", "https://accounts.google.com.tw:8443/accounts/SetSID"),
+            ("gemini", "https://github.com:8443/login"),
+            ("gemini", "https://user@github.com/login"),
             ("grok", "https://accounts.google.evil.com/"),
             ("grok", "https://accounts.google.net/"),
             ("grok", "https://accounts.google.com.net/"),

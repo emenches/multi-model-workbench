@@ -65,6 +65,9 @@ export interface BeginNewConversationSessionInput {
   messages: readonly ConversationSessionMessage[];
   mode: ChatMode;
   presetId?: WorkflowPresetId;
+  /** Preferred mode/preset for the next blank conversation, independent of the archived chat. */
+  newMode?: ChatMode;
+  newPresetId?: WorkflowPresetId;
   now?: number;
 }
 
@@ -109,6 +112,8 @@ export function beginNewConversationSession({
   mode,
   presetId,
   projectId,
+  newMode = 'free',
+  newPresetId,
   now = Date.now(),
 }: BeginNewConversationSessionInput): BeginNewConversationSessionResult {
   const timestamp = normalizeTimestamp(now) ?? Date.now();
@@ -123,11 +128,12 @@ export function beginNewConversationSession({
           title: DEFAULT_CONVERSATION_SESSION_TITLE,
           createdAt: existing.createdAt,
           updatedAt: Math.max(existing.createdAt, timestamp),
-          mode: 'free' as const,
+          mode: newMode,
+          presetId: newPresetId,
           projectId: projectId || undefined,
           messages: [],
         }
-      : createConversationSession({ now: timestamp, projectId });
+      : createConversationSession({ now: timestamp, projectId, mode: newMode, presetId: newPresetId });
     return { sessions: upsertConversationSession(normalizedSessions, active), active };
   }
 
@@ -146,7 +152,7 @@ export function beginNewConversationSession({
     else delete archivedSession.presetId;
     archived = upsertConversationSession(normalizedSessions, archivedSession);
   }
-  const active = createConversationSession({ now: timestamp, projectId });
+  const active = createConversationSession({ now: timestamp, projectId, mode: newMode, presetId: newPresetId });
   return { sessions: upsertConversationSession(archived, active), active };
 }
 

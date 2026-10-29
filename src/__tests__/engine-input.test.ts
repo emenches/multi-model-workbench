@@ -654,6 +654,82 @@ describe('injected engine input hardening', () => {
     },
   );
 
+  it('confirms Claude readiness from a mounted conversation composer even when the hidden native host has no layout rects', async () => {
+    const env = createEnv({ inputKind: 'contenteditable' });
+    env.input.setAttribute('class', 'ProseMirror');
+    env.input.setAttribute('contenteditable', 'true');
+    (env.input as FakeElement & { getClientRects?: () => unknown[] }).getClientRects = () => [];
+    const handler = await installEngine(env);
+    vi.stubGlobal('location', {
+      href: 'https://claude.ai/new',
+      origin: 'https://claude.ai',
+      hostname: 'claude.ai',
+      pathname: '/new',
+    });
+    dispatchAdapter(handler, {
+      provider: 'claude',
+      loginDetectors: ['.ProseMirror[contenteditable="true"]'],
+      loggedOutDetectors: ['input[type="email"]'],
+    });
+    expect(env.emitted.at(-1)).toMatchObject({
+      action: 'STATUS_REPORT',
+      provider: 'claude',
+      payload: { dom: 'ready', login: 'logged_in' },
+    });
+
+    // The same stale/no-layout editor must never count as a login on auth pages.
+    vi.stubGlobal('location', {
+      href: 'https://claude.ai/login',
+      origin: 'https://claude.ai',
+      hostname: 'claude.ai',
+      pathname: '/login',
+    });
+    handler({ v: 1, action: 'CHECK_STATUS', provider: 'claude' } as BridgeMessage);
+    expect(env.emitted.at(-1)).toMatchObject({ payload: { login: 'unknown' } });
+
+    vi.stubGlobal('location', {
+      href: 'https://claude.ai/new',
+      origin: 'https://claude.ai',
+      hostname: 'claude.ai',
+      pathname: '/new',
+    });
+    // A login form takes precedence over even a mounted conversation editor.
+    env.detectorElements.set('input[type="email"]', [new FakeElement(env.document, 'input')]);
+    handler({ v: 1, action: 'CHECK_STATUS', provider: 'claude' } as BridgeMessage);
+    expect(env.emitted.at(-1)).toMatchObject({ payload: { login: 'logged_out' } });
+    env.detectorElements.delete('input[type="email"]');
+
+    // A hidden native NSWindow must not invalidate the SAME positive composer
+    // proof accepted by the guarded native script. Simulate WebKit returning
+    // misleading layout, computed-style and accessibility visibility metadata.
+    env.input.hidden = true;
+    env.input.setAttribute('aria-hidden', 'true');
+    env.input.inert = true;
+    (window as unknown as {
+      getComputedStyle?: (_element: Element) => { display: string; visibility: string; opacity: string };
+    }).getComputedStyle = () => ({ display: 'none', visibility: 'hidden', opacity: '0' });
+    handler({ v: 1, action: 'CHECK_STATUS', provider: 'claude' } as BridgeMessage);
+    expect(env.emitted.at(-1)).toMatchObject({ payload: { dom: 'ready', login: 'logged_in' } });
+
+    // Even a *hidden* login field excludes the native composer-proof path.
+    // A hidden login field does not itself prove logged-out state, either.
+    const hiddenAuthInput = new FakeElement(env.document, 'input');
+    hiddenAuthInput.setAttribute('type', 'password');
+    hiddenAuthInput.hidden = true;
+    handler({ v: 1, action: 'CHECK_STATUS', provider: 'claude' } as BridgeMessage);
+    expect(env.emitted.at(-1)).toMatchObject({ payload: { login: 'unknown' } });
+
+    // A stale composer on an unapproved route never constitutes evidence.
+    vi.stubGlobal('location', {
+      href: 'https://claude.ai/chat/id/extra',
+      origin: 'https://claude.ai',
+      hostname: 'claude.ai',
+      pathname: '/chat/id/extra',
+    });
+    handler({ v: 1, action: 'CHECK_STATUS', provider: 'claude' } as BridgeMessage);
+    expect(env.emitted.at(-1)).toMatchObject({ payload: { login: 'unknown' } });
+  });
+
   it('reports ChatGPT logged out when the login form and a stale composer coexist', async () => {
     const env = createEnv({ inputKind: 'textarea' });
     env.detectorElements.set('[data-testid="login-form"]', [new FakeElement(env.document, 'form')]);

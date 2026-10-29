@@ -31,6 +31,7 @@ export function ConversationSidebar({
   projects,
   activeSessionId,
   disabled,
+  historyDisabled = disabled,
   labels,
   onToggle,
   onNewConversation,
@@ -47,6 +48,8 @@ export function ConversationSidebar({
   projects: readonly WorkbenchProject[];
   activeSessionId: string;
   disabled: boolean;
+  /** Historical sessions stay readable while the active workflow runs. */
+  historyDisabled?: boolean;
   labels: ConversationSidebarLabels;
   locale: string;
   onToggle: () => void;
@@ -58,7 +61,6 @@ export function ConversationSidebar({
   onOpenProjectSettings: () => void;
 }) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string>();
-  const [newChatMenuOpen, setNewChatMenuOpen] = useState(false);
   const [collapsedProjects, setCollapsedProjects] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [projectName, setProjectName] = useState('');
@@ -68,7 +70,6 @@ export function ConversationSidebar({
     if (pendingDeleteId && (collapsed || disabled || !sessions.some((session) => session.id === pendingDeleteId))) {
       setPendingDeleteId(undefined);
     }
-    if (collapsed || disabled) setNewChatMenuOpen(false);
   }, [collapsed, disabled, pendingDeleteId, sessions]);
 
   const knownProjects = new Set(projects.map((project) => project.id));
@@ -84,7 +85,6 @@ export function ConversationSidebar({
     try {
       await onCreateProject(clean);
       setCreating(false);
-      setNewChatMenuOpen(false);
       setProjectName('');
     } catch (error) {
       setProjectError(error instanceof Error ? error.message : String(error));
@@ -101,7 +101,7 @@ export function ConversationSidebar({
             : 'text-zinc-700 hover:bg-white dark:text-zinc-300 dark:hover:bg-zinc-800'
         }`}
         onClick={() => onSelectSession(session)}
-        disabled={disabled}
+        disabled={historyDisabled}
         aria-current={session.id === activeSessionId ? 'page' : undefined}
         title={session.title}
       >
@@ -152,35 +152,13 @@ export function ConversationSidebar({
       <div className="px-2.5 pt-3 pb-1">
         <button type="button"
           className={`workbench-new-conversation ${collapsed ? 'grid h-9 w-9 place-items-center p-0' : 'flex w-full items-center gap-2 px-3 py-2'} rounded-xl border text-sm font-medium disabled:opacity-50`}
-          onClick={() => collapsed ? onNewConversation() : setNewChatMenuOpen((open) => !open)}
-          aria-haspopup={collapsed ? undefined : 'menu'} aria-expanded={collapsed ? undefined : newChatMenuOpen}
+          onClick={() => onNewConversation()}
           disabled={disabled}
           aria-label={labels.newConversation} title={labels.newConversation}>
           <span className="text-lg leading-none" aria-hidden="true">＋</span>
           {!collapsed ? <span className="flex-1 text-left">{labels.newConversation}</span> : null}
-          {!collapsed ? <span className="text-zinc-400" aria-hidden="true">⌄</span> : null}
         </button>
       </div>
-      {!collapsed && newChatMenuOpen ? (
-        <div className="workbench-new-chat-menu mx-2.5 mb-2 space-y-1 rounded-xl border border-zinc-200 bg-white p-2 shadow-sm dark:border-zinc-700 dark:bg-zinc-900" role="menu" aria-label={labels.newConversation}>
-          <button type="button" role="menuitem" className="w-full rounded-lg px-2.5 py-2 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            onClick={() => { setNewChatMenuOpen(false); onNewConversation(); }} disabled={disabled}>
-            {labels.unassigned}
-          </button>
-          {projects.map((project) => (
-            <button type="button" role="menuitem" key={project.id}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              onClick={() => { setNewChatMenuOpen(false); onNewConversation(project.id); }} disabled={disabled}>
-              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M3 7h7l2 2h9v10H3z"/></svg>
-              <span className="truncate">{project.name}</span>
-            </button>
-          ))}
-          <button type="button" role="menuitem" className="w-full border-t border-zinc-200 px-2.5 py-2 pt-3 text-left text-xs font-medium text-sky-700 dark:border-zinc-700 dark:text-sky-300"
-            onClick={() => { setCreating(true); setNewChatMenuOpen(false); }} disabled={disabled || projects.length >= 100}>
-            + {labels.newProject}
-          </button>
-        </div>
-      ) : null}
       {!collapsed ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pb-3">
           <section aria-label={labels.projects}>
