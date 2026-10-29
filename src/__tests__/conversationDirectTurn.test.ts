@@ -7,11 +7,12 @@ function transport() {
   const pending = new Map<string, { resolve: (value: string) => void; reject: (error: Error) => void }>();
   const sends: string[] = [];
   const stops: string[] = [];
+  const released: string[] = [];
   const awaiting: string[] = [];
   let nextTurn = 0;
   const host: IsolatedNativeTurnHost = {
     reserveTurn() { nextTurn += 1; return nextTurn; },
-    releaseTurn() {},
+    releaseTurn(provider, turn) { released.push(`${provider}:${turn}`); },
     waitForResponse(provider, turn) {
       return new Promise((resolve, reject) => pending.set(`${provider}:${turn}`, { resolve, reject }));
     },
@@ -22,7 +23,7 @@ function transport() {
     async send(provider, text) { sends.push(`${provider}:${text}`); },
     async stop(provider) { stops.push(provider); },
   };
-  return { host, sends, stops, awaiting, complete(provider: AIProvider, turn: number, response: string) {
+  return { host, sends, stops, released, awaiting, complete(provider: AIProvider, turn: number, response: string) {
     pending.get(`${provider}:${turn}`)?.resolve(response);
   } };
 }
@@ -80,5 +81,6 @@ describe('isolated native conversation turns', () => {
     await expect(executeIsolatedNativeTurn(a.scope, 'gemini', 'Do not send', fake.host))
       .rejects.toThrow('Provider is not leased');
     expect(fake.sends).toEqual([]);
+    expect(fake.released).toEqual(['gemini:1']);
   });
 });
