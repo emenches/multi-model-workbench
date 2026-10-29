@@ -12,6 +12,7 @@ function fakeNative() {
   let turn = 0;
   const transport: IsolatedNativeTurnHost = {
     reserveTurn() { return ++turn; },
+    releaseTurn() {},
     waitForResponse(provider) {
       return new Promise((resolve, reject) => { pending.set(provider, { resolve, reject }); });
     },
