@@ -78,6 +78,49 @@ describe('direct concurrent conversation runtime', () => {
     }
   });
 
+  it('retains all fanout provider leases until remaining sends settle after one send fails', async () => {
+    let sessions = [
+      createConversationSession({ id: 'one', now: 1 }),
+      createConversationSession({ id: 'two', now: 2 }),
+    ];
+    const native = fakeNative();
+    const runtime = new ConversationDirectRuntime({
+      update(reducer) { sessions = reducer(sessions); },
+    });
+    const failingTransport: IsolatedNativeTurnHost = {
+      ...native.transport,
+      async send(provider, prompt) {
+        if (provider === 'claude') throw new Error('Simulated native send error');
+        return native.transport.send(provider, prompt);
+      },
+    };
+    try {
+      const first = runtime.start({
+        runId: 'fanout', sessionId: 'one', providers: ['claude', 'gemini'],
+        prompt: 'Two agents', prepareProvider: async (provider) => `first-${provider}`,
+        transport: failingTransport,
+      });
+      const second = runtime.start({
+        runId: 'later', sessionId: 'two', providers: ['gemini'],
+        prompt: 'Waiting on Gemini', prepareProvider: async () => 'second-gemini',
+        transport: native.transport,
+      });
+      await flush();
+      expect(runtime.snapshotForSession('one')[0]?.status).toBe('running');
+      expect(runtime.snapshotForSession('two')[0]?.status).toBe('queued');
+      expect(native.started).toEqual(['gemini']);
+      native.complete('gemini', 'First Gemini finished');
+      expect((await first.finished).status).toBe('failed');
+      await flush();
+      expect(runtime.snapshotForSession('two')[0]?.status).toBe('running');
+      expect(native.started).toEqual(['gemini', 'gemini']);
+      expect(runtime.cancel('later')).toBe(true);
+      expect((await second.finished).status).toBe('cancelled');
+    } finally {
+      runtime.dispose();
+    }
+  });
+
   it('stops only the cancelled provider while unrelated conversation finishes', async () => {
     let sessions: ConversationSession[] = [
       createConversationSession({ id: 'a', now: 1 }),
