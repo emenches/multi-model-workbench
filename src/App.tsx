@@ -2727,6 +2727,7 @@ export default function App() {
               locale={locale}
               responseLanguagePolicy={createResponseLanguagePolicy(appSettings.responseLanguage, locale)}
               activeProviders={activeProviders}
+              executionBlocked={anyDirectBusy || workflowBusy}
               onReplayWillRun={prepareReplayTrace}
               onReplaySettled={settleReplayTrace}
               onSnapshotComplete={persistReplaySnapshot}
