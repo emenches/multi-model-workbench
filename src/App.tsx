@@ -17,6 +17,8 @@ import { formatI18n, t as translateKey } from './i18n/t';
 import { mergePullBridgeState, type PullBridgeState } from './appBridgeState';
 import { onCheckpoint, type PendingCheckpoint } from './workflow/checkpoint';
 import { isSendable, onStepTimeoutEvent, runWorkflow } from './workflow';
+import { ConversationDirectRuntime } from './workflow/conversationDirectRuntime';
+import type { ConversationJobSnapshot } from './workflow/conversationScheduler';
 import { createResponseLanguagePolicy } from './workflow/responseLanguage';
 import type { PreflightResult } from './workflow/preflight';
 import { bubbleAuthorLabel } from './bubbleAuthorLabel';
@@ -49,6 +51,7 @@ import {
 } from './ui/conversationPersistence';
 import {
   buildConversationReplayContext,
+  questionWithConversationContext,
   createActiveProviderResponse,
   createConversationMessageId,
   ensureFreshProviderSessions,
@@ -300,6 +303,13 @@ export default function App() {
   // WORKFLOW_STATUS can briefly clear before runWorkflow resolves. Keep a
   // separate owner lock so history previews cannot steal in-flight results.
   const [runningSessionId, setRunningSessionId] = useState<string>();
+  const [directRuns, setDirectRuns] = useState<Record<string, ConversationJobSnapshot>>({});
+  const directRuntimeRef = useRef<ConversationDirectRuntime>();
+  // Each native provider belongs to one execution path at a time. The legacy
+  // workflow still runs as a singleton; do not start it while direct runs exist.
+  const directOwnedSessionIdsRef = useRef(new Set<string>());
+  const directTouchedProvidersRef = useRef(new Set<AIProvider>());
+  const legacyRunActiveRef = useRef(false);
   const [preflightLoginPending, setPreflightLoginPending] = useState(false);
   const [preflight, setPreflight] = useState<{ mode: PreflightSubject; result: PreflightResult } | undefined>();
   const [stepTimeout, setStepTimeout] = useState<StepTimeoutDialogState | undefined>();
@@ -328,6 +338,16 @@ export default function App() {
   const readingSession = workflowBusy && readingSessionId && readingSessionId !== activeSessionId
     ? sessions.find((session) => session.id === readingSessionId)
     : undefined;
+  const directJobs = Object.values(directRuns);
+  const activeDirectJob = [...directJobs].reverse().find((job) => job.sessionId === activeSessionId);
+  const activeDirectBusy = activeDirectJob?.status === 'running' || activeDirectJob?.status === 'queued';
+  const anyDirectBusy = directJobs.some((job) => job.status === 'running' || job.status === 'queued');
+  const directView = directOwnedSessionIdsRef.current.has(activeSessionId) && !workflowBusy;
+  const savedActiveSession = sessions.find((session) => session.id === activeSessionId);
+  const visibleMessages = directView && savedActiveSession ? bubblesFromSession(savedActiveSession) : messages;
+  const sidebarRunStatuses: Record<string, ConversationJobSnapshot['status']> = {};
+  for (const job of directJobs) sidebarRunStatuses[job.sessionId] = job.status;
+  if (runningSessionId) sidebarRunStatuses[runningSessionId] = 'running';
   // Conversation association is authoritative: switching between chats also
   // switches the project instructions applied to the next workflow.
   const effectiveProjectStore = useMemo<ProjectStore>(() => ({
@@ -555,6 +575,26 @@ export default function App() {
   }, [states]);
 
   useEffect(() => {
+    const runtime = new ConversationDirectRuntime({
+      update: (reducer) => {
+        setSessions((current) => persistConversationSessions(reducer(current)));
+      },
+    });
+    directRuntimeRef.current = runtime;
+    const unsubscribe = runtime.coordinator.subscribe((snapshot) => {
+      setDirectRuns((current) => ({ ...current, [snapshot.id]: snapshot }));
+    });
+    return () => {
+      unsubscribe();
+      runtime.coordinator.scheduler.snapshots().forEach((job) => {
+        if (job.status === 'running' || job.status === 'queued') runtime.cancel(job.id);
+      });
+      runtime.dispose();
+      if (directRuntimeRef.current === runtime) directRuntimeRef.current = undefined;
+    };
+  }, []);
+
+  useEffect(() => {
     userHiddenRef.current = userHidden;
   }, [userHidden]);
 
@@ -583,6 +623,9 @@ export default function App() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setSessions((current) => {
+        // A direct run writes directly to its owning saved conversation. Never
+        // overwrite streaming replies with the selected view's stale React state.
+        if (directOwnedSessionIdsRef.current.has(activeSessionId) && !legacyRunActiveRef.current) return current;
         const existing = current.find((session) => session.id === activeSessionId);
         const storedMessages = conversationMessages(messages);
         const storedPresetId = conversationPresetId(presetId, mode);
@@ -841,6 +884,10 @@ export default function App() {
         return;
       }
       if (!isRenderableResponseMessage(message) || !message.provider) return;
+      // Background direct runs own provider messages via the run router. The
+      // legacy listener must not append their response to the viewed chat,
+      // including late native DONE events after a run has just settled.
+      if (!legacyRunActiveRef.current && directTouchedProvidersRef.current.has(message.provider)) return;
       setProcessTrace((current) => (current ? reduceProcessTraceEvent(current, message, localeRef.current) : current));
       let active = activeResponses.current.get(message.provider);
       if (!active) {
@@ -1536,14 +1583,14 @@ export default function App() {
     const container = transcriptRef.current;
     if (!container) return;
     const sessionChanged = transcriptSessionRef.current !== activeSessionId;
-    const latestMessage = messages[messages.length - 1];
+    const latestMessage = visibleMessages[visibleMessages.length - 1];
     const userSentMessage =
       latestMessage?.role === 'user' && transcriptLastMessageIdRef.current !== latestMessage.id;
     transcriptSessionRef.current = activeSessionId;
     transcriptLastMessageIdRef.current = latestMessage?.id;
     if (sessionChanged || userSentMessage) transcriptStickToEndRef.current = true;
     if (transcriptStickToEndRef.current) scrollTranscriptToEnd(container);
-  }, [activeSessionId, messages]);
+  }, [activeSessionId, visibleMessages]);
 
   // overlay 關閉後立即把置中的 webview 推回舞台，不等 2.5 秒的定時同步。
   useEffect(() => {
@@ -1584,6 +1631,8 @@ export default function App() {
         ...current,
         { id: createConversationMessageId('user'), role: 'user', content: trimmed, timestamp: Date.now(), final: true },
       ]);
+      legacyRunActiveRef.current = true;
+      directOwnedSessionIdsRef.current.delete(activeSessionId);
       setRunningSessionId(activeSessionId);
       setIsProcessing(processingAfterSend());
       setProcessTrace(createProcessTrace(mode, workflowTargets ?? [], localeRef.current, presetId));
@@ -1621,6 +1670,7 @@ export default function App() {
       activeResponses.current.clear();
       setIsProcessing(processingAfterSettle());
     } finally {
+      legacyRunActiveRef.current = false;
       setRunningSessionId(undefined);
       releaseWorkflowExecution();
     }
