@@ -587,7 +587,26 @@ class InactiveSendOperationError extends Error {
     if (document.querySelector('input[type="password"], input[autocomplete="one-time-code"], input[type="email"]')) {
       return false;
     }
-    return document.querySelector('.ProseMirror[contenteditable="true"]') !== null;
+    const editor = document.querySelector('.ProseMirror[contenteditable="true"]');
+    if (!editor || (editor as HTMLElement).hidden || editor.getAttribute('aria-hidden') === 'true' ||
+        editor.closest('[inert]')) {
+      return false;
+    }
+    // Skip only the layout-geometry gate: WKWebView can withhold client rects
+    // while its containing NSWindow is ordered out. CSS-hidden composers still
+    // do not count as authentication evidence.
+    try {
+      if (typeof window.getComputedStyle === 'function') {
+        const style = window.getComputedStyle(editor);
+        if (style.display === 'none' || style.visibility === 'hidden' ||
+            (style.opacity !== '' && Number(style.opacity) === 0)) {
+          return false;
+        }
+      }
+    } catch {
+      return false;
+    }
+    return true;
   }
 
   function reportStatus() {
