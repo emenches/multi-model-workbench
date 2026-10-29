@@ -53,6 +53,9 @@ describe('conversation sidebar navigation', () => {
     expect(html).toContain('aria-label="Conversation running"');
     expect(html).toContain('data-run-status="completed"');
     expect(html).toContain('Historical notes');
+    // Running conversations remain readable but cannot be deleted or moved
+    // while a provider still owns their native conversation.
+    expect(html).toMatch(/aria-label="Delete" title="Delete" disabled=""/);
   });
 
   it('never opens a new-conversation options menu, even with projects', () => {
