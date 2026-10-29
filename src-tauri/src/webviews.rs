@@ -156,6 +156,41 @@ fn claude_background_recovery_needed(state: &ProviderState, now: u64) -> bool {
         && now.saturating_sub(state.last_status_at) >= 5_000
 }
 
+// Host-only, bounded readiness diagnostics. No URL, DOM text, cookies, tokens,
+// account identifiers, or conversation content is ever emitted. These events are
+// stored only in the user's existing in-memory Diagnostics event log.
+fn note_claude_background_diagnostic(app: &AppHandle, phase: &'static str) {
+    static LAST_EMITTED: OnceLock<Mutex<HashMap<&'static str, u64>>> = OnceLock::new();
+    let now = now_ms();
+    let guard = LAST_EMITTED.get_or_init(|| Mutex::new(HashMap::new()));
+    let Ok(mut emitted) = guard.lock() else { return };
+    if emitted.get(phase).is_some_and(|last| now.saturating_sub(*last) < 15_000) {
+        return;
+    }
+    emitted.insert(phase, now);
+    drop(emitted);
+    let age = now.saturating_sub(current_state("claude").last_status_at);
+    let visibility = app
+        .get_window(&provider_page_window_label("claude"))
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    let _ = app.emit_to(
+        "main",
+        "bridge://msg",
+        serde_json::json!({
+            "v": 1,
+            "action": "STATUS_REPORT",
+            "provider": "claude",
+            "transport": "local",
+            "payload": {
+                "pullDiagnostic": phase,
+                "pullFailureKind": if visibility { "window-visible" } else { "window-hidden" },
+                "statusSilentMs": age
+            }
+        }),
+    );
+}
+
 fn schedule_claude_bridge_install(app: &AppHandle, webview: &tauri::Webview) {
     // Both title and load events can fire during SPA navigation. Never launch
     // simultaneous installers or install the engine twice in the same document.
@@ -181,19 +216,28 @@ fn schedule_claude_bridge_install(app: &AppHandle, webview: &tauri::Webview) {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let sender = std::sync::Arc::new(std::sync::Mutex::new(Some(sender)));
             let callback_sender = sender.clone();
-            if webview.eval_with_callback(CLAUDE_COMPOSER_READY_JS, move |result| {
+            match webview.eval_with_callback(CLAUDE_COMPOSER_READY_JS, move |result| {
                 if let Ok(mut guard) = callback_sender.lock() {
                     if let Some(sender) = guard.take() {
                         let _ = sender.send(result);
                     }
                 }
-            }).is_ok() {
-                if let Ok(Ok(result)) = tokio::time::timeout(Duration::from_secs(2), receiver).await {
-                    if result.trim() == "true" {
+            }) {
+                Ok(()) => match tokio::time::timeout(Duration::from_secs(2), receiver).await {
+                    Ok(Ok(result)) if result.trim() == "true" => {
+                        note_claude_background_diagnostic(&app, "claude-composer-detected");
                         // The bootstrap is also guarded inside WebKit. It does not run on login.
-                        if install_claude_bridge(&app).is_ok() { return; }
+                        if install_claude_bridge(&app).is_ok() {
+                            note_claude_background_diagnostic(&app, "claude-bridge-install-dispatched");
+                            return;
+                        }
+                        note_claude_background_diagnostic(&app, "claude-bridge-install-error");
                     }
-                }
+                    Ok(Ok(_)) => note_claude_background_diagnostic(&app, "claude-composer-absent"),
+                    Ok(Err(_)) => note_claude_background_diagnostic(&app, "claude-probe-callback-dropped"),
+                    Err(_) => note_claude_background_diagnostic(&app, "claude-probe-timeout"),
+                },
+                Err(_) => note_claude_background_diagnostic(&app, "claude-probe-eval-rejected"),
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
@@ -3003,8 +3047,13 @@ fn run_staleness_check(app: &AppHandle) {
     if claude_to_recover {
         if let Some(webview) = app.get_webview(&provider_label("claude")) {
             if webview.url().ok().is_some_and(|url| claude_conversation_url(&url)) {
+                note_claude_background_diagnostic(app, "claude-watchdog-retry");
                 schedule_claude_bridge_install(app, &webview);
+            } else {
+                note_claude_background_diagnostic(app, "claude-watchdog-nonconversation");
             }
+        } else {
+            note_claude_background_diagnostic(app, "claude-watchdog-no-webview");
         }
     }
     for provider in to_check {
