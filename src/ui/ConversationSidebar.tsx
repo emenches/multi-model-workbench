@@ -32,7 +32,7 @@ export function ConversationSidebar({
   activeSessionId,
   disabled,
   historyDisabled = disabled,
-  labels:
+  labels,
   onToggle,
   onNewConversation,
   onSelectSession,
