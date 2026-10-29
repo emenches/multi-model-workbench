@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AI_PROVIDERS, CHAT_MODES, DEFAULT_FREE_TARGET_PROVIDERS } from '../shared/constants';
 import type { AIProvider, BridgeMessage, ChatMode, ModeRoles, ProviderState, WorkflowPresetId } from '../shared/types';
-import { startBridgePull, resetProviderBootState } from './bridge/pull';
+import { startBridgePull, resetProviderBootState, lastSeenProviderBoot } from './bridge/pull';
 import { isRenderableResponseMessage } from './bridge/render';
 import { publishBridgeMessage } from './bridge/bus';
 import { EchoPanel } from './dev/EchoPanel';
@@ -310,6 +310,7 @@ export default function App() {
   const directOwnedSessionIdsRef = useRef(new Set<string>());
   const directTouchedProvidersRef = useRef(new Set<AIProvider>());
   const legacyRunActiveRef = useRef(false);
+  const legacyRunProvidersRef = useRef(new Set<AIProvider>());
   const [preflightLoginPending, setPreflightLoginPending] = useState(false);
   const [preflight, setPreflight] = useState<{ mode: PreflightSubject; result: PreflightResult } | undefined>();
   const [stepTimeout, setStepTimeout] = useState<StepTimeoutDialogState | undefined>();
@@ -884,6 +885,16 @@ export default function App() {
         return;
       }
       if (!isRenderableResponseMessage(message) || !message.provider) return;
+      // Never accept a pulled answer from an older native document, regardless
+      // of which workflow used the provider most recently.
+      if (message.transport === 'pull') {
+        const currentBoot = lastSeenProviderBoot(message.provider);
+        if (!message.bootId || !currentBoot || message.bootId !== currentBoot) return;
+      }
+      // A legacy workflow may be active while an old direct provider emits
+      // a late callback. Only accept its actual participant providers.
+      if (legacyRunActiveRef.current && message.provider !== 'system' &&
+          !legacyRunProvidersRef.current.has(message.provider)) return;
       // Background direct runs own provider messages via the run router. The
       // legacy listener must not append their response to the viewed chat,
       // including late native DONE events after a run has just settled.
@@ -1632,6 +1643,9 @@ export default function App() {
         { id: createConversationMessageId('user'), role: 'user', content: trimmed, timestamp: Date.now(), final: true },
       ]);
       legacyRunActiveRef.current = true;
+      legacyRunProvidersRef.current = new Set(
+        workflowRoles ? Object.values(workflowRoles) : workflowTargets ?? [],
+      );
       directOwnedSessionIdsRef.current.delete(activeSessionId);
       setRunningSessionId(activeSessionId);
       setIsProcessing(processingAfterSend());
@@ -1671,6 +1685,7 @@ export default function App() {
       setIsProcessing(processingAfterSettle());
     } finally {
       legacyRunActiveRef.current = false;
+      legacyRunProvidersRef.current.clear();
       setRunningSessionId(undefined);
       releaseWorkflowExecution();
     }
