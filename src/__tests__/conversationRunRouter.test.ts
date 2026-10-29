@@ -16,6 +16,10 @@ describe('per-conversation event ownership', () => {
     router.registerRun({ runId: 'run-two', sessionId: 'conversation-two' });
     router.claimProvider('run-one', 'claude', 4);
     router.claimProvider('run-two', 'gemini', 8);
+    // Even the first run needs a fresh, confirmed native conversation.
+    expect(router.route(message('RESPONSE_DONE', 'claude', 4))).toBeUndefined();
+    expect(router.confirmFreshProviderSession('run-one', 'claude', 'claude-boot-one')).toBe(true);
+    expect(router.confirmFreshProviderSession('run-two', 'gemini', 'gemini-boot-one')).toBe(true);
     expect(router.route(message('RESPONSE_CHUNK', 'claude', 4))?.owner.sessionId).toBe('conversation-one');
     expect(router.route(message('RESPONSE_DONE', 'gemini', 8))?.owner.sessionId).toBe('conversation-two');
     expect(router.route(message('RESPONSE_DONE', 'claude', 5))).toBeUndefined();
@@ -50,6 +54,7 @@ describe('per-conversation event ownership', () => {
     router.registerRun({ runId: 'two', sessionId: 'b' });
     router.registerRun({ runId: 'three', sessionId: 'c' });
     router.claimProvider('one', 'claude');
+    expect(router.confirmFreshProviderSession('one', 'claude', 'boot-one')).toBe(true);
     router.finishRun('one');
     router.claimProvider('two', 'claude');
     expect(router.confirmFreshProviderSession('two', 'claude', 'boot-two')).toBe(true);
