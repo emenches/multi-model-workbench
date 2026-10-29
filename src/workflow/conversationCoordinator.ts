@@ -1,5 +1,6 @@
 import type { AIProvider, BridgeMessage } from '../../shared/types';
 import type { ConversationSession } from '../ui/conversationSessions';
+import { prepareFreshNativeConversation } from './conversationNativeSession';
 import {
   ConversationExecutionScheduler,
   type ConversationJobSnapshot,
@@ -31,7 +32,7 @@ export interface ConversationWork {
   readonly runId: string;
   readonly sessionId: string;
   readonly providers: readonly AIProvider[];
-  readonly prepareProvider: PrepareProviderConversation;
+  readonly prepareProvider?: PrepareProviderConversation;
   readonly execute: (context: ConversationWorkContext) => Promise<void>;
 }
 
@@ -69,7 +70,7 @@ export class ConversationCoordinator {
           for (const provider of [...new Set(work.providers)]) {
             if (signal.aborted) return;
             this.router.claimProvider(owner.runId, provider);
-            const bootId = await work.prepareProvider(provider, signal);
+            const bootId = await (work.prepareProvider ?? prepareFreshNativeConversation)(provider, signal);
             if (signal.aborted) return;
             if (!this.router.confirmFreshProviderSession(owner.runId, provider, bootId)) {
               throw new Error('The provider did not prove a fresh native conversation');
