@@ -1730,19 +1730,8 @@ export default function App() {
       setWorkflowStatus('Finish or cancel the active conversations before starting this structured workflow.');
       return false;
     }
-    // Record the implicit initial agent as soon as this conversation is sent.
-    // Otherwise a restarted Simple Chat could silently choose a different
-    // model if login/availability ordering changes.
-    if (presetId === 'simple' && simpleAgent && !savedSimpleAgent) {
-      setSessions((current) => {
-        const existing = current.find((session) => session.id === activeSessionId);
-        if (!existing || existing.singleProvider) return current;
-        return persistConversationSessions(upsertConversationSession(current, {
-          ...existing, mode: 'free', presetId: 'simple', singleProvider: simpleAgent,
-          updatedAt: Date.now(),
-        }));
-      });
-    }
+    // Simple/Free sends have already returned through the isolated path.
+    // Only structured legacy workflow modes reach the block below.
     const brainstorm = presetId === 'brainstorm';
     const serialMode = isSerialMode(mode) ? mode as Exclude<ChatMode, 'free'> : undefined;
     const modeRoles = settingsRef.current.modeRoles;
@@ -1770,9 +1759,7 @@ export default function App() {
           : undefined;
     const participants = workflowRoles
       ? [...new Set(Object.values(workflowRoles))]
-      : presetId === 'simple'
-        ? simpleChatTargets(simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, statesRef.current)
-        : freeModeTargets(targets, statesRef.current);
+      : freeModeTargets(targets, statesRef.current);
 
     const providersToFreshen = pendingProviderSessionResets(
       pendingProviderResetRef.current,
@@ -1842,11 +1829,7 @@ export default function App() {
       }
     }
 
-    const workflowTargets = serialGraph
-      ? undefined
-      : presetId === 'simple'
-        ? simpleChatTargets(simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, statesRef.current)
-        : freeModeTargets(targets, statesRef.current);
+    const workflowTargets = serialGraph ? undefined : freeModeTargets(targets, statesRef.current);
     if (workflowTargets?.length === 0) {
       setWorkflowStatus(translate('input.sendFailed'));
       setIsProcessing(false);
