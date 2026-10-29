@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { BridgeMessage } from '../../shared/types';
 import { ConversationRunRouter } from '../workflow/conversationRunRouter';
 
-function message(action: BridgeMessage['action'], provider: 'claude' | 'gemini', turn?: number): BridgeMessage {
+function message(action: BridgeMessage['action'], provider: 'claude' | 'gemini', turn?: number, bootId = provider === 'claude' ? 'claude-boot-one' : 'gemini-boot-one'): BridgeMessage {
   return {
-    v: 1, action, provider, transport: 'pull',
+    v: 1, action, provider, bootId, transport: 'pull',
     payload: typeof turn === 'number' ? { text: 'reply', turn } : { text: 'reply' },
   } as BridgeMessage;
 }
@@ -23,6 +23,8 @@ describe('per-conversation event ownership', () => {
     expect(router.route(message('RESPONSE_CHUNK', 'claude', 4))?.owner.sessionId).toBe('conversation-one');
     expect(router.route(message('RESPONSE_DONE', 'gemini', 8))?.owner.sessionId).toBe('conversation-two');
     expect(router.route(message('RESPONSE_DONE', 'claude', 5))).toBeUndefined();
+    expect(router.route(message('RESPONSE_DONE', 'claude', 4, 'stale-document'))).toBeUndefined();
+    expect(router.route({ ...message('RESPONSE_DONE', 'claude', 4), bootId: undefined })).toBeUndefined();
     expect(router.route(message('STATUS_REPORT', 'claude'))).toBeUndefined();
   });
 
@@ -43,7 +45,7 @@ describe('per-conversation event ownership', () => {
     expect(router.route(message('RESPONSE_DONE', 'claude'))).toBeUndefined();
     expect(router.confirmFreshProviderSession('two', 'claude', '')).toBe(false);
     expect(router.confirmFreshProviderSession('two', 'claude', 'fresh-native-boot')).toBe(true);
-    expect(router.route(message('RESPONSE_DONE', 'claude', 2))?.owner.sessionId).toBe('b');
+    expect(router.route(message('RESPONSE_DONE', 'claude', 2, 'fresh-native-boot'))?.owner.sessionId).toBe('b');
   });
 
 
@@ -63,7 +65,7 @@ describe('per-conversation event ownership', () => {
     expect(router.confirmFreshProviderSession('three', 'claude', 'boot-two')).toBe(false);
     expect(router.route(message('RESPONSE_DONE', 'claude'))).toBeUndefined();
     expect(router.confirmFreshProviderSession('three', 'claude', 'boot-three')).toBe(true);
-    expect(router.route(message('RESPONSE_DONE', 'claude'))?.owner.sessionId).toBe('c');
+    expect(router.route(message('RESPONSE_DONE', 'claude', undefined, 'boot-three'))?.owner.sessionId).toBe('c');
   });
 
   it('does not allow a run ID to be rebound to a different session', () => {
