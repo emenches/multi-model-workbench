@@ -47,6 +47,24 @@ fn main_window_recovery(main_window_exists: bool, _has_visible_windows: bool) ->
     }
 }
 
+/// After an external display disconnects, the last saved native window
+/// origin may be outside every currently attached screen. Only recenter when
+/// the window has no meaningful overlap with *any* monitor.
+#[cfg(any(test, target_os = "macos"))]
+fn main_window_offscreen(
+    window: (i32, i32, u32, u32),
+    monitors: &[(i32, i32, u32, u32)],
+) -> bool {
+    if monitors.is_empty() { return false; } // No trustworthy display information.
+    let (x, y, w, h) = window;
+    let (right, bottom) = (i64::from(x) + i64::from(w), i64::from(y) + i64::from(h));
+    !monitors.iter().any(|&(mx, my, mw, mh)| {
+        let overlap_width = right.min(i64::from(mx) + i64::from(mw)) - i64::from(x).max(i64::from(mx));
+        let overlap_height = bottom.min(i64::from(my) + i64::from(mh)) - i64::from(y).max(i64::from(my));
+        overlap_width >= 80 && overlap_height >= 50
+    })
+}
+
 #[cfg(target_os = "macos")]
 fn show_and_focus_main_window(app: &tauri::AppHandle, has_visible_windows: bool) -> Result<(), String> {
     // A red-button close may have destroyed the control WebView in older
@@ -68,6 +86,23 @@ fn show_and_focus_main_window(app: &tauri::AppHandle, has_visible_windows: bool)
     // A minimized or hidden main window does not become visible just because
     // macOS activates the process in the Dock.
     main.unminimize().map_err(|error| error.to_string())?;
+    // Check actual physical monitor bounds instead of using the Cocoa
+    // has_visible_windows flag (which also counts provider/login windows).
+    if let (Ok(position), Ok(size), Ok(monitors)) =
+        (main.outer_position(), main.outer_size(), main.available_monitors())
+    {
+        let monitor_rects: Vec<_> = monitors.iter().map(|monitor| {
+            let origin = monitor.position();
+            let size = monitor.size();
+            (origin.x, origin.y, size.width, size.height)
+        }).collect();
+        if main_window_offscreen(
+            (position.x, position.y, size.width, size.height),
+            &monitor_rects,
+        ) {
+            main.center().map_err(|error| error.to_string())?;
+        }
+    }
     main.show().map_err(|error| error.to_string())?;
     main.set_focus().map_err(|error| error.to_string())?;
     let _ = app.emit_to("main", "workbench://return", ());
@@ -229,5 +264,16 @@ mod provider_menu_tests {
     fn dock_reopen_recreates_missing_main_regardless_of_other_visible_windows() {
         assert_eq!(main_window_recovery(false, true), MainWindowRecovery::RecreateFromConfig);
         assert_eq!(main_window_recovery(false, false), MainWindowRecovery::RecreateFromConfig);
+    }
+
+    #[test]
+    fn disconnected_monitor_requires_recenter_only_when_window_fully_lost() {
+        let screens = [(0, 0, 2560, 1440)];
+        assert!(!main_window_offscreen((200, 100, 1200, 800), &screens));
+        assert!(!main_window_offscreen((2490, 400, 800, 600), &screens));
+        assert!(main_window_offscreen((2800, 400, 800, 600), &screens));
+        assert!(main_window_offscreen((-2000, 0, 1000, 800), &screens));
+        // Do not recenter if the window manager could not query displays.
+        assert!(!main_window_offscreen((2800, 400, 800, 600), &[]));
     }
 }
