@@ -622,6 +622,16 @@ export default function App() {
   }, [sessionSidebarCollapsed]);
 
   useEffect(() => {
+    // The session store is authoritative while a direct job streams in the
+    // background. Synchronize the legacy local transcript before the user
+    // starts a different workflow in this same conversation; otherwise a
+    // subsequent Debate or Coding send could overwrite these stored replies
+    // with the older, pre-stream React messages array.
+    if (workflowBusy || !directOwnedSessionIdsRef.current.has(activeSessionId) || !savedActiveSession) return;
+    setMessages(bubblesFromSession(savedActiveSession));
+  }, [activeSessionId, savedActiveSession, workflowBusy]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       setSessions((current) => {
         // A direct run writes directly to its owning saved conversation. Never
