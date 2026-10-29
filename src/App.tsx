@@ -1696,13 +1696,31 @@ export default function App() {
     // The new Simple Chat / Free fanout engine has per-session ownership and
     // provider leases. Structured graphs still have a global runtime; do not
     // overlap those with any direct run until the graph state is refactored.
-    if (presetId === 'simple' || presetId === 'free') {
+    if (presetId === 'simple' || presetId === 'free' || presetId === 'consult') {
       if (workflowBusy) return false;
       const runtime = directRuntimeRef.current;
       if (!runtime) return false;
-      const providers = presetId === 'simple'
-        ? simpleChatTargets(simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, statesRef.current)
-        : freeModeTargets(targets, statesRef.current);
+      // Preserve Consult's existing dynamic role selection and independent
+      // first/second providers. The coordinator safely queues jobs which
+      // share any native provider tab, without cancelling another Consult.
+      const consultRoles = presetId === 'consult'
+        ? chooseConsultRoles(
+            settingsRef.current.modeRoles.consult,
+            availableConsultProviders(
+              statesRef.current,
+              activeProvidersForStandby(settingsRef.current.standbyProvider),
+            ),
+          )
+        : undefined;
+      if (presetId === 'consult' && !consultRoles) {
+        setWorkflowStatus('Consult requires two signed-in, ready providers.');
+        return false;
+      }
+      const providers = consultRoles
+        ? [...new Set(Object.values(consultRoles))]
+        : presetId === 'simple'
+          ? simpleChatTargets(simpleAgent && activeProviders.includes(simpleAgent) ? simpleAgent : undefined, statesRef.current)
+          : freeModeTargets(targets, statesRef.current);
       if (providers.length === 0) return false;
       const now = Date.now();
       const sessionId = activeSessionId;
@@ -1734,7 +1752,17 @@ export default function App() {
       setWorkflowStatus('');
       recordEventLog(eventFromWorkflowStart(mode, trimmed.length, providers.length));
       try {
-        runtime.start({ runId, sessionId, providers, prompt });
+        const policy = createResponseLanguagePolicy(
+          settingsRef.current.responseLanguage, localeRef.current,
+        );
+        if (consultRoles) {
+          runtime.startConsult({
+            runId, sessionId, roles: consultRoles, question: prompt,
+            locale: localeRef.current, responseLanguagePolicy: policy,
+          });
+        } else {
+          runtime.start({ runId, sessionId, providers, prompt, responseLanguagePolicy: policy });
+        }
       } catch (reason) {
         setWorkflowStatus(reason instanceof Error ? reason.message : 'Unable to start conversation');
         return false;
@@ -1745,8 +1773,8 @@ export default function App() {
       setWorkflowStatus('Finish or cancel the active conversations before starting this structured workflow.');
       return false;
     }
-    // Simple/Free sends have already returned through the isolated path.
-    // Only structured legacy workflow modes reach the block below.
+    // Simple/Free/Consult sends have already returned through the isolated
+    // path. Other structured modes still use the legacy singleton.
     const brainstorm = presetId === 'brainstorm';
     const serialMode = isSerialMode(mode) ? mode as Exclude<ChatMode, 'free'> : undefined;
     const modeRoles = settingsRef.current.modeRoles;
