@@ -576,37 +576,23 @@ class InactiveSendOperationError extends Error {
     return false;
   }
 
-  // The native Claude installer is allowed to start only after this exact
-  // conversation-scoped, login-form-free composer guard succeeds. Reuse that
-  // evidence for login status: an offscreen WKWebView can report zero layout
-  // rects even though the authenticated editor is mounted and usable once
-  // foregrounded. Never infer authentication from a URL alone.
+  // Match the native CLAUDE_COMPOSER_READY_JS proof EXACTLY. The native
+  // installer just verified this same composer on a hidden WKWebView, but
+  // the engine previously demanded layout / computed CSS / inert state as
+  // additional gates. Those can change when NSWindow is ordered out and
+  // leave status stuck at login=unknown even while the bridge is live.
+  //
+  // Do not infer login from the route alone: require a real editable composer
+  // and reject any auth/password/OTP/email form. Signed-out/challenge checks
+  // in reportStatus() take precedence. All other providers keep their usual
+  // visible-element checks.
   function claudeConversationComposerMounted(): boolean {
     if (location.origin !== 'https://claude.ai') return false;
     if (!(location.pathname === '/new' || /^\/chat\/[^/]+$/.test(location.pathname))) return false;
     if (document.querySelector('input[type="password"], input[autocomplete="one-time-code"], input[type="email"]')) {
       return false;
     }
-    const editor = document.querySelector('.ProseMirror[contenteditable="true"]');
-    if (!editor || (editor as HTMLElement).hidden || editor.getAttribute('aria-hidden') === 'true' ||
-        editor.closest('[inert]')) {
-      return false;
-    }
-    // Skip only the layout-geometry gate: WKWebView can withhold client rects
-    // while its containing NSWindow is ordered out. CSS-hidden composers still
-    // do not count as authentication evidence.
-    try {
-      if (typeof window.getComputedStyle === 'function') {
-        const style = window.getComputedStyle(editor);
-        if (style.display === 'none' || style.visibility === 'hidden' ||
-            (style.opacity !== '' && Number(style.opacity) === 0)) {
-          return false;
-        }
-      }
-    } catch {
-      return false;
-    }
-    return true;
+    return document.querySelector('.ProseMirror[contenteditable="true"]') !== null;
   }
 
   function reportStatus() {
