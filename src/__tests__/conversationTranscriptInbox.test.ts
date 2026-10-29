@@ -5,7 +5,7 @@ import { ConversationRunRouter } from '../workflow/conversationRunRouter';
 import { ConversationTranscriptInbox } from '../workflow/conversationTranscriptInbox';
 
 function bridge(action: BridgeMessage['action'], provider: 'claude' | 'gemini', text: string): BridgeMessage {
-  return { v: 1, action, provider, transport: 'pull', payload: { text } } as BridgeMessage;
+  return { v: 1, action, provider, transport: 'pull', bootId: provider === 'claude' ? 'boot-a' : 'boot-b', payload: { text } } as BridgeMessage;
 }
 
 describe('background conversation transcript ownership', () => {
@@ -18,6 +18,8 @@ describe('background conversation transcript ownership', () => {
     router.registerRun({ runId: 'rb', sessionId: 'b' });
     router.claimProvider('ra', 'claude');
     router.claimProvider('rb', 'gemini');
+    router.confirmFreshProviderSession('ra', 'claude', 'boot-a');
+    router.confirmFreshProviderSession('rb', 'gemini', 'boot-b');
     let sessions = [sessionA, sessionB];
 
     const a1 = router.route(bridge('RESPONSE_CHUNK', 'claude', 'partial A'))!;
@@ -47,6 +49,7 @@ describe('background conversation transcript ownership', () => {
     const inbox = new ConversationTranscriptInbox();
     router.registerRun({ runId: 'removed-run', sessionId: 'removed' });
     router.claimProvider('removed-run', 'claude');
+    router.confirmFreshProviderSession('removed-run', 'claude', 'boot-a');
     const existing = createConversationSession({ id: 'still-open', now: 1 });
     const events = router.route(bridge('RESPONSE_CHUNK', 'claude', 'do not misroute'))!;
     expect(inbox.apply([existing], events)).toEqual([existing]);
