@@ -19,11 +19,15 @@ export interface RoutedConversationMessage {
 interface ProviderClaim {
   owner: ConversationRunOwner;
   turn?: number;
+  ready: boolean;
+  bootId?: string;
 }
 
 export class ConversationRunRouter {
   private readonly claims = new Map<AIProvider, ProviderClaim>();
   private readonly owners = new Map<string, string>();
+  private readonly priorOwners = new Map<AIProvider, string>();
+  private readonly priorBootIds = new Map<AIProvider, string>();
 
   registerRun(owner: ConversationRunOwner): void {
     if (!owner.runId || !owner.sessionId) throw new Error('Missing conversation or run identifier');
@@ -41,13 +45,40 @@ export class ConversationRunRouter {
     if (existing && existing.owner.runId !== runId) {
       throw new Error('Provider is already claimed by another conversation');
     }
-    this.claims.set(provider, { owner: { runId, sessionId }, turn });
+    const lastOwner = this.priorOwners.get(provider);
+    // A provider WebView does not represent a fresh conversation just because
+    // its previous run finished. Block untagged replies on handoff until a
+    // verified new native document/boot has been observed.
+    const needsFreshSession = lastOwner !== undefined && lastOwner !== runId;
+    this.claims.set(provider, {
+      owner: { runId, sessionId }, turn,
+      ready: !needsFreshSession,
+      ...(!needsFreshSession && this.priorBootIds.has(provider)
+        ? { bootId: this.priorBootIds.get(provider) } : {}),
+    });
+    this.priorOwners.set(provider, runId);
+  }
+
+  /**
+   * Call only after the host has created a fresh provider conversation AND
+   * observed this new page's unique bridge boot ID. The same old boot is not
+   * evidence of isolation.
+   */
+  confirmFreshProviderSession(runId: string, provider: AIProvider, bootId: string): boolean {
+    const claim = this.claims.get(provider);
+    if (!claim || claim.owner.runId !== runId || !bootId) return false;
+    if (claim.ready) return true;
+    if (this.priorBootIds.get(provider) === bootId) return false;
+    claim.bootId = bootId;
+    claim.ready = true;
+    this.priorBootIds.set(provider, bootId);
+    return true;
   }
 
   route(message: BridgeMessage): RoutedConversationMessage | undefined {
     if (!message.provider) return undefined;
     const claim = this.claims.get(message.provider);
-    if (!claim) return undefined;
+    if (!claim || !claim.ready) return undefined;
     // Status reports are provider health events, not conversation content.
     if (!['RESPONSE_CHUNK', 'RESPONSE_DONE', 'WORKFLOW_STEP_CONFIRMED', 'WORKFLOW_STEP_FAILED', 'ROLE_ASSIGNMENT'].includes(message.action)) {
       return undefined;
@@ -62,12 +93,16 @@ export class ConversationRunRouter {
   }
 
   releaseProvider(runId: string, provider: AIProvider): void {
-    if (this.claims.get(provider)?.owner.runId === runId) this.claims.delete(provider);
+    const claim = this.claims.get(provider);
+    if (claim?.owner.runId === runId) {
+      if (claim.bootId) this.priorBootIds.set(provider, claim.bootId);
+      this.claims.delete(provider);
+    }
   }
 
   finishRun(runId: string): void {
     for (const [provider, claim] of this.claims) {
-      if (claim.owner.runId === runId) this.claims.delete(provider);
+      if (claim.owner.runId === runId) this.releaseProvider(runId, provider);
     }
     this.owners.delete(runId);
   }
