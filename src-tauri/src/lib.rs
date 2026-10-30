@@ -61,7 +61,7 @@ fn main_window_offscreen(
     !monitors.iter().any(|&(mx, my, mw, mh)| {
         let overlap_width = right.min(i64::from(mx) + i64::from(mw)) - i64::from(x).max(i64::from(mx));
         let overlap_height = bottom.min(i64::from(my) + i64::from(mh)) - i64::from(y).max(i64::from(my));
-        overlap_width >= 80 && overlap_height >= 50
+        overlap_width >= 64 && overlap_height >= 50
     })
 }
 
