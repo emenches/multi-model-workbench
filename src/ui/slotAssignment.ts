@@ -1,6 +1,12 @@
 import type { AIProvider } from '../../shared/types';
 import { DOCK_SLOT_PROVIDERS } from '../../shared/constants';
 
+const DOCK_PROVIDERS: readonly AIProvider[] = DOCK_SLOT_PROVIDERS;
+
+function isDockProvider(value: unknown): value is AIProvider {
+  return typeof value === 'string' && DOCK_PROVIDERS.includes(value as AIProvider);
+}
+
 export const SLOT_IDS = ['leftTop', 'leftBottom', 'rightTop', 'rightBottom'] as const;
 export type SlotId = (typeof SLOT_IDS)[number];
 export type SlotAssignment = Record<SlotId, AIProvider>;
@@ -14,9 +20,9 @@ export const DEFAULT_SLOT_ASSIGNMENT: SlotAssignment = {
 
 export function isProviderPermutation(providers: AIProvider[]): boolean {
   return (
-    providers.length === DOCK_SLOT_PROVIDERS.length &&
-    new Set(providers).size === DOCK_SLOT_PROVIDERS.length &&
-    providers.every((provider) => (DOCK_SLOT_PROVIDERS as readonly AIProvider[]).includes(provider))
+    providers.length === DOCK_PROVIDERS.length &&
+    new Set(providers).size === DOCK_PROVIDERS.length &&
+    providers.every(isDockProvider)
   );
 }
 
@@ -28,12 +34,9 @@ export function normalizeSlotAssignment(value: unknown, fallback: SlotAssignment
 
   for (const slot of SLOT_IDS) {
     const provider = input[slot];
-    if (typeof provider === 'string' && (DOCK_SLOT_PROVIDERS as readonly string[]).includes(provider)) {
-      const providerId = provider as AIProvider;
-      if (!used.has(providerId)) {
-        next[slot] = providerId;
-        used.add(providerId);
-      }
+    if (isDockProvider(provider) && !used.has(provider)) {
+      next[slot] = provider;
+      used.add(provider);
     }
   }
 
@@ -48,7 +51,7 @@ export function normalizeSlotAssignment(value: unknown, fallback: SlotAssignment
 
   for (const slot of SLOT_IDS) {
     if (next[slot]) continue;
-    const provider = (DOCK_SLOT_PROVIDERS as readonly AIProvider[]).find((candidate) => !used.has(candidate));
+    const provider = DOCK_PROVIDERS.find((candidate) => !used.has(candidate));
     if (provider) next[slot] = provider;
   }
 
@@ -56,7 +59,7 @@ export function normalizeSlotAssignment(value: unknown, fallback: SlotAssignment
 }
 
 export function assignSlotProvider(assignment: SlotAssignment, slot: SlotId, provider: AIProvider): SlotAssignment {
-  if (!(DOCK_SLOT_PROVIDERS as readonly AIProvider[]).includes(provider)) return normalizeSlotAssignment(assignment);
+  if (!isDockProvider(provider)) return normalizeSlotAssignment(assignment);
   const currentProvider = assignment[slot];
   if (currentProvider === provider) return { ...assignment };
 
