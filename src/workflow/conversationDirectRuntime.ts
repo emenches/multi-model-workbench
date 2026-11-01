@@ -125,6 +125,7 @@ export class ConversationDirectRuntime {
       runId: request.runId,
       sessionId: request.sessionId,
       providers,
+      incremental: true,
       ...(request.prepareProvider ? { prepareProvider: request.prepareProvider } : {}),
       execute: async (context) => {
         const run = async (
@@ -133,9 +134,8 @@ export class ConversationDirectRuntime {
         ): Promise<string> => {
           if (context.signal.aborted) throw new Error('Consult cancelled');
           const provider = roles[nodeId];
+          return context.withProvider(provider, async () => {
           const label = consultLabel(nodeId, provider, request.locale);
-          // A local role annotation is applied only after the native session
-          // has been authenticated and claimed by the executing run.
           this.coordinator.acceptBridgeMessage({
             v: 1, action: 'ROLE_ASSIGNMENT', provider, transport: 'local',
             payload: { role: nodeId, label },
@@ -146,6 +146,7 @@ export class ConversationDirectRuntime {
             request.transport,
           );
           return result.response;
+          });
         };
         const question = request.question;
         const [firstResult, secondResult] = await Promise.allSettled([
