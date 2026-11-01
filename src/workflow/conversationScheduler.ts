@@ -22,6 +22,8 @@ export interface ScheduleConversationJob {
   sessionId: string;
   providers: readonly AIProvider[];
   execute: (signal: AbortSignal) => Promise<void>;
+  /** When true, the executor acquires individual provider leases on demand. */
+  incremental?: boolean;
 }
 
 export interface ScheduledConversationJob {
@@ -45,6 +47,7 @@ export class ConversationExecutionScheduler {
   private readonly pending: string[] = [];
   private readonly leased = new Map<AIProvider, string>();
   private readonly listeners = new Set<Listener>();
+  private readonly turnQueue: Array<{ id: string; provider: AIProvider; start: () => void }> = [];
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -71,6 +74,45 @@ export class ConversationExecutionScheduler {
     this.emit(job);
     this.drain();
     return { id: spec.id, finished };
+  }
+
+  /** Reserve one native WebView only for the duration of its turn, including cleanup. */
+  async withProvider<T>(id: string, provider: AIProvider, work: () => Promise<T>): Promise<T> {
+    const job = this.jobs.get(id);
+    if (!job || job.controller.signal.aborted || isTerminal(job.status)) throw new Error('Conversation cancelled');
+    if (!job.spec.providers.includes(provider)) throw new Error('Provider not allowed for this conversation');
+    await new Promise<void>((resolve, reject) => {
+      const entry = { id, provider, start: resolve };
+      const onAbort = () => {
+        const index = this.turnQueue.indexOf(entry);
+        if (index >= 0) this.turnQueue.splice(index, 1);
+        reject(new Error('Conversation cancelled'));
+      };
+      const start = () => { job.controller.signal.removeEventListener('abort', onAbort); resolve(); };
+      entry.start = start;
+      job.controller.signal.addEventListener('abort', onAbort, { once: true });
+      this.turnQueue.push(entry);
+      this.drainTurns();
+    });
+    try {
+      if (job.controller.signal.aborted) throw new Error('Conversation cancelled');
+      return await work();
+    } finally {
+      if (this.leased.get(provider) === id) this.leased.delete(provider);
+      this.drainTurns();
+      this.drain();
+    }
+  }
+
+  private drainTurns(): void {
+    for (const entry of [...this.turnQueue]) {
+      if (this.leased.has(entry.provider)) continue;
+      const index = this.turnQueue.indexOf(entry);
+      if (index < 0) continue;
+      this.turnQueue.splice(index, 1);
+      this.leased.set(entry.provider, entry.id);
+      entry.start();
+    }
   }
 
   cancel(id: string): boolean {
@@ -104,13 +146,13 @@ export class ConversationExecutionScheduler {
       const job = this.jobs.get(id);
       if (!job || job.status !== 'queued') continue;
       const providers = job.spec.providers;
-      const blocked = providers.some((provider) => earlierPending.has(provider) || this.leased.has(provider));
+      const blocked = !job.spec.incremental && providers.some((provider) => earlierPending.has(provider) || this.leased.has(provider));
       if (blocked) {
         providers.forEach((provider) => earlierPending.add(provider));
         continue;
       }
       this.pending.splice(this.pending.indexOf(id), 1);
-      providers.forEach((provider) => this.leased.set(provider, id));
+      if (!job.spec.incremental) providers.forEach((provider) => this.leased.set(provider, id));
       job.status = 'running';
       this.emit(job);
       // No promise continuation may own the lease beyond its own job.
@@ -126,7 +168,7 @@ export class ConversationExecutionScheduler {
         )
         .finally(() => {
           for (const provider of providers) {
-            if (this.leased.get(provider) === id) this.leased.delete(provider);
+            if (!job.spec.incremental && this.leased.get(provider) === id) this.leased.delete(provider);
           }
           this.drain();
         });
