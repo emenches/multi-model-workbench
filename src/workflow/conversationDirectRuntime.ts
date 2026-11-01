@@ -134,7 +134,10 @@ export class ConversationDirectRuntime {
         ): Promise<string> => {
           if (context.signal.aborted) throw new Error('Consult cancelled');
           const provider = roles[nodeId];
-          return context.withProvider(provider, async () => {
+          this.coordinator.scheduler.stage(request.runId, nodeId, provider, 'queued');
+          try {
+          const response = await context.withProvider(provider, async () => {
+          this.coordinator.scheduler.stage(request.runId, nodeId, provider, 'running');
           const label = consultLabel(nodeId, provider, request.locale);
           this.coordinator.acceptBridgeMessage({
             v: 1, action: 'ROLE_ASSIGNMENT', provider, transport: 'local',
@@ -147,6 +150,12 @@ export class ConversationDirectRuntime {
           );
           return result.response;
           });
+          this.coordinator.scheduler.stage(request.runId, nodeId, provider, 'completed');
+          return response;
+          } catch (error) {
+            this.coordinator.scheduler.stage(request.runId, nodeId, provider, 'failed');
+            throw error;
+          }
         };
         const question = request.question;
         const [firstResult, secondResult] = await Promise.allSettled([
