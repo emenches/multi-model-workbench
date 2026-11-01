@@ -2708,7 +2708,17 @@ export default function App() {
                   onClick={() => setActivityPanelOpen(false)} aria-label={translate('workbench.hideDetails')}>×</button>
               </div>
               <div className="workbench-activity-drawer-content min-h-0 flex-1 overflow-y-auto p-3">
-                {processTrace && (processTrace.steps.length > 0 || processTrace.currentStatus)
+                {activeDirectJob?.stages && Object.keys(activeDirectJob.stages).length > 0 ? (
+                  <div className="space-y-2" role="status" aria-live="polite">
+                    <p>Consult: {activeDirectJob.status}</p>
+                    {Object.entries(activeDirectJob.stages).map(([name, stage]) => (
+                      <div key={name} className="rounded-lg border p-2 text-sm">
+                        <span>{name}: {stage.provider} — {stage.status}</span>
+                        {stage.startedAt && stage.finishedAt ? <span> ({Math.round((stage.finishedAt - stage.startedAt) / 1000)}s)</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : processTrace && (processTrace.steps.length > 0 || processTrace.currentStatus)
                   ? <ProcessTrace trace={processTrace} locale={locale} expanded compact={false} states={states}
                       onViewProvider={viewWorkflowProvider} onDetailOpenChange={setProcessTraceDetailOpen}/>
                   : <div className="space-y-2 p-3 text-sm text-zinc-500 dark:text-zinc-400" role="status">
