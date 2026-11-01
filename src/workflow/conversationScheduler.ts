@@ -15,6 +15,7 @@ export interface ConversationJobSnapshot {
   providers: readonly AIProvider[];
   status: ConversationJobStatus;
   error?: string;
+  stages?: Record<string, { provider: AIProvider; status: 'queued' | 'running' | 'completed' | 'failed'; startedAt?: number; finishedAt?: number }>;
 }
 
 export interface ScheduleConversationJob {
@@ -38,6 +39,7 @@ interface JobRecord {
   resolve: (snapshot: ConversationJobSnapshot) => void;
   finished: Promise<ConversationJobSnapshot>;
   error?: string;
+  stages: NonNullable<ConversationJobSnapshot['stages']>;
 }
 
 type Listener = (snapshot: ConversationJobSnapshot) => void;
@@ -66,6 +68,7 @@ export class ConversationExecutionScheduler {
       spec: canonical,
       controller: new AbortController(),
       status: 'queued',
+      stages: {},
       resolve,
       finished,
     };
@@ -113,6 +116,18 @@ export class ConversationExecutionScheduler {
       this.leased.set(entry.provider, entry.id);
       entry.start();
     }
+  }
+
+  stage(id: string, name: string, provider: AIProvider, status: 'queued' | 'running' | 'completed' | 'failed'): void {
+    const job = this.jobs.get(id);
+    if (!job || isTerminal(job.status)) return;
+    const prior = job.stages[name];
+    job.stages[name] = { provider, status,
+      ...(prior?.startedAt ? { startedAt: prior.startedAt } : {}),
+      ...(status === 'running' && !prior?.startedAt ? { startedAt: Date.now() } : {}),
+      ...(status === 'completed' || status === 'failed' ? { finishedAt: Date.now() } : {}),
+    };
+    this.emit(job);
   }
 
   cancel(id: string): boolean {
@@ -190,6 +205,7 @@ export class ConversationExecutionScheduler {
       sessionId: job.spec.sessionId,
       providers: [...job.spec.providers],
       status: job.status,
+      stages: { ...job.stages },
       ...(job.error ? { error: job.error } : {}),
     };
   }
