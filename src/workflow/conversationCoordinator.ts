@@ -26,6 +26,7 @@ export interface ConversationWorkContext {
   readonly providers: readonly AIProvider[];
   /** Turn reservations only belong to this run while its provider is leased. */
   claimTurn(provider: AIProvider, turn: number): void;
+  withProvider<T>(provider: AIProvider, work: () => Promise<T>): Promise<T>;
 }
 
 export interface ConversationWork {
@@ -34,6 +35,7 @@ export interface ConversationWork {
   readonly providers: readonly AIProvider[];
   readonly prepareProvider?: PrepareProviderConversation;
   readonly execute: (context: ConversationWorkContext) => Promise<void>;
+  readonly incremental?: boolean;
 }
 
 export interface ConversationSessionStore {
@@ -64,10 +66,11 @@ export class ConversationCoordinator {
     try {
       scheduled = this.scheduler.schedule({
         id: work.runId, sessionId: work.sessionId, providers: work.providers,
+        incremental: work.incremental,
         execute: async (signal) => {
           // A job owns ALL its native provider leases until its executor has
           // returned, even after the user requests cancellation.
-          for (const provider of [...new Set(work.providers)]) {
+          if (!work.incremental) for (const provider of [...new Set(work.providers)]) {
             if (signal.aborted) return;
             this.router.claimProvider(owner.runId, provider);
             const bootId = await (work.prepareProvider ?? prepareFreshNativeConversation)(provider, signal);
@@ -79,6 +82,15 @@ export class ConversationCoordinator {
           if (signal.aborted) return;
           await work.execute({
             owner, signal, providers: [...new Set(work.providers)],
+            withProvider: async (provider, task) => this.scheduler.withProvider(owner.runId, provider, async () => {
+              if (signal.aborted) throw new Error('Conversation cancelled');
+              this.router.claimProvider(owner.runId, provider);
+              const bootId = await (work.prepareProvider ?? prepareFreshNativeConversation)(provider, signal);
+              if (signal.aborted || !this.router.confirmFreshProviderSession(owner.runId, provider, bootId)) {
+                throw new Error('The provider did not prove a fresh native conversation');
+              }
+              return task();
+            }),
             claimTurn: (provider, turn) => {
               if (signal.aborted || !work.providers.includes(provider)) {
                 throw new Error('Provider turn is not owned by the active conversation');
