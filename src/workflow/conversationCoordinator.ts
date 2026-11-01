@@ -89,7 +89,11 @@ export class ConversationCoordinator {
               if (signal.aborted || !this.router.confirmFreshProviderSession(owner.runId, provider, bootId)) {
                 throw new Error('The provider did not prove a fresh native conversation');
               }
-              return task();
+              try {
+                return await task();
+              } finally {
+                this.router.releaseProvider(owner.runId, provider);
+              }
             }),
             claimTurn: (provider, turn) => {
               if (signal.aborted || !work.providers.includes(provider)) {
