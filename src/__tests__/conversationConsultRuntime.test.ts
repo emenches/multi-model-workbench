@@ -104,7 +104,7 @@ describe('independently running Consult workflows', () => {
       const initial = app.runtime.startConsult({
         runId: 'first-run', sessionId: 'consult-a', roles,
         question: 'First topic', transport: app.transport,
-        prepareProvider: async (provider) => `boot-${provider}`,
+        prepareProvider: app.prepareProvider,
       });
       const subsequent = app.runtime.startConsult({
         runId: 'second-run', sessionId: 'consult-b', roles,
