@@ -129,6 +129,30 @@ describe('conversation execution coordinator', () => {
     expect((await b.finished).status).toBe('completed');
   });
 
+  it('releases incremental claims after native preparation fails', async () => {
+    const app = fixture();
+    const failed = app.coordinator.schedule({
+      runId: 'failed-prepare', sessionId: 'conversation-a', providers: ['claude'], incremental: true,
+      async prepareProvider() { throw new Error('native preparation failed'); },
+      async execute({ withProvider }) { await withProvider('claude', async () => {}); },
+    });
+    expect((await failed.finished).status).toBe('failed');
+
+    const recovered = app.coordinator.schedule({
+      runId: 'recovered', sessionId: 'conversation-b', providers: ['claude'], incremental: true,
+      async prepareProvider() { return 'fresh-recovered-boot'; },
+      async execute({ withProvider }) {
+        await withProvider('claude', async () => {
+          expect(app.coordinator.acceptBridgeMessage(
+            native('claude', 'fresh-recovered-boot', 'RESPONSE_DONE', 'recovered'),
+          )).toBe(true);
+        });
+      },
+    });
+    expect((await recovered.finished).status).toBe('completed');
+    expect(app.messages('conversation-b')).toMatchObject([{ content: 'recovered' }]);
+  });
+
   it('rejects an empty or previously used native boot without executing the request', async () => {
     const app = fixture();
     let sends = 0;
