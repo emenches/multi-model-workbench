@@ -33,6 +33,10 @@ function context(id: string, provider: AIProvider, controller = new AbortControl
   const scope: ConversationWorkContext = {
     owner: { runId: id, sessionId: `session-${id}` },
     signal: controller.signal, providers: [provider],
+    async withProvider<T>(requestedProvider: AIProvider, work: () => Promise<T>): Promise<T> {
+      if (requestedProvider !== provider) throw new Error('Provider is not leased');
+      return work();
+    },
     claimTurn(requestedProvider, turn) {
       if (requestedProvider !== provider) throw new Error('Provider is not leased');
       claims.push(turn);
