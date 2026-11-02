@@ -44,6 +44,8 @@ export interface ReplayPanelProps {
   locale?: Locale;
   responseLanguagePolicy?: ResponseLanguagePolicy;
   activeProviders?: readonly AIProvider[];
+  /** Native replay uses the legacy global runner and must not steal leased providers. */
+  executionBlocked?: boolean;
   onReplayWillRun?: (plan: ReplayPlan) => void;
   onReplaySettled?: () => void;
   onSnapshotComplete?: (snapshot: ExecutionSnapshot) => void | Promise<void>;
@@ -102,6 +104,10 @@ export class ReplayPanel extends Component<ReplayPanelProps, ReplayPanelState> {
   }
 
   async startReplay(source: ReplaySource, options: ReplayRunOptions = {}): Promise<ReplayResult | undefined> {
+    if (this.props.executionBlocked) {
+      this.updateState({ notice: { kind: 'error', text: 'Finish or cancel active conversations before replaying a snapshot.' } });
+      return undefined;
+    }
     this.loginRequestGeneration += 1;
     const busyKey = sourceKey(source);
     const question = options.question?.trim();
