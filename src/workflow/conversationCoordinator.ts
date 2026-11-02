@@ -85,13 +85,15 @@ export class ConversationCoordinator {
             withProvider: async (provider, task) => this.scheduler.withProvider(owner.runId, provider, async () => {
               if (signal.aborted) throw new Error('Conversation cancelled');
               this.router.claimProvider(owner.runId, provider);
-              const bootId = await (work.prepareProvider ?? prepareFreshNativeConversation)(provider, signal);
-              if (signal.aborted || !this.router.confirmFreshProviderSession(owner.runId, provider, bootId)) {
-                throw new Error('The provider did not prove a fresh native conversation');
-              }
               try {
+                const bootId = await (work.prepareProvider ?? prepareFreshNativeConversation)(provider, signal);
+                if (signal.aborted || !this.router.confirmFreshProviderSession(owner.runId, provider, bootId)) {
+                  throw new Error('The provider did not prove a fresh native conversation');
+                }
                 return await task();
               } finally {
+                // A failed native prepare must not leave the next job blocked
+                // by a stale routing claim, even if no turn was sent.
                 this.router.releaseProvider(owner.runId, provider);
               }
             }),
