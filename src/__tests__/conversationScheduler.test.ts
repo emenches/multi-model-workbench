@@ -11,6 +11,39 @@ function deferred() {
 const tick = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
 
 describe('conversation execution provider leases', () => {
+  it('starts a waiting provider turn while another Consult still owns a different agent', async () => {
+    const scheduler = new ConversationExecutionScheduler();
+    const holdClaude = deferred();
+    const holdGemini = deferred();
+    const secondStarted = deferred();
+    const first = scheduler.schedule({
+      id: 'first-consult', sessionId: 'chat-a', providers: ['claude', 'gemini'], incremental: true,
+      async execute() {
+        await Promise.all([
+          scheduler.withProvider('first-consult', 'claude', () => holdClaude.promise),
+          scheduler.withProvider('first-consult', 'gemini', () => holdGemini.promise),
+        ]);
+      },
+    });
+    const second = scheduler.schedule({
+      id: 'second-consult', sessionId: 'chat-b', providers: ['claude'], incremental: true,
+      async execute() {
+        await scheduler.withProvider('second-consult', 'claude', async () => {
+          secondStarted.resolve();
+        });
+      },
+    });
+    await tick();
+    expect(scheduler.snapshot('first-consult')?.status).toBe('running');
+    expect(scheduler.snapshot('second-consult')?.status).toBe('running');
+    holdClaude.resolve();
+    await secondStarted.promise;
+    expect(scheduler.snapshot('first-consult')?.status).toBe('running');
+    holdGemini.resolve();
+    expect((await first.finished).status).toBe('completed');
+    expect((await second.finished).status).toBe('completed');
+  });
+
   it('runs different conversations on disjoint providers simultaneously', async () => {
     const scheduler = new ConversationExecutionScheduler();
     const a = deferred(), b = deferred();
