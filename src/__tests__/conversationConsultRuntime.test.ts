@@ -12,6 +12,15 @@ function fixture() {
   ];
   const pending = new Map<AIProvider, { turn: number; resolve: (response: string) => void }>();
   const sends: { provider: AIProvider; prompt: string }[] = [];
+  const boots = new Map<AIProvider, string>();
+  const generations = new Map<AIProvider, number>();
+  const prepareProvider = async (provider: AIProvider) => {
+    const generation = (generations.get(provider) ?? 0) + 1;
+    generations.set(provider, generation);
+    const boot = `boot-${provider}-${generation}`;
+    boots.set(provider, boot);
+    return boot;
+  };
   let turn = 0;
   const transport: IsolatedNativeTurnHost = {
     reserveTurn() { return ++turn; },
@@ -35,13 +44,13 @@ function fixture() {
     pending.delete(provider);
     const msg: BridgeMessage = {
       v: 1, action: 'RESPONSE_DONE', provider, transport: 'pull',
-      bootId: `boot-${provider}`, payload: { text: response, turn: waiter!.turn },
+      bootId: boots.get(provider), payload: { text: response, turn: waiter!.turn },
     };
     publishBridgeMessage(msg);
     waiter!.resolve(response);
   };
   return {
-    runtime, transport, sends, complete,
+    runtime, transport, sends, complete, prepareProvider,
     messages(id: string) { return sessions.find((s) => s.id === id)?.messages ?? []; },
   };
 }
@@ -59,7 +68,7 @@ describe('independently running Consult workflows', () => {
       const job = app.runtime.startConsult({
         runId: 'consult-run', sessionId: 'consult-a',
         question: 'Explain four wheel drive', roles, locale: 'en',
-        transport: app.transport, prepareProvider: async (provider) => `boot-${provider}`,
+        transport: app.transport, prepareProvider: app.prepareProvider,
       });
       await tick();
       expect(app.sends.map((s) => s.provider)).toEqual(['claude', 'gemini']);
@@ -89,7 +98,7 @@ describe('independently running Consult workflows', () => {
     }
   });
 
-  it('queues overlapping Consult jobs until the first releases its provider leases', async () => {
+  it('queues provider turns independently without waiting for an entire Consult', async () => {
     const app = fixture();
     try {
       const initial = app.runtime.startConsult({
@@ -100,12 +109,13 @@ describe('independently running Consult workflows', () => {
       const subsequent = app.runtime.startConsult({
         runId: 'second-run', sessionId: 'consult-b', roles,
         question: 'Second topic', transport: app.transport,
-        prepareProvider: async (provider) => `boot-${provider}-second`,
+        prepareProvider: app.prepareProvider,
       });
       await tick();
-      expect(app.runtime.snapshotForSession('consult-b')[0]?.status).toBe('queued');
+      expect(app.runtime.snapshotForSession('consult-b')[0]?.status).toBe('running');
+      expect(app.runtime.snapshotForSession('consult-b')[0]?.stages?.first?.status).toBe('queued');
       expect(app.sends.every((x) => x.prompt.includes('First topic'))).toBe(true);
-      // Cancellation of the queued Consult must never stop the first.
+      // Cancellation of a Consult waiting on provider turns must never stop the first.
       expect(app.runtime.cancel('second-run')).toBe(true);
       expect((await subsequent.finished).status).toBe('cancelled');
       app.complete('claude', 'First answer');
