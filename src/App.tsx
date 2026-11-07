@@ -135,6 +135,7 @@ import {
 } from './ui/targets';
 import { useOverlayGuard } from './ui/useOverlayGuard';
 import { buildMarkdown, exportFilename, matchingSnapshotForConversation } from './ui/exportMarkdown';
+import { consultFinalAnswer, consultPlainText } from './ui/consultExport';
 import { formatReportBody, type AdapterNotice, type ReportDigest } from './ui/reportBroken';
 import { persistSnapshotIfEnabled } from './workflow/snapshot/persistence';
 import { getLastSnapshot } from './workflow/snapshot/recorder';
@@ -347,6 +348,10 @@ export default function App() {
   const directView = directOwnedSessionIdsRef.current.has(activeSessionId) && !workflowBusy;
   const savedActiveSession = sessions.find((session) => session.id === activeSessionId);
   const visibleMessages = directView && savedActiveSession ? bubblesFromSession(savedActiveSession) : messages;
+  const displayedConsultSession = readingSession ?? savedActiveSession;
+  const consultCanExport = displayedConsultSession?.mode === 'consult' &&
+    !directJobs.some((job) => job.sessionId === displayedConsultSession.id && (job.status === 'running' || job.status === 'queued')) &&
+    displayedConsultSession.messages.some((message) => message.role === 'ai' && message.final === true);
   const sidebarRunStatuses: Record<string, ConversationJobSnapshot['status']> = {};
   for (const job of directJobs) sidebarRunStatuses[job.sessionId] = job.status;
   if (runningSessionId) sidebarRunStatuses[runningSessionId] = 'running';
@@ -391,6 +396,7 @@ export default function App() {
   const [workflowOptionsOpen, setWorkflowOptionsOpen] = useState(false);
   const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
   const [activityPanelOpen, setActivityPanelOpen] = useState(() => activityPanelForSession());
+  const [consultActionsOpen, setConsultActionsOpen] = useState(false);
   // A restored conversation may contain history but no new Activity in this view.
   const sentInSelectedSessionRef = useRef(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
@@ -2108,6 +2114,40 @@ export default function App() {
     }
   };
 
+  const copyConsult = async (format: 'summary' | 'plain' | 'markdown') => {
+    const session = displayedConsultSession;
+    if (!session || !consultCanExport) return;
+    setConsultActionsOpen(false);
+    try {
+      const content = format === 'summary' ? consultFinalAnswer(session.messages)
+        : format === 'plain' ? consultPlainText(session.messages)
+          : buildMarkdown([...session.messages], 'consult', new Date()).content;
+      if (!content) throw new Error('No finished Consult text to copy');
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard is unavailable');
+      await navigator.clipboard.writeText(content);
+      setShareNotice({ kind: 'ok', text: format === 'summary' ? 'Final answer copied.' : 'Consult copied.' });
+    } catch {
+      setShareNotice({ kind: 'error', text: 'Could not copy the Consult. Check clipboard permissions.' });
+    }
+  };
+
+  const saveConsultMarkdown = async () => {
+    const session = displayedConsultSession;
+    if (!session || !consultCanExport || sharing) return;
+    setConsultActionsOpen(false);
+    setSharing(true);
+    try {
+      const now = new Date();
+      const { content } = buildMarkdown([...session.messages], 'consult', now);
+      const path = await host.share.exportMarkdown(exportFilename('consult', now), content);
+      if (path) setShareNotice({ kind: 'ok', text: `Consult exported: ${path}` });
+    } catch {
+      setShareNotice({ kind: 'error', text: 'Could not export the Consult.' });
+    } finally {
+      setSharing(false);
+    }
+  };
+
   const reportProvider = useCallback(
     async (provider: AIProvider) => {
       if (reportBusy) return;
@@ -2819,6 +2859,25 @@ export default function App() {
             ) : null}
             <ChatArea messages={readingSession ? bubblesFromSession(readingSession) : visibleMessages}
               locale={locale} states={states} trace={isProcessing && !readingSession ? processTrace : undefined} />
+            {consultCanExport ? (
+              <div className="mx-3 mt-4 flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3 pb-2" aria-label="Finished Consult actions">
+                <span className="mr-auto text-xs text-zinc-400">Consult complete</span>
+                <button type="button" className="rounded-lg border border-zinc-600 px-3 py-1.5 text-xs hover:bg-zinc-800"
+                  onClick={() => { void copyConsult('summary'); }} title="Copy final synthesis">Copy answer</button>
+                <div className="relative">
+                  <button type="button" className="rounded-lg border border-zinc-600 px-3 py-1.5 text-xs hover:bg-zinc-800"
+                    aria-haspopup="menu" aria-expanded={consultActionsOpen}
+                    onClick={() => setConsultActionsOpen((open) => !open)}>Copy / Export ▾</button>
+                  {consultActionsOpen ? (
+                    <div role="menu" aria-label="Consult copy and export" className="absolute bottom-full right-0 z-30 mb-2 min-w-48 rounded-xl border border-zinc-700 bg-zinc-900 p-1 shadow-xl">
+                      <button role="menuitem" type="button" className="workbench-menu-item w-full text-left" onClick={() => { void copyConsult('plain'); }}>Copy full transcript</button>
+                      <button role="menuitem" type="button" className="workbench-menu-item w-full text-left" onClick={() => { void copyConsult('markdown'); }}>Copy Markdown</button>
+                      <button role="menuitem" type="button" className="workbench-menu-item w-full text-left" onClick={() => { void saveConsultMarkdown(); }} disabled={sharing}>Save Markdown (.md)</button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
           {import.meta.env.DEV && showDevDiagnostics ? (
             <section
