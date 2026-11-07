@@ -349,8 +349,6 @@ export default function App() {
   const savedActiveSession = sessions.find((session) => session.id === activeSessionId);
   const visibleMessages = directView && savedActiveSession ? bubblesFromSession(savedActiveSession) : messages;
   const displayedConsultSession = readingSession ?? savedActiveSession;
-  const claudeChromePendingForRun = claudeChromeStatus?.bootId === lastSeenProviderBoot('claude')
-    ? claudeChromeStatus : null;
   const consultCanExport = displayedConsultSession?.mode === 'consult' &&
     !directJobs.some((job) => job.sessionId === displayedConsultSession.id && (job.status === 'running' || job.status === 'queued')) &&
     displayedConsultSession.messages.some((message) => message.role === 'ai' && message.final === true);
@@ -402,6 +400,8 @@ export default function App() {
   const [claudeChromeStatus, setClaudeChromeStatus] = useState<{
     bootId: string; approvalPending: boolean; toolPending: boolean;
   } | null>(null);
+  const claudeChromePendingForRun = claudeChromeStatus?.bootId === lastSeenProviderBoot('claude')
+    ? claudeChromeStatus : null;
   // A restored conversation may contain history but no new Activity in this view.
   const sentInSelectedSessionRef = useRef(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
