@@ -49,3 +49,27 @@ export function isClaudeChromeApprovalPending(
   }
   return false;
 }
+
+export interface ClaudeChromeTurnGate {
+  awaitingFinal: boolean;
+  /** Only stored inside the authenticated provider document. Never sent via IPC. */
+  interimText: string;
+}
+
+/** Keep the tool-use acknowledgement from becoming RESPONSE_DONE. */
+export function nextClaudeChromeTurnGate(
+  gate: ClaudeChromeTurnGate,
+  reply: string | null,
+  approvalPending: boolean,
+): ClaudeChromeTurnGate {
+  const text = reply?.trim() ?? '';
+  if (!gate.awaitingFinal && (approvalPending || isClaudeChromeToolAcknowledgement(text))) {
+    return { awaitingFinal: true, interimText: text };
+  }
+  if (gate.awaitingFinal && !approvalPending && text &&
+      text !== gate.interimText && !isClaudeChromeToolAcknowledgement(text)) {
+    return { awaitingFinal: false, interimText: '' };
+  }
+  // The initial acknowledgement alone never confirms that Chrome finished.
+  return gate;
+}
