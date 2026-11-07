@@ -4,6 +4,7 @@ import {
   isClaudeChromeToolAcknowledgement,
   isClaudeChromeApprovalPending,
   nextClaudeChromeTurnGate,
+  claudePermissionControlMounted,
   type ClaudeChromeTurnGate,
 } from '../../injected/claudePermission';
 
@@ -21,6 +22,34 @@ describe('Claude in Chrome permission and completion protection', () => {
     )).toBe(true);
     expect(isClaudeChromeApprovalCard('Use this analogy in your answer', ['Allow', 'Deny'])).toBe(false);
     expect(isClaudeChromeApprovalCard('Claude in Chrome wants to read this page', ['Deny'])).toBe(false);
+  });
+
+
+  it('detects mounted consent in hidden WKWebViews without layout rectangles', () => {
+    const dialog = {
+      hidden: false, parentElement: null, textContent: 'Claude in Chrome wants to access a page. Allow this action Decline',
+      getAttribute: (_name: string) => null,
+      hasAttribute: (_name: string) => false,
+      querySelectorAll: (_selector: string) => [] as unknown[],
+      getClientRects: () => [],
+    };
+    const button = (label: string) => ({
+      hidden: false, parentElement: dialog, textContent: label,
+      getAttribute: (_name: string) => null,
+      hasAttribute: (_name: string) => false,
+      getClientRects: () => [],
+    });
+    const allow = button('Allow this action');
+    const decline = button('Decline');
+    dialog.querySelectorAll = () => [allow, decline];
+    const document = {
+      querySelector: () => null,
+      querySelectorAll: () => [allow, decline],
+    } as unknown as Document;
+    expect(isClaudeChromeApprovalPending(document, { origin: 'https://claude.ai', pathname: '/new' }, claudePermissionControlMounted)).toBe(true);
+    expect(claudePermissionControlMounted(allow as unknown as Element)).toBe(true);
+    (dialog as typeof dialog & { hidden: boolean }).hidden = true;
+    expect(isClaudeChromeApprovalPending(document, { origin: 'https://claude.ai', pathname: '/new' }, claudePermissionControlMounted)).toBe(false);
   });
 
   it('never scans SSO or authentication routes for permission prompts', () => {
