@@ -5,6 +5,8 @@ on:
     branches:
       - preview/cogitor-unified-macos
       - fix/claude-left-click-magic-link
+      # Draft concurrent-conversation candidate; only an isolated preview artifact.
+      - feature/cogitor-multi-conversation-execution
   # Stage a test installer for this in-repository security PR before merging
   # or touching the working preview. Forked PRs are deliberately excluded.
   pull_request:
@@ -108,7 +110,7 @@ jobs:
       - name: Upload test installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cogitor-macos-universal-preview
+          name: ${{ github.ref == 'refs/heads/feature/cogitor-multi-conversation-execution' && 'cogitor-macos-universal-concurrency-preview' || 'cogitor-macos-universal-preview' }}
           path: dist-preview/
           retention-days: 14
           if-no-files-found: error

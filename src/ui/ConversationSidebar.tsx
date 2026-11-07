@@ -30,6 +30,7 @@ export function ConversationSidebar({
   sessions,
   projects,
   activeSessionId,
+  sessionStatuses,
   disabled,
   historyDisabled = disabled,
   labels,
@@ -47,6 +48,8 @@ export function ConversationSidebar({
   sessions: readonly ConversationSession[];
   projects: readonly WorkbenchProject[];
   activeSessionId: string;
+  /** Independent of which chat is selected. */
+  sessionStatuses?: Readonly<Record<string, 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'>>;
   disabled: boolean;
   /** Historical sessions stay readable while the active workflow runs. */
   historyDisabled?: boolean;
@@ -105,15 +108,28 @@ export function ConversationSidebar({
         aria-current={session.id === activeSessionId ? 'page' : undefined}
         title={session.title}
       >
-        <span className="block truncate text-xs font-medium">
-          {session.title === DEFAULT_CONVERSATION_SESSION_TITLE ? labels.newConversation : session.title}
+        <span className="flex min-w-0 items-center justify-between gap-1">
+          <span className="block min-w-0 truncate text-xs font-medium">
+            {session.title === DEFAULT_CONVERSATION_SESSION_TITLE ? labels.newConversation : session.title}
+          </span>
+          {sessionStatuses?.[session.id] ? (
+            <span className="workbench-session-run-status shrink-0 rounded px-1 text-[0.6rem] font-medium"
+              data-run-status={sessionStatuses[session.id]}
+              aria-label={`Conversation ${sessionStatuses[session.id]}`}
+              title={`Conversation ${sessionStatuses[session.id]}`}>
+              {sessionStatuses[session.id] === 'running' ? '●' :
+                sessionStatuses[session.id] === 'queued' ? '◷' :
+                sessionStatuses[session.id] === 'completed' ? '✓' :
+                sessionStatuses[session.id] === 'failed' ? '!' : '×'}
+            </span>
+          ) : null}
         </span>
       </button>
       <select aria-label={`${labels.moveTo}: ${session.title}`}
         className="workbench-session-project-control w-5 shrink-0 cursor-pointer rounded-md bg-transparent text-[0.65rem] text-zinc-500 opacity-40 group-hover:opacity-100 focus:opacity-100 dark:text-zinc-400"
         value={knownProjects.has(session.projectId ?? '') ? session.projectId : ''}
         title={labels.moveTo}
-        disabled={disabled}
+        disabled={disabled || sessionStatuses?.[session.id] === 'running' || sessionStatuses?.[session.id] === 'queued'}
         onChange={(event) => onAssignProject(session, event.target.value || undefined)}>
         <option value="">{labels.unassigned}</option>
         {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
@@ -122,11 +138,12 @@ export function ConversationSidebar({
         <button type="button" className="shrink-0 rounded-lg border border-red-300 px-1.5 text-[0.625rem] text-red-700 dark:border-red-800 dark:text-red-300"
           onClick={() => { setPendingDeleteId(undefined); onDeleteSession(session); }}
           onBlur={() => setPendingDeleteId(undefined)}
-          disabled={disabled} aria-label={labels.confirmDeleteConversation} title={labels.confirmDeleteConversation}
+          disabled={disabled || sessionStatuses?.[session.id] === 'running' || sessionStatuses?.[session.id] === 'queued'} aria-label={labels.confirmDeleteConversation} title={labels.confirmDeleteConversation}
           autoFocus>{labels.confirmDeleteConversation}</button>
       ) : (
         <button type="button" className="workbench-session-delete shrink-0 rounded-md px-1.5 text-xs text-zinc-400 opacity-40 group-hover:opacity-100 focus:opacity-100 dark:text-zinc-500"
-          onClick={() => setPendingDeleteId(session.id)} disabled={disabled}
+          onClick={() => setPendingDeleteId(session.id)}
+          disabled={disabled || sessionStatuses?.[session.id] === 'running' || sessionStatuses?.[session.id] === 'queued'}
           aria-label={labels.deleteConversation} title={labels.deleteConversation}>
           <span aria-hidden="true">×</span>
         </button>

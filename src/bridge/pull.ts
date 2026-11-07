@@ -68,6 +68,11 @@ export async function startBridgePull(): Promise<() => void> {
   };
 }
 
+/** Last observed bridge boot from native status; never an inferred URL token. */
+export function lastSeenProviderBoot(provider: AIProvider): string | undefined {
+  return lastSeenBoot.get(provider);
+}
+
 export function onProviderBootRotation(listener: (provider: AIProvider) => void): () => void {
   bootRotationListeners.add(listener);
   return () => bootRotationListeners.delete(listener);

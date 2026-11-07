@@ -1,5 +1,6 @@
 import type { AIProvider, BridgeMessage } from '../shared/types';
 import { isProviderChallengeActive } from './challenge';
+import { claudePermissionControlMounted, isClaudeChromeApprovalPending, nextClaudeChromeTurnGate, type ClaudeChromeTurnGate } from './claudePermission';
 import { buildReportDigest, type ReportElement } from './reportDigest';
 import { finalResponseText, serializeResponseText } from './responseSerializer';
 
@@ -321,6 +322,8 @@ class InactiveSendOperationError extends Error {
   let draftStaging = false;
   let lastResponseText = '';
   let lastCompletionActivityAt = 0;
+  let claudeChromeTurnGate: ClaudeChromeTurnGate = { awaitingFinal: false, interimText: '' };
+  let claudeChromeApprovalPending = false;
   let lastGrokThinking: boolean | undefined;
   let pendingPromptText = '';
   let matchingChatGptUserTurnBaseline = 0;
@@ -658,6 +661,7 @@ class InactiveSendOperationError extends Error {
       return;
     }
 
+    if (provider === 'claude' && waitingForResponse) observeClaudeChromeTurn();
     const state = window.__MAC_ENGINE__ as MacEngineState;
     if (provider === 'chatgpt' && waitingForResponse) {
       state.capturePhase = typeof capture.capturePhase === 'string' ? capture.capturePhase : null;
@@ -678,6 +682,10 @@ class InactiveSendOperationError extends Error {
         login,
         thinking,
         bootId: bridge.bootId,
+        ...(provider === 'claude' ? {
+          chromePermissionPending: claudeChromeApprovalPending,
+          chromeToolPending: claudeChromeTurnGate.awaitingFinal,
+        } : {}),
         ...capture,
       },
     });
@@ -1983,6 +1991,35 @@ class InactiveSendOperationError extends Error {
     );
   }
 
+  /**
+   * Claude can write a short acknowledgement and then request Chrome approval.
+   * That acknowledgement is intermediate content, even when the ordinary
+   * thinking/Stop selectors temporarily disappear. Require a DIFFERENT,
+   * subsequent assistant reply after approval before allowing RESPONSE_DONE.
+   */
+  function observeClaudeChromeTurn(): boolean {
+    if (!waitingForResponse || adapter?.provider !== 'claude') return false;
+    let approvalPending = false;
+    try {
+      approvalPending = isClaudeChromeApprovalPending(document, location, claudePermissionControlMounted);
+    } catch {
+      // A provider DOM change must not break response polling or send telemetry.
+    }
+    const reply = getLatestResponseText() ?? lastResponseText;
+    claudeChromeTurnGate = nextClaudeChromeTurnGate(claudeChromeTurnGate, reply, approvalPending);
+    if (approvalPending !== claudeChromeApprovalPending) {
+      claudeChromeApprovalPending = approvalPending;
+      // The event is a boolean-only hint: no page content, approval labels,
+      // account information, or page URLs cross the native title channel.
+      bridge.emitTitle('STATUS_REPORT', {
+        bootId: bridge.bootId,
+        chromePermissionPending: approvalPending,
+        chromeToolPending: claudeChromeTurnGate.awaitingFinal,
+      }, { immediate: true });
+    }
+    return approvalPending || claudeChromeTurnGate.awaitingFinal;
+  }
+
   function isThinking(): boolean {
     if (hasDetector(adapter?.thinkingDetectors)) return true;
     return adapter?.provider === 'grok' && queryFirstVisible([GROK_LIVE_STOP_BUTTON_SELECTOR]) !== null;
@@ -1995,6 +2032,7 @@ class InactiveSendOperationError extends Error {
   function isGenerating(): boolean {
     return (
       isThinking() ||
+      (adapter?.provider === 'claude' && observeClaudeChromeTurn()) ||
       (adapter?.provider === 'chatgpt' && chatGptHasStrongActivity(currentChatGptCompletionTurn())) ||
       lastTurnIncomplete()
     );
@@ -2099,6 +2137,12 @@ class InactiveSendOperationError extends Error {
       clearFinishResponseTimeout();
       return;
     }
+    // A suspended browser action is not an answer. This last guard also
+    // closes the delayed-finish timer race with a newly rendered approval.
+    if (adapter.provider === 'claude' && observeClaudeChromeTurn()) {
+      checkIfDone(expectedGeneration);
+      return;
+    }
     const sendOperation = activeSendOperation;
     cancelResponseWait();
     bridge.emit({ v: 1, action: 'RESPONSE_DONE', provider: adapter.provider, payload });
@@ -2121,6 +2165,8 @@ class InactiveSendOperationError extends Error {
     chatGptResponseGenerationObserved = false;
     lastActivatedInput = null;
     lastGrokThinking = undefined;
+    claudeChromeTurnGate = { awaitingFinal: false, interimText: '' };
+    claudeChromeApprovalPending = false;
     resetChatGptTerminalGate();
   }
 

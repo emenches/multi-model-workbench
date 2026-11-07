@@ -929,7 +929,8 @@ html:not(.ai-sister) .workbench-shell .workbench-activity-drawer {
   z-index: 24;
   right: 12px;
   top: 151px;
-  bottom: 110px;
+  /* Keep the drawer above the composer, Stop control and bottom status area. */
+  bottom: clamp(220px, 18vh, 320px);
   width: clamp(235px, 24vw, 315px);
   display: flex;
   flex-direction: column;
@@ -984,7 +985,7 @@ html:not(.ai-sister) .workbench-shell .workbench-activity-drawer .workbench-trac
 @media (max-width: 900px) {
   html:not(.ai-sister) .workbench-shell .workbench-activity-drawer {
     top: 136px;
-    bottom: 94px;
+    bottom: clamp(185px, 17vh, 255px);
   }
   html:not(.ai-sister) .workbench-shell .workbench-new-chat-screen {
     padding-bottom: 20px;

@@ -649,7 +649,9 @@ describe('injected engine input hardening', () => {
         v: 1,
         action: 'STATUS_REPORT',
         provider,
-        payload: { dom: 'ready', login: 'unknown', thinking: false, bootId: 'boot1' },
+        payload: { dom: 'ready', login: 'unknown', thinking: false, bootId: 'boot1',
+          ...(provider === 'claude' ? { chromePermissionPending: false, chromeToolPending: false } : {}),
+        },
       });
     },
   );
@@ -4216,6 +4218,45 @@ describe('injected engine input hardening', () => {
     ]);
     const payloads = env.emitted.filter(message => ['RESPONSE_CHUNK', 'RESPONSE_DONE'].includes(message.action));
     expect(payloads.every(message => ['Partial answer', 'Complete answer'].includes(String(message.payload)))).toBe(true);
+  });
+
+  it('does not finish Claude on an acknowledgement before its Chrome task returns', async () => {
+    vi.useFakeTimers();
+    const env = createEnv({ inputKind: 'contenteditable' });
+    mountProseMirrorComposer(env);
+    env.sendButton?.setAttribute('aria-label', 'Send message');
+    let reply: ReturnType<typeof appendClaudeReply> | undefined;
+    if (env.sendButton) env.sendButton.onClick = () => {
+      env.input.replaceChildren();
+      env.input.setVisibleText('');
+      reply = appendClaudeReply(env, 'cds', "I'll use Chrome to inspect the page.");
+    };
+    const handler = await installEngine(env);
+    vi.stubGlobal('location', {
+      href: 'https://claude.ai/new', origin: 'https://claude.ai',
+      hostname: 'claude.ai', pathname: '/new',
+    });
+    dispatchAdapter(handler, {
+      ...claudeAdapterSeed, provider: 'claude',
+      inputStrategy: 'prosemirror-paste', sendStrategy: 'click',
+      timing: { doneDelayMs: 250, chunkDebounceMs: 0, backupPollMs: 250, statusIntervalMs: 1_000 },
+    });
+    send(handler, 'Inspect the site using Chrome', 'claude');
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(reply).toBeDefined();
+    expect(env.emitted.filter((msg) => msg.action === 'RESPONSE_DONE')).toHaveLength(0);
+    expect(env.emitted.some((msg) => msg.action === 'STATUS_REPORT' &&
+      (msg.payload as { chromeToolPending?: boolean }).chromeToolPending === true)).toBe(true);
+
+    reply!.text.setVisibleText('The requested site inspection is complete and here are the results.');
+    FakeMutationObserver.notify();
+    await vi.advanceTimersByTimeAsync(7_000);
+    expect(env.emitted.filter((msg) => msg.action === 'RESPONSE_DONE')).toEqual([
+      { v: 1, action: 'RESPONSE_DONE', provider: 'claude',
+        payload: 'The requested site inspection is complete and here are the results.' },
+    ]);
   });
 
   it('does not treat Claude user prose or tool status as an assistant reply', async () => {
