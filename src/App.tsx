@@ -349,8 +349,9 @@ export default function App() {
   const savedActiveSession = sessions.find((session) => session.id === activeSessionId);
   const visibleMessages = directView && savedActiveSession ? bubblesFromSession(savedActiveSession) : messages;
   const displayedConsultSession = readingSession ?? savedActiveSession;
+  const displayedConsultJob = [...directJobs].reverse().find((job) => job.sessionId === displayedConsultSession?.id);
   const consultCanExport = displayedConsultSession?.mode === 'consult' &&
-    !directJobs.some((job) => job.sessionId === displayedConsultSession.id && (job.status === 'running' || job.status === 'queued')) &&
+    (!displayedConsultJob || displayedConsultJob.status === 'completed') &&
     displayedConsultSession.messages.some((message) => message.role === 'ai' && message.final === true);
   const sidebarRunStatuses: Record<string, ConversationJobSnapshot['status']> = {};
   for (const job of directJobs) sidebarRunStatuses[job.sessionId] = job.status;
