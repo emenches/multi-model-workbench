@@ -1,6 +1,6 @@
 import type { AIProvider, BridgeMessage } from '../shared/types';
 import { isProviderChallengeActive } from './challenge';
-import { isClaudeChromeApprovalPending, nextClaudeChromeTurnGate, type ClaudeChromeTurnGate } from './claudePermission';
+import { claudePermissionControlMounted, isClaudeChromeApprovalPending, nextClaudeChromeTurnGate, type ClaudeChromeTurnGate } from './claudePermission';
 import { buildReportDigest, type ReportElement } from './reportDigest';
 import { finalResponseText, serializeResponseText } from './responseSerializer';
 
@@ -2001,7 +2001,7 @@ class InactiveSendOperationError extends Error {
     if (!waitingForResponse || adapter?.provider !== 'claude') return false;
     let approvalPending = false;
     try {
-      approvalPending = isClaudeChromeApprovalPending(document, location, isElementVisible);
+      approvalPending = isClaudeChromeApprovalPending(document, location, claudePermissionControlMounted);
     } catch {
       // A provider DOM change must not break response polling or send telemetry.
     }
