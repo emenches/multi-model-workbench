@@ -73,3 +73,26 @@ export function nextClaudeChromeTurnGate(
   // The initial acknowledgement alone never confirms that Chrome finished.
   return gate;
 }
+
+/**
+ * Native WKWebViews can report no layout rectangles while the provider NSWindow
+ * is hidden. Unlike general UI visibility, approval presence must not rely on
+ * getClientRects(), or Cogitor silently misses a modal waiting in the background.
+ */
+export function claudePermissionControlMounted(element: Element): boolean {
+  let node: Element | null = element;
+  while (node) {
+    const html = node as HTMLElement;
+    if (html.hidden || node.getAttribute('aria-hidden') === 'true' || node.hasAttribute('inert')) return false;
+    try {
+      if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+        const style = window.getComputedStyle(node);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+      }
+    } catch {
+      // The host may hide the window without keeping layout metadata available.
+    }
+    node = node.parentElement;
+  }
+  return true;
+}
