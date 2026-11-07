@@ -349,6 +349,8 @@ export default function App() {
   const savedActiveSession = sessions.find((session) => session.id === activeSessionId);
   const visibleMessages = directView && savedActiveSession ? bubblesFromSession(savedActiveSession) : messages;
   const displayedConsultSession = readingSession ?? savedActiveSession;
+  const claudeChromePendingForRun = claudeChromeStatus?.bootId === lastSeenProviderBoot('claude')
+    ? claudeChromeStatus : null;
   const consultCanExport = displayedConsultSession?.mode === 'consult' &&
     !directJobs.some((job) => job.sessionId === displayedConsultSession.id && (job.status === 'running' || job.status === 'queued')) &&
     displayedConsultSession.messages.some((message) => message.role === 'ai' && message.final === true);
@@ -397,6 +399,9 @@ export default function App() {
   const [providerInspectorOpen, setProviderInspectorOpen] = useState(false);
   const [activityPanelOpen, setActivityPanelOpen] = useState(() => activityPanelForSession());
   const [consultActionsOpen, setConsultActionsOpen] = useState(false);
+  const [claudeChromeStatus, setClaudeChromeStatus] = useState<{
+    bootId: string; approvalPending: boolean; toolPending: boolean;
+  } | null>(null);
   // A restored conversation may contain history but no new Activity in this view.
   const sentInSelectedSessionRef = useRef(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
@@ -844,7 +849,19 @@ export default function App() {
     const handleBridgeMessage = (message: BridgeMessage) => {
       recordEventLog(eventFromBridgeMessage(message));
       if (message.action === 'STATUS_REPORT' && message.provider) {
-        const payload = message.payload as { bridge?: 'ok' | 'degraded'; reason?: string } | undefined;
+        const payload = message.payload as {
+          bridge?: 'ok' | 'degraded'; reason?: string;
+          chromePermissionPending?: boolean; chromeToolPending?: boolean;
+        } | undefined;
+        if (message.provider === 'claude' && message.transport === 'title' && message.bootId &&
+            typeof payload?.chromePermissionPending === 'boolean' &&
+            typeof payload.chromeToolPending === 'boolean') {
+          setClaudeChromeStatus({
+            bootId: message.bootId,
+            approvalPending: payload.chromePermissionPending,
+            toolPending: payload.chromeToolPending,
+          });
+        }
         if (payload?.bridge) {
           if (message.transport === 'local') {
             if (payload.bridge === 'degraded') pullBridge.current.set(message.provider, { bridge: 'degraded', reason: payload.reason });
@@ -2752,9 +2769,19 @@ export default function App() {
                   <div className="space-y-2" role="status" aria-live="polite">
                     <p>Consult: {activeDirectJob.status}</p>
                     {Object.entries(activeDirectJob.stages).map(([name, stage]) => (
-                      <div key={name} className="rounded-lg border p-2 text-sm">
-                        <span>{name}: {stage.provider} — {stage.status}</span>
+                      <div key={name} className="rounded-lg border border-zinc-700 p-3 text-sm">
+                        <span>{name}: {stage.provider} — {stage.status === 'running' && stage.provider === 'claude' &&
+                          claudeChromePendingForRun?.approvalPending ? 'Needs approval' : stage.status}</span>
                         {stage.startedAt && stage.finishedAt ? <span> ({Math.round((stage.finishedAt - stage.startedAt) / 1000)}s)</span> : null}
+                        {stage.status === 'running' && stage.provider === 'claude' && claudeChromePendingForRun?.approvalPending ? (
+                          <div className="mt-2 space-y-2 text-xs" role="alert">
+                            <p>Claude needs your permission to use Chrome. The Consult is paused on this turn.</p>
+                            <button type="button" className="rounded-lg border border-amber-500 px-3 py-1.5 text-amber-200 hover:bg-amber-950"
+                              onClick={() => viewWorkflowProvider('claude')}>Open Claude to review</button>
+                          </div>
+                        ) : stage.status === 'running' && stage.provider === 'claude' && claudeChromePendingForRun?.toolPending ? (
+                          <p className="mt-2 text-xs text-zinc-400">Chrome task in progress. Waiting for Claude's final reply.</p>
+                        ) : null}
                       </div>
                     ))}
                   </div>
