@@ -649,7 +649,9 @@ describe('injected engine input hardening', () => {
         v: 1,
         action: 'STATUS_REPORT',
         provider,
-        payload: { dom: 'ready', login: 'unknown', thinking: false, bootId: 'boot1' },
+        payload: { dom: 'ready', login: 'unknown', thinking: false, bootId: 'boot1',
+          ...(provider === 'claude' ? { chromePermissionPending: false, chromeToolPending: false } : {}),
+        },
       });
     },
   );
