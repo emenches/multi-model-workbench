@@ -37,6 +37,7 @@ describe('Claude in Chrome permission and completion protection', () => {
       hidden: false, parentElement: dialog, textContent: label,
       getAttribute: (_name: string) => null,
       hasAttribute: (_name: string) => false,
+      querySelectorAll: (_selector: string) => [] as unknown[],
       getClientRects: () => [],
     });
     const allow = button('Allow this action');
